@@ -91,15 +91,20 @@ check('permanent beats date',
 check('isPaid true for both',
       isPaid({ paid_access: { permanent: true } }) && isPaid({ paid_access: { permanent: false, ends_at: 'x' } }));
 
-// --- getFilters: checkpoint_type only for checkpoints ------------------------
+// --- getFilters: checkpoint_type only with checkpoints ----------------------
+// Type is a list of checkboxes since #341: what is ticked, or every type.
 // getFilters reads the size boxes through sizeBound, which filters.mjs, loaded above, has.
 sandbox.feelingLucky = lift('feelingLucky');       // which asks whether a draw is on
 sandbox.sfwOnlyEnabled = lift('sfwOnlyEnabled');   // and the SFW box through this
 sandbox.hideOwnedEnabled = lift('hideOwnedEnabled'); // and Hide models in my library through this (#217)
+sandbox.typeValues = lift('typeValues');
+const tick = (...types) => {
+    sandbox.typeList = { values: () => types, everything: () => types.length === 0 };
+};
 const getFilters = lift('getFilters');
 const group = makeGroup();
 els.cb_search = { value: 'anime' };
-els.cb_type = makeSelect('Checkpoint', group);
+tick('Checkpoint');
 els.cb_checkpoint_type = makeSelect('Merge', group);
 els.cb_base_model = { value: 'SDXL 1.0' };
 els.cb_sort = { value: 'Most Downloaded' };
@@ -111,15 +116,21 @@ let f = getFilters();
 check('checkpoint_type sent for Checkpoint', f.checkpoint_type === 'Merge', JSON.stringify(f));
 check('types still sent', f.types === 'Checkpoint');
 
-els.cb_type.value = 'LORA';
+tick('LORA');
 f = getFilters();
 check('checkpoint_type dropped for LORA', f.checkpoint_type === '', JSON.stringify(f));
 
-els.cb_type.value = '';
+tick('Checkpoint', 'LORA');
 f = getFilters();
-check('checkpoint_type dropped for All types', f.checkpoint_type === '');
+check('several types sent comma-joined', f.types === 'Checkpoint,LORA', f.types);
+check('checkpoint_type sent with Checkpoint among them: Civitai narrows the checkpoints alone',
+      f.checkpoint_type === 'Merge', JSON.stringify(f));
 
-els.cb_type.value = 'Checkpoint';
+tick();
+f = getFilters();
+check('checkpoint_type dropped for All types', f.checkpoint_type === '' && f.types === '');
+
+tick('Checkpoint');
 els.cb_checkpoint_type.value = '';
 f = getFilters();
 check('empty checkpoint_type stays empty', f.checkpoint_type === '');
@@ -132,22 +143,23 @@ els.cb_checkpoint_type = makeSelect('Merge', group);
 
 // --- syncCheckpointTypeEnabled ----------------------------------------------
 // Shared with the Model Manager (shared/filters.mjs), loaded above with the rest.
-const sync = () => vm.runInContext("syncCheckpointType('cb')", sandbox);
-els.cb_type.value = 'Checkpoint';
+const sync = () => vm.runInContext("syncCheckpointType('cb', typeValues())", sandbox);
+tick('Checkpoint');
 sync();
 check('enabled for Checkpoint', els.cb_checkpoint_type.disabled === false);
 check('no dimming class', !group._classes.has('filter-disabled'));
 check('helpful title', /trained checkpoints/.test(els.cb_checkpoint_type.title), els.cb_checkpoint_type.title);
 
-els.cb_type.value = 'LORA';
+tick('LORA');
 sync();
 check('disabled for LORA', els.cb_checkpoint_type.disabled === true);
 check('dimming class applied', group._classes.has('filter-disabled'));
 check('explains why', /Only applies/.test(els.cb_checkpoint_type.title), els.cb_checkpoint_type.title);
 
-els.cb_type.value = 'Checkpoint';
+tick('LORA', 'Checkpoint');
 sync();
-check('re-enabled', els.cb_checkpoint_type.disabled === false && !group._classes.has('filter-disabled'));
+check('re-enabled with Checkpoint among others',
+      els.cb_checkpoint_type.disabled === false && !group._classes.has('filter-disabled'));
 
 delete els.cb_checkpoint_type;
 sync();  // must not throw

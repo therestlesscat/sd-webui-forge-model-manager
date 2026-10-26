@@ -117,7 +117,7 @@ lora = facts['lora_ids'][-1]
 local = facts['local_only_paths'][0]
 before = {(sort, order): query(sort_by=sort, sort_order=order)
           for sort, order in (('name', 'asc'), ('name', 'desc'), ('file_modified', 'desc'))}
-vae_before = query(model_type='VAE')
+vae_before = query(model_types=('VAE',))
 check('pinning a model and a local-only file, the latter by its path in any case',
       [db.set_pin(lora, None, True), db.set_pin(None, local.upper(), True)], [True, True])
 for (sort, order), (rows, total) in before.items():
@@ -129,7 +129,7 @@ for (sort, order), (rows, total) in before.items():
     check(f'sorted by {sort} {order}: and marked pinned',
           [r['is_pinned'] for r in pinned_rows[:3]], [True, True, False])
 check('a pinned card the filters leave out stays out',
-      paths(query(model_type='VAE')[0]), paths(vae_before[0]))
+      paths(query(model_types=('VAE',))[0]), paths(vae_before[0]))
 everything, total = query(sort_by='name', sort_order='asc')
 paged, offset = [], 0
 while True:
@@ -156,7 +156,7 @@ check('and both tabs are counted, whichever is asked for', counts,
 page, _ = query(sort_by='name', sort_order='asc', pinned=False, limit=3, offset=3)
 check('Others pages on its own', paths(page), paths(other_rows[3:6]))
 counts = {}
-query(model_type='VAE', pinned=True, counts=counts)
+query(model_types=('VAE',), pinned=True, counts=counts)
 check('the counts follow the filters', counts, {'pinned': 0, 'others': len(vae_before[0])})
 
 # A file pinned by its path before Civitai knew it pins its model's card, and

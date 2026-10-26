@@ -35,7 +35,7 @@ db, facts = fixtures.build(WORK)
 
 
 def model_ids(model_type):
-    rows, _ = db.query_models_grouped(GridQuery(model_type=model_type, limit=500))
+    rows, _ = db.query_models_grouped(GridQuery(model_types=(model_type,), limit=500))
     return {r['model_id'] for r in rows}
 
 
@@ -68,19 +68,26 @@ check('a file not read yet still shows Civitai\'s type', row_for(a_checkpoint)['
 local = facts['local_only_paths'][0]
 with db._cursor() as cursor:
     cursor.execute("UPDATE files SET file_type = 'LoCon' WHERE file_path = ?", (local,))
-rows, _ = db.query_models_grouped(GridQuery(model_type='LoCon', limit=500))
+rows, _ = db.query_models_grouped(GridQuery(model_types=('LoCon',), limit=500))
 check('a file Civitai does not know gets its own type',
       [(r['file_path'], r['model_type'], r['civitai_type']) for r in rows], [(local, 'LoCon', None)])
-rows, _ = db.query_models_grouped(GridQuery(model_type='Unknown', limit=500))
+rows, _ = db.query_models_grouped(GridQuery(model_types=('Unknown',), limit=500))
 check('and is no longer Unknown', local in [r['file_path'] for r in rows], False)
 
-# The dropdown offers exactly the types a file can be, in their order.
+# The list offers exactly the types a file can be, in their order, and a
+# LoRA row standing for every kind of LoRA (#341).
 import re                                                  # noqa: E402
-from model_manager.file_identity import FILE_TYPES         # noqa: E402
+from model_manager.file_identity import FILE_TYPES, LORA_FAMILY  # noqa: E402
 markup = open(os.path.join(ROOT, 'model_manager', 'ui', 'tab_model_manager.py'), encoding='utf-8').read()
-select = re.search(r'<select id="mm_type".*?</select>', markup, re.S).group(0)
+panel = re.search(r'<div class="mm-multiselect-panel" id="mm_type_panel">.*?</div>\s*</div>', markup, re.S).group(0)
+rows = re.findall(r'<label class="mm-multiselect-item"([^>]*)><input type="checkbox" value="([^"]*)"', panel)
 check('the Type filter lists every file type, and nothing else',
-      re.findall(r'<option value="([^"]+)"', select), list(FILE_TYPES))
+      [value for attrs, value in rows if value and 'data-lora-row' not in attrs], list(FILE_TYPES))
+check('its LoRA row stands for every kind of LoRA, and is hidden until the setting shows it',
+      [(attrs.strip(), value) for attrs, value in rows if 'data-lora-row' in attrs],
+      [('data-lora-row hidden', ','.join(LORA_FAMILY))])
+check('each kind it stands for is marked as one',
+      [value for attrs, value in rows if 'data-lora-kind' in attrs], list(LORA_FAMILY))
 
 # One list of what a file is (#66): what is built from it names only its types.
 from model_manager.file_identity import NAMED_IN_PROMPTS   # noqa: E402

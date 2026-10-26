@@ -566,10 +566,12 @@ class CivitaiClient:
             params["cursor"] = cursor
         if query:
             params["query"] = query
+        # Each value its own parameter: joined by commas, Civitai refuses two
+        # types and answers two base models with nothing (#341).
         if types:
-            params["types"] = ",".join(types)
+            params["types"] = list(types)
         if base_models:
-            params["baseModels"] = ",".join(base_models)
+            params["baseModels"] = list(base_models)
         if nsfw:
             params["nsfw"] = "true"
         if tag:
@@ -580,7 +582,7 @@ class CivitaiClient:
             params["ids"] = ",".join(str(i) for i in ids)
             # With its commas as they are: requests sends each as %2C, and
             # 3,500 ids came to 35 KB of URL, which Civitai refused (431).
-            data = self._request("GET", "/models", urlencode(params, safe=","))
+            data = self._request("GET", "/models", urlencode(params, safe=",", doseq=True))
         else:
             data = self._request("GET", "/models", params)
         metadata = data.get("metadata", {}) or {}

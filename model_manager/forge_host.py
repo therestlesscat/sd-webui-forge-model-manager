@@ -65,6 +65,9 @@ DEFAULTS = {
     "model_manager_card_originals": False,
     # A model card's video plays by itself (#220); off, its still and a play button.
     "model_manager_card_videos_play": True,
+    # The Type filter lists every kind of LoRA as one entry (#341); off, a
+    # row per kind, as the filter always had.
+    "model_manager_combine_lora_kinds": False,
     # The Civitai Browser marks versions allowed only for generating on
     # Civitai (#229): a lookup per page and per panel, often under a megabyte.
     "model_manager_civitai_on_site_marks": False,

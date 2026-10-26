@@ -163,6 +163,7 @@ body.mm-modal-open {
 .gen-toolbar select,
 .gen-toolbar input[type="search"],
 .filter-group .mm-multiselect-display,
+.filter-group .cb-multiselect-display,
 .filter-group .mm-checkbox-label,
 .filter-group .cb-checkbox-label,
 .filter-group .cb-tag-selected {
@@ -435,13 +436,16 @@ body.mm-modal-open {
     border-color: var(--primary-500, #3b82f6);
 }
 
-/* Multi-select dropdown for NSFW levels */
-.mm-multiselect {
+/* A list of checkboxes behind a box: NSFW Levels, Commercial Use, and Type
+   in both tabs (shared/tick_list.mjs). */
+.mm-multiselect,
+.cb-multiselect {
     position: relative;
     min-width: 140px;
 }
 
-.mm-multiselect-display {
+.mm-multiselect-display,
+.cb-multiselect-display {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -449,16 +453,19 @@ body.mm-modal-open {
     user-select: none;
 }
 
-.mm-multiselect-display:hover {
+.mm-multiselect-display:hover,
+.cb-multiselect-display:hover {
     border-color: var(--primary-500, #3b82f6);
 }
 
-.mm-multiselect-arrow {
+.mm-multiselect-arrow,
+.cb-multiselect-arrow {
     font-size: 0.7em;
     margin-left: 8px;
 }
 
-.mm-multiselect-panel {
+.mm-multiselect-panel,
+.cb-multiselect-panel {
     display: none;
     position: absolute;
     top: 100%;
@@ -474,15 +481,18 @@ body.mm-modal-open {
 }
 
 /* Dark only in dark mode: it was dark in light mode too. */
-.dark .mm-multiselect-panel {
+.dark .mm-multiselect-panel,
+.dark .cb-multiselect-panel {
     background-color: #1f2937 !important;
 }
 
-.mm-multiselect-panel.open {
+.mm-multiselect-panel.open,
+.cb-multiselect-panel.open {
     display: block;
 }
 
-.mm-multiselect-item {
+.mm-multiselect-item,
+.cb-multiselect-item {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -492,24 +502,52 @@ body.mm-modal-open {
     border-radius: 4px;
 }
 
-.mm-multiselect-item:hover {
+.mm-multiselect-item:hover,
+.cb-multiselect-item:hover {
     background: rgba(255, 255, 255, 0.05);
 }
 
-.mm-multiselect-item input[type="checkbox"] {
+.mm-multiselect-item input[type="checkbox"],
+.cb-multiselect-item input[type="checkbox"] {
     margin: 0;
     cursor: pointer;
 }
 
-.mm-multiselect-item.disabled {
+.mm-multiselect-item.disabled,
+.cb-multiselect-item.disabled {
     opacity: 0.5;
     pointer-events: none;
 }
 
-.mm-multiselect-divider {
+.mm-multiselect-divider,
+.cb-multiselect-divider {
     height: 1px;
     background: var(--border-color-primary, #374151);
     margin: 8px 0;
+}
+
+/* A row the setting leaves out (#341): display: flex above would show it. */
+.mm-multiselect-item[hidden],
+.cb-multiselect-item[hidden] {
+    display: none;
+}
+
+/* Type picking one row at a time (#341): plain rows, as a dropdown's list,
+   the picked one tinted; the boxes come with Select several. After :hover,
+   and naming the row, so the tint stays under the pointer. */
+.tick-list-one .mm-multiselect-item input[type="checkbox"][value],
+.tick-list-one .cb-multiselect-item input[type="checkbox"][value] {
+    display: none;
+}
+
+.mm-multiselect-item.tick-list-picked,
+.cb-multiselect-item.tick-list-picked {
+    background: rgba(59, 130, 246, 0.12);
+}
+
+.dark .mm-multiselect-item.tick-list-picked,
+.dark .cb-multiselect-item.tick-list-picked {
+    background: rgba(59, 130, 246, 0.25);
 }
 
 

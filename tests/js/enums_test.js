@@ -1,4 +1,4 @@
-// Drive fillSelect / sortBaseModels / TYPE_LABELS out of civitai_browser.js
+// Drive fillSelect / typeRows / sortBaseModels / TYPE_LABELS out of civitai_browser.js
 // against the real /enums payload, using a stub that mimics <select> semantics.
 const fs = require('fs');
 const vm = require('vm');
@@ -82,6 +82,10 @@ const labelsLiteral = /const TYPE_LABELS = (\{[\s\S]*?\});/.exec(src)[1];
 const TYPE_LABELS = vm.runInContext('(' + labelsLiteral + ')', sandbox);
 sandbox.makeOption = lift('makeOption');  // fillSelect calls it as a free variable
 const fillSelect = lift('fillSelect');
+// Type is a list of checkboxes since #341: its rows are worked out apart from drawing them.
+sandbox.TYPE_LABELS = TYPE_LABELS;
+sandbox.CIVITAI_LORA_KINDS = vm.runInContext('(' + /const CIVITAI_LORA_KINDS = (\[[^\]]*\]);/.exec(src)[1] + ')', sandbox);
+const typeRows = lift('typeRows');
 const sortBaseModels = lift('sortBaseModels');
 
 // --- real payload -----------------------------------------------------------
@@ -96,23 +100,21 @@ function check(label, cond, extra) {
 }
 
 // The static markup that ships in the page today.
-const STATIC_TYPE = '<option value="">All</option><option value="Checkpoint" selected>Checkpoint</option>'
-    + '<option value="LORA">LORA</option><option value="TextualInversion">Embedding</option>';
 const STATIC_BASE = '<option value="">All</option><option value="SD 1.5">SD 1.5</option>'
     + '<option value="SDXL 1.0 LCM">SDXL 1.0 LCM</option><option value="Other">Other</option>';
 
-// 1. Type dropdown: fills, keeps "All", keeps the Checkpoint selection, relabels.
-selects.cb_type = new Select(STATIC_TYPE);
-selects.cb_type.value = 'Checkpoint';
-check('cb_type fills', fillSelect('cb_type', modelTypes, v => TYPE_LABELS[v] || v));
-check('cb_type keeps All first', selects.cb_type.values[0] === '', selects.cb_type.values.slice(0, 3));
-check('cb_type has all 23 types', selects.cb_type.values.length === modelTypes.length + 1,
-      'got ' + selects.cb_type.values.length);
-check('cb_type keeps selection', selects.cb_type.value === 'Checkpoint', selects.cb_type.value);
-check('cb_type relabels TextualInversion',
-      selects.cb_type.labels[selects.cb_type.values.indexOf('TextualInversion')] === 'Embedding');
-check('cb_type relabels LORA', selects.cb_type.labels[selects.cb_type.values.indexOf('LORA')] === 'LoRA');
-check('cb_type gained DoRA', selects.cb_type.values.includes('DoRA'));
+// 1. Type's rows: one per type Civitai lists, in its order, relabelled, its kinds of LoRA marked.
+const rows = typeRows(modelTypes);
+const rowValues = rows.map(r => r.value);
+check('a row for every type Civitai lists', JSON.stringify(rowValues) === JSON.stringify(modelTypes),
+      'got ' + rowValues.length + ' of ' + modelTypes.length);
+check('TextualInversion relabelled', rows.find(r => r.value === 'TextualInversion')?.label === 'Embedding');
+check('LORA relabelled', rows.find(r => r.value === 'LORA')?.label === 'LoRA');
+check('DoRA among them', rowValues.includes('DoRA'));
+check('Civitai still lists every kind of LoRA the setting combines',
+      sandbox.CIVITAI_LORA_KINDS.every(kind => rowValues.includes(kind)), sandbox.CIVITAI_LORA_KINDS.join());
+check('and those alone are marked as kinds of LoRA',
+      JSON.stringify(rows.filter(r => r.lora).map(r => r.value)) === JSON.stringify(sandbox.CIVITAI_LORA_KINDS));
 
 // 2. Base model dropdown: sorted, Other last, retired value dropped -> "All".
 selects.cb_base_model = new Select(STATIC_BASE);
@@ -143,13 +145,15 @@ check('empty payload keeps markup', selects.cb_base_model.values.includes('SDXL 
 check('missing element is a no-op', fillSelect('cb_nonexistent', modelTypes) === false);
 
 // 5. A name with quotes/ampersands is carried verbatim, with no markup to break.
-selects.cb_type = new Select(STATIC_TYPE);
+selects.cb_base_model = new Select(STATIC_BASE);
 const nasty = 'A "quoted" <name> & more';
-fillSelect('cb_type', [nasty], v => v);
-check('exotic value kept verbatim', selects.cb_type.values[1] === nasty, selects.cb_type.values[1]);
-check('exotic label kept verbatim', selects.cb_type.labels[1] === nasty, selects.cb_type.labels[1]);
-selects.cb_type.value = nasty;
-check('exotic value selectable', selects.cb_type.value === nasty);
+fillSelect('cb_base_model', [nasty], v => v);
+check('exotic value kept verbatim', selects.cb_base_model.values[1] === nasty, selects.cb_base_model.values[1]);
+check('exotic label kept verbatim', selects.cb_base_model.labels[1] === nasty, selects.cb_base_model.labels[1]);
+selects.cb_base_model.value = nasty;
+check('exotic value selectable', selects.cb_base_model.value === nasty);
+check('and as a type row, its value and label as they are', JSON.stringify(typeRows([nasty])[0])
+      === JSON.stringify({ value: nasty, label: nasty, lora: false }));
 
 // 6. sortBaseModels leaves a list without "Other" alone in length.
 check('sortBaseModels without Other', sortBaseModels(['b', 'a']).join(',') === 'a,b');
@@ -163,8 +167,14 @@ check('sortBaseModels keeps every value',
         success: true, model_types: modelTypes, base_models: baseModels }); };
     sandbox.enumsLoaded = false;
     sandbox.enumsRequest = null;
-    sandbox.TYPE_LABELS = TYPE_LABELS;
     sandbox.fillSelect = fillSelect;
+    // Type's rows are drawn only once its list is there, as the select was filled.
+    let typeRowsFilled = null;
+    sandbox.fillTypeRows = (values) => {
+        if (!selects.cb_type || !values.length) return false;
+        typeRowsFilled = values;
+        return true;
+    };
     sandbox.sortBaseModels = sortBaseModels;
     sandbox.fetchEnums = lift('fetchEnums');
     sandbox.syncCheckpointTypeEnabled = () => {};  // exercised by three_js_test.js
@@ -176,11 +186,11 @@ check('sortBaseModels keeps every value',
     check('...but the request was already made', calls === 1, 'calls=' + calls);
 
     // ...and the retry must succeed without asking Civitai again.
-    selects.cb_type = new Select(STATIC_TYPE);
+    selects.cb_type = {};
     selects.cb_base_model = new Select(STATIC_BASE);
     check('loadEnums succeeds once the tab exists', (await loadEnums()) === true);
     check('no second request', calls === 1, 'calls=' + calls);
-    check('type dropdown filled', selects.cb_type.values.length === modelTypes.length + 1);
+    check('type rows filled with every type', typeRowsFilled?.length === modelTypes.length);
 
     // Already loaded: short-circuits.
     check('loadEnums is idempotent', (await loadEnums()) === true);

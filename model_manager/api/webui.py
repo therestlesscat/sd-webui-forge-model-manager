@@ -150,6 +150,8 @@ def register(app: FastAPI):
         card_videos_play = bool(setting('model_manager_card_videos_play'))
         # Whether the Civitai Browser marks on-site-only versions (#229).
         civitai_on_site_marks = bool(setting('model_manager_civitai_on_site_marks'))
+        # Whether the Type filter shows every kind of LoRA as one entry (#341).
+        combine_lora_kinds = bool(setting('model_manager_combine_lora_kinds'))
         # How many of Civitai's images a page loads at once (#213): a whole
         # number of at least 1, else the default.
         try:
@@ -200,6 +202,7 @@ def register(app: FastAPI):
                 "gallery_originals": gallery_originals,
                 "card_originals": card_originals, "card_videos_play": card_videos_play,
                 "civitai_on_site_marks": civitai_on_site_marks,
+                "combine_lora_kinds": combine_lora_kinds,
                 "images_at_once": images_at_once,
                 "generations_hide_nsfw": generations_hide_nsfw,
                 "generations_delete_files": generations_delete_files,
@@ -232,6 +235,7 @@ def register(app: FastAPI):
                  "gallery_originals": gallery_originals, "card_originals": card_originals,
                  "card_videos_play": card_videos_play,
                  "civitai_on_site_marks": civitai_on_site_marks,
+                 "combine_lora_kinds": combine_lora_kinds,
                  "images_at_once": images_at_once,
                  "generations_hide_nsfw": generations_hide_nsfw,
                  "generations_delete_files": generations_delete_files,

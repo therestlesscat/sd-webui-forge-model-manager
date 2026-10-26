@@ -60,21 +60,21 @@ export function flashSaveSearch(buttonId, text) {
 
 /**
  * Trained or merged is a question only checkpoints answer: a tab's
- * checkpoint-type filter (`<prefix>_checkpoint_type`) is usable only while its
- * Type (`<prefix>_type`) is Checkpoint.
+ * checkpoint-type filter (`<prefix>_checkpoint_type`) is usable only while
+ * Checkpoint is among the types its Type has ticked - beside others too, as
+ * it then narrows the checkpoints alone (#341).
  *
  * Disabled rather than hidden, so the filter bar keeps its shape and the
  * control explains itself when it cannot be used.
  */
-export function syncCheckpointType(prefix) {
-    const typeSelect = document.getElementById(`${prefix}_type`);
+export function syncCheckpointType(prefix, types) {
     const checkpointType = document.getElementById(`${prefix}_checkpoint_type`);
-    if (!typeSelect || !checkpointType) return;
+    if (!checkpointType) return;
 
-    const applies = typeSelect.value === 'Checkpoint';
+    const applies = (types || []).includes('Checkpoint');
     checkpointType.disabled = !applies;
     checkpointType.title = applies
         ? 'Show only trained checkpoints, or only merges'
-        : 'Only applies when Type is Checkpoint';
+        : 'Only applies when Type includes Checkpoint';
     checkpointType.closest('.filter-group')?.classList.toggle('filter-disabled', !applies);
 }

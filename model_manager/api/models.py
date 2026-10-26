@@ -179,7 +179,9 @@ def register(app: FastAPI):
             tab_counts = {}
             grid = GridQuery(
                 search=search if search else None,
-                model_type=type if type and type != "All" else None,
+                # Comma-joined: any of them (#341).
+                model_types=tuple(t.strip() for t in (type or "").split(",")
+                                  if t.strip() not in ("", "All")) or None,
                 base_model=base_model if base_model and base_model != "All" else None,
                 nsfw_levels=nsfw_level_ints,
                 nsfw_mode=nsfw_mode if nsfw_mode in ("max", "contains") else "max",

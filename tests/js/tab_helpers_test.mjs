@@ -16,7 +16,7 @@ const writing = (pattern) => files.filter((f) => pattern.test(code(f))).sort();
 
 check('a card size is applied, when it changes, in one place', writing(/\w+ !== \w+\.?[wW]idth \|\| \w+ !== \w+\.?[hH]eight/),
       ['shared/grid.mjs']);
-check('the checkpoint-type filter is greyed in one place', writing(/'Only applies when Type is Checkpoint'/),
+check('the checkpoint-type filter is greyed in one place', writing(/'Only applies when Type includes Checkpoint'/),
       ['shared/filters.mjs']);
 check('Save Search says what it did in one place', writing(/textContent = 'Save Search'/), ['shared/filters.mjs']);
 check('a gallery is scrolled to its top in one place', writing(/window\.scrollTo\(\{ top: targetY, behavior: 'smooth' \}\)/),

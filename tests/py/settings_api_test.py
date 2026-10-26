@@ -215,6 +215,8 @@ check('a dropdown is a choice too, with each choice\'s value',
 check('a checkbox is on or off', s['model_manager_gallery_hide_nsfw']['kind'], 'bool')
 check('Model cards: play videos is a checkbox, on by default (#220)',
       [s.get('model_manager_card_videos_play', {}).get(k) for k in ('kind', 'value')], ['bool', True])
+check('Combine LoRA kinds is a checkbox, off by default (#341)',
+      [s.get('model_manager_combine_lora_kinds', {}).get(k) for k in ('kind', 'value')], ['bool', False])
 # How many of Civitai's images load at once (#213): a box, at least 1 and no
 # maximum - so the settings window draws no slider beside it.
 check('a box is a number with no maximum',

@@ -75,8 +75,9 @@ check('Start over is not shown while the box is unticked', startOver()?.style.di
 $('cb_search').value = 'cats';
 $('cb_sort').value = 'Newest';
 $('cb_min_size').value = '2';
-$('cb_type').value = 'LORA';
-$('cb_type').dispatchEvent(new window.Event('change', { bubbles: true }));
+const loraRow = document.querySelector('#cb_type_panel input[value="LORA"]');
+loraRow.checked = true;
+loraRow.dispatchEvent(new window.Event('change', { bubbles: true }));
 $('cb_base_model').value = 'Pony';
 $('cb_period').value = 'Week';
 change('cb_require_prompt', true);
@@ -99,7 +100,7 @@ check('and greyed out: the text, the sort, the size, both post-processing option
 check('saying why', $('cb_sort').closest('.filter-group').title.startsWith("Not used while I'm feeling lucky"), true);
 check('keeping what they hold', [$('cb_search').value, $('cb_require_prompt').checked, $('cb_min_size').value],
       ['cats', true, '2']);
-const used = ['cb_type', 'cb_base_model', 'cb_nsfw', 'cb_period', 'cb_tag_input'];
+const used = ['cb_type_several', 'cb_base_model', 'cb_nsfw', 'cb_period', 'cb_tag_input'];
 check('what Civitai filters on itself stays usable', used.map((id) => $(id).disabled), used.map(() => false));
 check('Period, beside Sort, is not greyed with it', greyed($('cb_period').closest('.filter-group')), false);
 check('the SFW banner goes: nothing it describes is in force', $('cb_sfw_only_banner').style.display, 'none');

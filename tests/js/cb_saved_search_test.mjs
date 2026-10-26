@@ -94,6 +94,9 @@ await new Promise((resolve) => setTimeout(resolve, 50));
 check('the tab drawn but not shown: Civitai is asked nothing', searches.length, 0);
 
 const $ = (id) => document.getElementById(id);
+// Type's ticked rows, as a list of checkboxes since #341.
+const typeTicked = () => [...document.querySelectorAll('#cb_type_panel input[type="checkbox"][value]')]
+    .filter((box) => box.checked && box.value && !box.closest('[hidden]')).map((box) => box.value).join(',');
 clickTab();
 await waitFor('the search', () => searches.length > 0);
 const first = searches[0];
@@ -101,7 +104,7 @@ check('shown the first time, it searches once, with the saved filters',
       [first?.get('query'), first?.get('types'), first?.get('base_models'), first?.get('sort'), first?.get('tag')],
       ['lighthouse', 'LORA', 'Brand New Base 2', 'Newest', 'landscape']);
 check('and the bar shows them - a base model Civitai\'s list brings included - and the tag as a chip',
-      [$('cb_search').value, $('cb_type').value, $('cb_base_model').value, $('cb_sort').value, $('cb_period').value,
+      [$('cb_search').value, typeTicked(), $('cb_base_model').value, $('cb_sort').value, $('cb_period').value,
        $('cb_nsfw').checked, $('cb_tag_chip_name')?.textContent],
       ['lighthouse', 'LORA', 'Brand New Base 2', 'Newest', 'Month', true, 'landscape']);
 // A search saved before Hide models in my library (#217) has no value for it.

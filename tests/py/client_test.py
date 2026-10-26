@@ -134,7 +134,15 @@ c = Stub([{'items': [{'id': 1}], 'metadata': {'nextCursor': 'abc'}}])
 result = c.search_models(query='thing', types=['Checkpoint'], limit=10)
 check('a search answers', len(result.get('items', [])), 1)
 check('passing the query on', c.asked[0][1].get('query'), 'thing')
-check('and the type', c.asked[0][1].get('types'), 'Checkpoint')
+check('and the type', c.asked[0][1].get('types'), ['Checkpoint'])
+
+# Civitai takes several types or base models as the parameter repeated:
+# joined by commas it refuses two types (a ZodError) and answers two base
+# models with no model at all (#341, measured 2026-10-25).
+c = Stub([{'items': []}])
+c.search_models(types=['LORA', 'LoCon'], base_models=['SDXL 1.0', 'Pony'])
+check('several types go as the parameter repeated', c.asked[0][1].get('types'), ['LORA', 'LoCon'])
+check('and several base models', c.asked[0][1].get('baseModels'), ['SDXL 1.0', 'Pony'])
 
 c = Stub([{'items': []}])
 c.search_models(checkpoint_type='Trained', nsfw='true', sort='Newest')
@@ -148,7 +156,7 @@ c.search_models(ids=[3, 1, 2], types=['Checkpoint', 'LORA'], base_models=['SD 1.
 # between them are sent as they are, not as %2C.
 query = c.asked[0][1]
 check('ids go as one list, its commas not encoded', 'ids=3,1,2' in query, True)
-check('with the filters, encoded as ever', parse_qs(query)['types'], ['Checkpoint,LORA'])
+check('with the filters, each type its own parameter', parse_qs(query)['types'], ['Checkpoint', 'LORA'])
 check('spaces and all', parse_qs(query)['baseModels'], ['SD 1.5'])
 c = Stub([{'items': []}])
 c.search_models(types=['LORA'])

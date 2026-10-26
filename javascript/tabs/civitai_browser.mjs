@@ -17,7 +17,8 @@ const shared = (name) => import(new URL(`../shared/${name}${new URL(import.meta.
 // here only keeps it from being reported twice.
 const SHARED_MODULES = ['core.mjs', 'loading.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs',
     'filters.mjs', 'gallery.mjs', 'grid.mjs', 'media.mjs', 'nsfw.mjs', 'chips.mjs', 'downloads.mjs',
-    'image_card.mjs', 'resources.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs', 'dialog.mjs'];
+    'image_card.mjs', 'resources.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs', 'dialog.mjs',
+    'tick_list.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const {
@@ -29,12 +30,13 @@ const { showTab, tabShowing } = await shared('tabs.mjs');
 const { tabWork, linkTo, open } = await shared('loading.mjs');
 const {
     showApiKeyBanner, loadNsfwDetection, nsfwModelNoteHtml, galleryDefaults, refreshUiOptions, uiOptions, asUploaded, cardVideos,
-    ignoredTag, onSiteMarks,
+    ignoredTag, onSiteMarks, combineLoraKinds,
 } = await shared('ui_options.mjs');
 const { showNotes } = await shared('notes.mjs');
 const {
     savedSearch, saveSearch, sortBaseModels, sizeBound, flashSaveSearch, syncCheckpointType,
 } = await shared('filters.mjs');
+const { tickList } = await shared('tick_list.mjs');
 const {
     showGalleryLoading, dimGalleryWhileLoading, sayGalleryLoading, statusSayer, renderFilterBanner,
     createPagedGallery, scrollToImagesTop,
@@ -77,6 +79,8 @@ export const STARTS = ['core.mjs', 'calls.mjs', 'ui_options.mjs', 'notes.mjs', '
 // this script is imported, and all it added goes when the tab stops.
 const work = tabWork();
 let tabScope = null;        // this tab's, from start()
+// Type's list of checkboxes (shared/tick_list.mjs), once bound (#341).
+let typeList = null;
 
 // The download controls' ids, and the window functions they call
 // (renderDownloadControls in shared/downloads.mjs).
@@ -136,6 +140,10 @@ const cardSize = createCardSize({ containerId: 'civitai_browser_app', logTag: 'C
 // settings each time a model opens.
 work.listen(window, 'mm-settings-saved', (e) => {
     refreshUiOptions().then(syncSfwOnlyEnabled);
+    // Drawn again at once; the results on the page stay until Search (#341).
+    if ((e.detail?.changed || []).includes('model_manager_combine_lora_kinds')) {
+        showLoraKinds(e.detail.settings.model_manager_combine_lora_kinds?.value === true);
+    }
     if ((e.detail?.changed || []).includes('model_manager_civitai_card_size')) {
         // Saved as the server normalises it: "200x280".
         const [width, height] = String(e.detail.settings.model_manager_civitai_card_size.value || '')
@@ -204,12 +212,13 @@ async function apiPost(endpoint, data = {}) {
 
 // Get filter values
 function getFilters() {
-    const types = document.getElementById('cb_type')?.value || '';
+    const types = typeValues();
     return {
         query: document.getElementById('cb_search')?.value || '',
-        types,
-        // Civitai rejects checkpointType on anything but checkpoints.
-        checkpoint_type: types === 'Checkpoint'
+        types: types.join(','),
+        // Civitai rejects checkpointType without checkpoints; beside other
+        // types it narrows the checkpoints alone (#341, measured).
+        checkpoint_type: types.includes('Checkpoint')
             ? (document.getElementById('cb_checkpoint_type')?.value || '')
             : '',
         base_models: document.getElementById('cb_base_model')?.value || '',
@@ -1848,6 +1857,77 @@ function fillSelect(selectId, values, labelFor) {
     return true;
 }
 
+// What Type asks Civitai for: the ticked types, the LoRA row as Civitai's
+// kinds of LoRA; none while every type is asked for (#341).
+function typeValues() {
+    if (!typeList || typeList.everything()) return [];
+    return typeList.values();
+}
+
+// The Type box's text: the one picked, two by name, or how many.
+function typeBoxText(list) {
+    if (list.everything()) return 'All';
+    const labels = list.labels();
+    return labels.length <= 2 ? labels.join(', ') : `${labels.length} types`;
+}
+
+// Civitai's kinds of LoRA, which Combine LoRA kinds shows as one row.
+const CIVITAI_LORA_KINDS = ['LORA', 'LoCon', 'DoRA'];
+
+/** Civitai's types as Type's rows, in its order: value, label, and whether it is a kind of LoRA. */
+function typeRows(values) {
+    return values.map((value) => ({
+        value, label: TYPE_LABELS[value] || value, lora: CIVITAI_LORA_KINDS.includes(value),
+    }));
+}
+
+// One of Type's rows, built as nodes for the reason fillSelect gives.
+function typeRowElement(value, label, mark) {
+    const row = document.createElement('label');
+    row.className = 'cb-multiselect-item';
+    row.dataset.typeRow = '';
+    if (mark) row.dataset[mark] = '';
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.value = value;
+    row.appendChild(box);
+    row.appendChild(document.createTextNode(' ' + label));
+    return row;
+}
+
+/**
+ * Type's rows again from Civitai's list, the ticks carried over: the LoRA
+ * row first among Civitai's kinds of LoRA, and shown in their place while
+ * the setting combines them.
+ */
+function fillTypeRows(values) {
+    const panel = document.getElementById('cb_type_panel');
+    if (!panel || !typeList || !values.length) return false;
+    const before = typeList.values();
+    panel.querySelectorAll('[data-type-row]').forEach((row) => row.remove());
+    const end = panel.querySelector('.cb-multiselect-divider');
+    const rows = typeRows(values);
+    const kinds = rows.filter((row) => row.lora).map((row) => row.value);
+    for (const row of rows) {
+        if (row.value === kinds[0]) panel.insertBefore(typeRowElement(kinds.join(','), 'LoRA, every kind', 'loraRow'), end);
+        panel.insertBefore(typeRowElement(row.value, row.label, row.lora ? 'loraKind' : null), end);
+    }
+    showLoraKinds(combineLoraKinds().on);
+    typeList.set(before);
+    syncCheckpointType('cb', typeValues());
+    return true;
+}
+
+// Civitai's kinds of LoRA as one row, or a row each, as the setting says (#341).
+function showLoraKinds(combined) {
+    const panel = document.getElementById('cb_type_panel');
+    if (!typeList || !panel) return;
+    const one = [...panel.querySelectorAll('[data-lora-row]')];
+    const each = [...panel.querySelectorAll('[data-lora-kind]')];
+    typeList.replaceRows(combined ? one : each, combined ? each : one);
+    syncCheckpointType('cb', typeValues());
+}
+
 // Civitai's raw enum names, where they are not what the UI should say.
 const TYPE_LABELS = {
     TextualInversion: 'Embedding',
@@ -1879,13 +1959,11 @@ async function loadEnums() {
     }
 
     // Both selects have to exist - Gradio builds the tab lazily.
-    const typesFilled = fillSelect('cb_type', result.model_types || [],
-                                   value => TYPE_LABELS[value] || value);
+    const typesFilled = fillTypeRows(result.model_types || []);
     const baseFilled = fillSelect('cb_base_model', sortBaseModels(result.base_models || []));
     if (!typesFilled || !baseFilled) return false;
 
     enumsLoaded = true;
-    syncCheckpointType('cb');
     console.log(`[CivitaiBrowser] Loaded ${result.model_types.length} model types, `
                 + `${result.base_models.length} base models from Civitai`);
     return true;
@@ -1983,11 +2061,21 @@ function init() {
         });
     }
 
-    const typeSelect = document.getElementById('cb_type');
-    if (typeSelect) {
-        typeSelect.addEventListener('change', () => syncCheckpointType('cb'));
+    // Type: one row picked, or several with Select several (#341). Trained
+    // or Merge follows it, usable while Checkpoint is ticked.
+    const typePanel = document.getElementById('cb_type_panel');
+    if (typePanel) {
+        typeList = tickList({
+            dropdown: document.getElementById('cb_type_dropdown'),
+            panel: typePanel,
+            display: document.getElementById('cb_type_display'),
+            several: document.getElementById('cb_type_several'),
+            text: typeBoxText,
+            changed: () => syncCheckpointType('cb', typeValues()),
+        }, tabScope);
+        uiOptions().then(() => showLoraKinds(combineLoraKinds().on));
     }
-    syncCheckpointType('cb');
+    syncCheckpointType('cb', typeValues());
 
     syncSfwOnlyEnabled();
     loadNsfwDetection().then(syncSfwOnlyEnabled);
@@ -2059,7 +2147,7 @@ function currentSearch() {
     const value = (id) => document.getElementById(id)?.value || '';
     const ticked = (id) => document.getElementById(id)?.checked || false;
     return {
-        query: value('cb_search'), types: value('cb_type'), checkpoint_type: value('cb_checkpoint_type'),
+        query: value('cb_search'), types: typeValues().join(','), checkpoint_type: value('cb_checkpoint_type'),
         base_models: value('cb_base_model'), sort: value('cb_sort'), period: value('cb_period'),
         nsfw: ticked('cb_nsfw'), tag: selectedTag, require_prompt: ticked('cb_require_prompt'),
         sfw_only: ticked('cb_sfw_only'), min_size: value('cb_min_size'), max_size: value('cb_max_size'),
@@ -2077,7 +2165,10 @@ function applySearch(filters) {
         if (element && Object.prototype.hasOwnProperty.call(filters, key)) element.checked = Boolean(filters[key]);
     };
     set('cb_search', 'query');
-    set('cb_type', 'types');
+    // Comma-joined since #341: a search saved with several types ticks Select several.
+    if (Object.prototype.hasOwnProperty.call(filters, 'types')) {
+        typeList?.set(String(filters.types || '').split(','), { more: 'several' });
+    }
     set('cb_checkpoint_type', 'checkpoint_type');
     set('cb_base_model', 'base_models');
     set('cb_sort', 'sort');
@@ -2089,7 +2180,7 @@ function applySearch(filters) {
     set('cb_min_size', 'min_size');
     set('cb_max_size', 'max_size');
     if (Object.prototype.hasOwnProperty.call(filters, 'tag')) selectTag(filters.tag || '');
-    syncCheckpointType('cb');
+    syncCheckpointType('cb', typeValues());
     syncSfwOnlyEnabled();
 }
 
@@ -2236,6 +2327,7 @@ function showInModelManager(modelId) {
 // What this tab's markup does, by name: a card, a button or a field says it
 // in data-action, and carries what it needs in data-* (shared/calls.mjs, #95).
 work.provide('civitaiBrowser.search', () => search());
+work.provide('civitaiBrowser.toggleTypeDropdown', () => typeList?.toggle());
 work.provide('civitaiBrowser.feelingLucky', () => syncLucky());
 work.provide('civitaiBrowser.startOver', () => startOver());
 // Selecting, a click on a card ticks it instead (the listener beside Select).

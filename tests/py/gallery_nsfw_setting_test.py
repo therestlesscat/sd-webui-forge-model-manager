@@ -116,6 +116,12 @@ check('a card\'s video plays by default, and the page is told so',
 setattr(opts, 'model_manager_card_videos_play', False)
 check('turned off, the page is told', client.get('/model-manager/ui-options').json().get('card_videos_play'), False)
 setattr(opts, 'model_manager_card_videos_play', True)
+# Combine LoRA kinds (#341): off unless turned on, and the page told either way.
+check('the LoRA kinds are apart by default, and the page is told so',
+      client.get('/model-manager/ui-options').json().get('combine_lora_kinds'), False)
+setattr(opts, 'model_manager_combine_lora_kinds', True)
+check('turned on, the page is told', client.get('/model-manager/ui-options').json().get('combine_lora_kinds'), True)
+delattr(opts, 'model_manager_combine_lora_kinds')
 
 # How many of Civitai's images a page loads at once (#213): a whole number of
 # at least 1, else the default - a box left blank, 0, or a word.

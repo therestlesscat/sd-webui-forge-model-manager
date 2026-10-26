@@ -233,16 +233,15 @@ check('with no width of its own to beat the rule', 'style="flex: 1;"' in BASIC, 
 # the two multi-selects ended up taller than the selects beside them.
 control_css = CSS[CSS.index('.filter-group input:not([type="checkbox"]),'):]
 control_css = control_css[:control_css.index('}')]
-check('the shared control rule covers the multi-selects',
-      '.mm-multiselect-display' in control_css)
+check('the shared control rule covers the multi-selects, in both tabs (#341)',
+      '.mm-multiselect-display' in control_css and '.cb-multiselect-display' in control_css)
 check('and the checkbox label beside them',
       '.mm-checkbox-label' in control_css)
 check('it states a height', 'height: 36px' in control_css)
 check('and measures it from the border', 'box-sizing: border-box' in control_css)
+MULTISELECT = chr(10) + '.mm-multiselect-display,' + chr(10) + '.cb-multiselect-display {'
 check('the multi-select no longer sets its own box',
-      'padding' in CSS[CSS.index(chr(10) + '.mm-multiselect-display {'):
-                       CSS.index('}', CSS.index(chr(10) + '.mm-multiselect-display {'))],
-      False)
+      'padding' in CSS[CSS.index(MULTISELECT):CSS.index('}', CSS.index(MULTISELECT))], False)
 
 # The checkbox asks the opposite of what the API takes: it offers to SHOW
 # NSFW in the preview, while preview_least_nsfw asks for the least NSFW image

@@ -70,7 +70,7 @@ check('each keeping to the width its checkboxes need, rather than sharing out th
       [true, true]);
 // The first row: what to search for, how, and in what order - Search last,
 // beside Period and Sort when their line has room (#217).
-const firstRow = Array.from($('cb_type').closest('.filter-row').querySelectorAll(':scope > *'))
+const firstRow = Array.from($('cb_type_dropdown').closest('.filter-row').querySelectorAll(':scope > *'))
     .map((g) => (g.querySelector('label')?.textContent || '').trim());
 check('on the first row, between Checkpoint Type and Sort',
       firstRow, ['Type', 'Checkpoint Type', 'API Options', 'Post-processing Options', 'Period', 'Search']);

@@ -6,6 +6,16 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.69 - Pick one type, or several
+
+*26 October 2026*
+
+The Type filter, in the Model Manager and the Civitai Browser, picks one type as before, and
+with Select several, at the bottom of its list, any number of them. Combine LoRA kinds, in the
+settings, shows every kind of LoRA as one entry, so a single pick shows every LoRA.
+
+- **0.69.0** (build 566) - The Type filter took one type at a time, and each kind of LoRA was an entry of its own - LORA, LoCon, LoHa, LoKr, DoRA and LyCORIS Full in the Model Manager - so every LoRA took six searches, and LORA alone left out the files read as another kind: on one library, 114 of the 1,007 files Civitai lists as LoRAs (#341). Type is now a list like NSFW Levels': a click picks one type, as before, and with Select several ticked at its bottom, any number; Save Search keeps them, and a search saved before reads as it did. A new setting, Combine LoRA kinds, off unless turned on, shows the six as one entry, LoRA, every kind - in the Civitai Browser, Civitai's LORA, LoCon and DoRA; a model's card and details still name its exact kind. Checkpoint Type now works with Checkpoint among other types, and narrows the checkpoints alone, as Civitai's search does. The extension sent Civitai several types or base models joined by commas, which Civitai refuses for types and answers with no model for base models; no page sent two until now, and each is now its own parameter. NSFW Levels and Commercial Use open, close and read as before, on the same shared list.
+
 ## 0.68 - Settings named by what they do
 
 *22 October 2026*

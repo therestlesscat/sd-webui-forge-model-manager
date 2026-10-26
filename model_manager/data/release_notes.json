@@ -1,5 +1,21 @@
 [
     {
+        "id": "type-several",
+        "version": "0.69.0",
+        "kind": "feature",
+        "audience": "everyone",
+        "tabs": [
+            "model_manager"
+        ],
+        "title": "Pick one type, or several",
+        "text": "The Type filter is now a list like NSFW Levels'. A click picks one type, as before. Tick Select several, at the bottom of the list, to pick any number of types at once, such as LoRAs and embeddings together; Save Search keeps them. A new setting, Combine LoRA kinds, in Pages and cards, shows LORA, LoCon, LoHa, LoKr, DoRA and LyCORIS Full as one entry, LoRA, every kind, so a single pick shows every LoRA. The Civitai Browser's Type works the same way.",
+        "action": {
+            "id": "settings",
+            "label": "Open settings",
+            "section": "pages_and_cards"
+        }
+    },
+    {
         "id": "settings-named",
         "version": "0.68.0",
         "kind": "feature",

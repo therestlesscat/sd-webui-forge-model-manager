@@ -46,28 +46,40 @@ def create_ui():
                     <div class="filter-row">
                         <div class="filter-group">
                             <label>Type</label>
-                            <select id="mm_type" title="What the file is, read from the file itself">
-                                <option value="">All</option>
-                                <!-- file_identity.FILE_TYPES, in its order -->
-                                <option value="Checkpoint" selected>Checkpoint</option>
-                                <option value="LORA">LORA</option>
-                                <option value="LoCon">LoCon</option>
-                                <option value="LoHa">LoHa</option>
-                                <option value="LoKr">LoKr</option>
-                                <option value="DoRA">DoRA</option>
-                                <option value="LyCORIS Full">LyCORIS Full</option>
-                                <option value="TextualInversion">Embedding</option>
-                                <option value="Hypernetwork">Hypernetwork</option>
-                                <option value="Controlnet">ControlNet</option>
-                                <option value="VAE">VAE</option>
-                                <option value="Text Encoder">Text Encoder</option>
-                                <option value="Upscaler">Upscaler</option>
-                                <option value="Unknown">Unknown</option>
-                            </select>
+                            <div class="mm-multiselect" id="mm_type_dropdown" title="What the file is, read from the file itself">
+                                <div class="mm-multiselect-display" data-action="modelManager.toggleTypeDropdown">
+                                    <span id="mm_type_display">Checkpoint</span>
+                                    <span class="mm-multiselect-arrow">▼</span>
+                                </div>
+                                <!-- One row is picked unless Select several is ticked (#341);
+                                     the rows are file_identity.FILE_TYPES, in its order, and the
+                                     LoRA row its LORA_FAMILY, shown in their place when the
+                                     setting combines them. -->
+                                <div class="mm-multiselect-panel" id="mm_type_panel">
+                                    <label class="mm-multiselect-item"><input type="checkbox" value=""> All</label>
+                                    <label class="mm-multiselect-item"><input type="checkbox" value="Checkpoint" checked> Checkpoint</label>
+                                    <label class="mm-multiselect-item" data-lora-row hidden><input type="checkbox" value="LORA,LoCon,LoHa,LoKr,DoRA,LyCORIS Full"> LoRA, every kind</label>
+                                    <label class="mm-multiselect-item" data-lora-kind><input type="checkbox" value="LORA"> LORA</label>
+                                    <label class="mm-multiselect-item" data-lora-kind><input type="checkbox" value="LoCon"> LoCon</label>
+                                    <label class="mm-multiselect-item" data-lora-kind><input type="checkbox" value="LoHa"> LoHa</label>
+                                    <label class="mm-multiselect-item" data-lora-kind><input type="checkbox" value="LoKr"> LoKr</label>
+                                    <label class="mm-multiselect-item" data-lora-kind><input type="checkbox" value="DoRA"> DoRA</label>
+                                    <label class="mm-multiselect-item" data-lora-kind><input type="checkbox" value="LyCORIS Full"> LyCORIS Full</label>
+                                    <label class="mm-multiselect-item"><input type="checkbox" value="TextualInversion"> Embedding</label>
+                                    <label class="mm-multiselect-item"><input type="checkbox" value="Hypernetwork"> Hypernetwork</label>
+                                    <label class="mm-multiselect-item"><input type="checkbox" value="Controlnet"> ControlNet</label>
+                                    <label class="mm-multiselect-item"><input type="checkbox" value="VAE"> VAE</label>
+                                    <label class="mm-multiselect-item"><input type="checkbox" value="Text Encoder"> Text Encoder</label>
+                                    <label class="mm-multiselect-item"><input type="checkbox" value="Upscaler"> Upscaler</label>
+                                    <label class="mm-multiselect-item"><input type="checkbox" value="Unknown"> Unknown</label>
+                                    <div class="mm-multiselect-divider"></div>
+                                    <label class="mm-multiselect-item"><input type="checkbox" id="mm_type_several"> Select several</label>
+                                </div>
+                            </div>
                         </div>
                         <div class="filter-group" id="mm_checkpoint_type_group">
                             <label>Checkpoint Type</label>
-                            <select id="mm_checkpoint_type" title="Only applies when Type is Checkpoint">
+                            <select id="mm_checkpoint_type" title="Only applies when Type includes Checkpoint">
                                 <option value="">Any</option>
                                 <option value="Trained">Trained</option>
                                 <option value="Merge">Merge</option>

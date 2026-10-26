@@ -44,19 +44,32 @@ def create_civitai_browser_ui():
                     <div class="filter-row">
                         <div class="filter-group">
                             <label>Type</label>
-                            <select id="cb_type">
-                                <option value="">All</option>
-                                <option value="Checkpoint" selected>Checkpoint</option>
-                                <option value="LORA">LORA</option>
-                                <option value="TextualInversion">Embedding</option>
-                                <option value="VAE">VAE</option>
-                                <option value="Controlnet">ControlNet</option>
-                                <option value="Upscaler">Upscaler</option>
-                            </select>
+                            <div class="cb-multiselect" id="cb_type_dropdown">
+                                <div class="cb-multiselect-display" data-action="civitaiBrowser.toggleTypeDropdown">
+                                    <span id="cb_type_display">Checkpoint</span>
+                                    <span class="cb-multiselect-arrow">▼</span>
+                                </div>
+                                <!-- One row is picked unless Select several is ticked (#341).
+                                     The type rows stand in until Civitai's own list replaces
+                                     them; the LoRA row is Civitai's kinds of LoRA, shown in
+                                     their place when the setting combines them. -->
+                                <div class="cb-multiselect-panel" id="cb_type_panel">
+                                    <label class="cb-multiselect-item"><input type="checkbox" value=""> All</label>
+                                    <label class="cb-multiselect-item" data-type-row><input type="checkbox" value="Checkpoint" checked> Checkpoint</label>
+                                    <label class="cb-multiselect-item" data-type-row data-lora-row hidden><input type="checkbox" value="LORA,LoCon,DoRA"> LoRA, every kind</label>
+                                    <label class="cb-multiselect-item" data-type-row data-lora-kind><input type="checkbox" value="LORA"> LORA</label>
+                                    <label class="cb-multiselect-item" data-type-row><input type="checkbox" value="TextualInversion"> Embedding</label>
+                                    <label class="cb-multiselect-item" data-type-row><input type="checkbox" value="VAE"> VAE</label>
+                                    <label class="cb-multiselect-item" data-type-row><input type="checkbox" value="Controlnet"> ControlNet</label>
+                                    <label class="cb-multiselect-item" data-type-row><input type="checkbox" value="Upscaler"> Upscaler</label>
+                                    <div class="cb-multiselect-divider"></div>
+                                    <label class="cb-multiselect-item"><input type="checkbox" id="cb_type_several"> Select several</label>
+                                </div>
+                            </div>
                         </div>
                         <div class="filter-group">
                             <label>Checkpoint Type</label>
-                            <select id="cb_checkpoint_type" title="Only applies when Type is Checkpoint">
+                            <select id="cb_checkpoint_type" title="Only applies when Type includes Checkpoint">
                                 <option value="">All</option>
                                 <option value="Trained">Trained</option>
                                 <option value="Merge">Merge</option>

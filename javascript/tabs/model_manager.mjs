@@ -17,7 +17,8 @@ const shared = (name) => import(new URL(`../shared/${name}${new URL(import.meta.
 const SHARED_MODULES = ['core.mjs', 'loading.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs', 'jobs.mjs',
     'filters.mjs', 'gallery.mjs', 'grid.mjs', 'media.mjs', 'nsfw.mjs', 'chips.mjs', 'wan.mjs',
     'generations.mjs', 'downloads.mjs', 'image_card.mjs', 'resources.mjs', 'send.mjs',
-    'update_notice.mjs', 'viewer.mjs', 'settings.mjs', 'previous_position.mjs', 'dialog.mjs', 'forge.mjs'];
+    'update_notice.mjs', 'viewer.mjs', 'settings.mjs', 'previous_position.mjs', 'dialog.mjs', 'forge.mjs',
+    'tick_list.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const {
@@ -29,13 +30,14 @@ const { showTab } = await shared('tabs.mjs');
 const { tabWork, generationsEnabled, linkTo, open } = await shared('loading.mjs');
 const {
     showApiKeyBanner, loadNsfwDetection, nsfwModelNoteHtml, refreshUiOptions, shownPath, uiOptions, asUploaded, cardVideos,
-    ignoredTag,
+    ignoredTag, combineLoraKinds,
 } = await shared('ui_options.mjs');
 const { NSFW_LEVELS } = await shared('nsfw.mjs');
 const { showNotes } = await shared('notes.mjs');
 const {
     savedSearch, saveSearch, sortBaseModels, sizeBound, flashSaveSearch, syncCheckpointType,
 } = await shared('filters.mjs');
+const { tickList } = await shared('tick_list.mjs');
 const {
     showGalleryLoading, dimGalleryWhileLoading, sayGalleryLoading, statusSayer, pageSeparator, pageNoteHtml,
     renderFilterBanner, createPagedGallery, scrollToImagesTop,
@@ -91,6 +93,10 @@ export const STARTS = ['core.mjs', 'calls.mjs', 'ui_options.mjs', 'notes.mjs', '
 // this script is imported, and all it added goes when the tab stops.
 const work = tabWork();
 let tabScope = null;        // this tab's, from start()
+// The filter bar's lists of checkboxes (shared/tick_list.mjs), once bound.
+let typeList = null;
+let nsfwList = null;
+let commercialList = null;
 
 // The download controls' ids, and the window functions they call
 // (renderDownloadControls in shared/downloads.mjs).
@@ -223,6 +229,10 @@ work.listen(window, 'mm-settings-saved', (e) => {
         previewLeastNsfwInitialized = true;
         previewLeastNsfwUserTouched = false;
     }
+    // Drawn again at once; the grid on the page stays until Load Models (#341).
+    if (changed.includes('model_manager_combine_lora_kinds')) {
+        showLoraKinds(e.detail.settings.model_manager_combine_lora_kinds?.value === true);
+    }
     if (currentModels.length && GRID_SETTINGS.some((key) => changed.includes(key))) {
         loadModels(changed.includes('model_manager_page_size') ? 1 : currentPage);
     }
@@ -318,7 +328,7 @@ function getFilters() {
 
     const filters = {
         search: document.getElementById('mm_search')?.value || '',
-        type: document.getElementById('mm_type')?.value || '',
+        type: typeFilterValue(),
         base_model: document.getElementById('mm_base_model')?.value || '',
         ...nsfwFilter,
         ...sfwOnlyFilter,
@@ -340,16 +350,34 @@ function getFilters() {
     return filters;
 }
 
-// Toggle NSFW dropdown
-function toggleNsfwDropdown() {
-    const panel = document.getElementById('mm_nsfw_panel');
-    if (panel) panel.classList.toggle('open');
+// What Type asks the server: the ticked types, the LoRA row as its six
+// kinds; none while every type is asked for (#341). Checkpoint Type follows
+// the same, so every row ticked is no type and no Trained or Merge.
+function typeValues() {
+    if (!typeList || typeList.everything()) return [];
+    return typeList.values();
 }
 
-// Toggle Commercial Use dropdown
-function toggleCommercialDropdown() {
-    const panel = document.getElementById('mm_commercial_panel');
-    if (panel) panel.classList.toggle('open');
+function typeFilterValue() {
+    return typeValues().join(',');
+}
+
+// The Type box's text: the one picked, two by name, or how many.
+function typeBoxText(list) {
+    if (list.everything()) return 'All';
+    const labels = list.labels();
+    return labels.length <= 2 ? labels.join(', ') : `${labels.length} types`;
+}
+
+// The LoRA kinds as one row, or a row each, as the setting says (#341): the
+// ticks carried over - a row for several ticked when any kind of it was.
+function showLoraKinds(combined) {
+    const panel = document.getElementById('mm_type_panel');
+    if (!typeList || !panel) return;
+    const one = [...panel.querySelectorAll('[data-lora-row]')];
+    const each = [...panel.querySelectorAll('[data-lora-kind]')];
+    typeList.replaceRows(combined ? one : each, combined ? each : one);
+    syncCheckpointType('mm', typeValues());
 }
 
 // Update NSFW display text
@@ -402,14 +430,26 @@ function setupCommercialControls() {
         cb.addEventListener('change', updateCommercialDisplay);
     });
 
-    // Close dropdown when clicking outside
-    tabScope.listen(document, 'click', (e) => {
-        const dropdown = document.getElementById('mm_commercial_dropdown');
-        const panel = document.getElementById('mm_commercial_panel');
-        if (dropdown && panel && !dropdown.contains(e.target)) {
-            panel.classList.remove('open');
-        }
-    });
+    commercialList = tickList({
+        dropdown: document.getElementById('mm_commercial_dropdown'),
+        panel: document.getElementById('mm_commercial_panel'),
+    }, tabScope);
+}
+
+// Type: one row picked, or several with Select several (#341).
+function setupTypeControls() {
+    const panel = document.getElementById('mm_type_panel');
+    if (!panel) return;
+    typeList = tickList({
+        dropdown: document.getElementById('mm_type_dropdown'),
+        panel,
+        display: document.getElementById('mm_type_display'),
+        several: document.getElementById('mm_type_several'),
+        text: typeBoxText,
+        changed: () => syncCheckpointType('mm', typeValues()),
+    }, tabScope);
+    syncCheckpointType('mm', typeValues());
+    uiOptions().then(() => showLoraKinds(combineLoraKinds().on));
 }
 
 // Handle "Use max" checkbox toggle and level selection
@@ -446,14 +486,10 @@ function setupNsfwControls() {
         });
     });
 
-    // Close dropdown when clicking outside
-    tabScope.listen(document, 'click', (e) => {
-        const dropdown = document.getElementById('mm_nsfw_dropdown');
-        const panel = document.getElementById('mm_nsfw_panel');
-        if (dropdown && panel && !dropdown.contains(e.target)) {
-            panel.classList.remove('open');
-        }
-    });
+    nsfwList = tickList({
+        dropdown: document.getElementById('mm_nsfw_dropdown'),
+        panel: document.getElementById('mm_nsfw_panel'),
+    }, tabScope);
 }
 
 // Set status message
@@ -2827,7 +2863,8 @@ async function showModel(query) {
         document.querySelectorAll(selector).forEach(cb => { cb.checked = checked; });
     };
 
-    setValue('mm_type', '');
+    typeList?.set([]);
+    syncCheckpointType('mm', []);
     setValue('mm_civitai', '');
     setValue('mm_base_model', '');
     setValue('mm_is_bookmarked', '');
@@ -3019,7 +3056,7 @@ const LEGACY_SAVED_FILTERS = 'mm_saved_filters';
 function currentSearchFilters() {
     const filters = {
         search: document.getElementById('mm_search')?.value || '',
-        type: document.getElementById('mm_type')?.value || '',
+        type: typeFilterValue(),
         base_model: document.getElementById('mm_base_model')?.value || '',
         civitai: document.getElementById('mm_civitai')?.value || '',
         is_bookmarked: document.getElementById('mm_is_bookmarked')?.value || '',
@@ -3156,7 +3193,11 @@ function applySearchFilters(filters) {
     try {
 
         if (Object.prototype.hasOwnProperty.call(filters, 'search')) document.getElementById('mm_search').value = filters.search;
-        if (Object.prototype.hasOwnProperty.call(filters, 'type')) document.getElementById('mm_type').value = filters.type;
+        // Comma-joined since #341: a search saved with several types ticks Select several.
+        if (Object.prototype.hasOwnProperty.call(filters, 'type')) {
+            typeList?.set(String(filters.type || '').split(','), { more: 'several' });
+            syncCheckpointType('mm', typeValues());
+        }
         if (Object.prototype.hasOwnProperty.call(filters, 'base_model')) selectBaseModel(filters.base_model);
         if (Object.prototype.hasOwnProperty.call(filters, 'civitai')) document.getElementById('mm_civitai').value = filters.civitai;
         if (Object.prototype.hasOwnProperty.call(filters, 'is_bookmarked')) document.getElementById('mm_is_bookmarked').value = filters.is_bookmarked;
@@ -3258,11 +3299,7 @@ function bindElements() {
 
     // Trained/Merge only applies to checkpoints, so it follows the Type
     // control rather than sitting there looking usable.
-    const typeFilter = document.getElementById('mm_type');
-    if (typeFilter) {
-        typeFilter.addEventListener('change', () => syncCheckpointType('mm'));
-    }
-    syncCheckpointType('mm');
+    setupTypeControls();
 
     // Sync: its buttons and dialog (shared/jobs.mjs).
     bindJobControls();
@@ -3357,8 +3394,9 @@ function setupScrollToTop() {
 // ---------------------------------------------------------------- markup
 // What this tab's markup does, by name: a card, a button or a field says it
 // in data-action, and carries what it needs in data-* (shared/calls.mjs, #95).
-work.provide('modelManager.toggleNsfwDropdown', () => toggleNsfwDropdown());
-work.provide('modelManager.toggleCommercialDropdown', () => toggleCommercialDropdown());
+work.provide('modelManager.toggleNsfwDropdown', () => nsfwList?.toggle());
+work.provide('modelManager.toggleCommercialDropdown', () => commercialList?.toggle());
+work.provide('modelManager.toggleTypeDropdown', () => typeList?.toggle());
 work.provide('modelManager.selectModel', ({ index }) => selectModel(Number(index)));
 work.provide('modelManager.goToPage', ({ page }) => goToPage(Number(page)));
 work.provide('modelManager.prevPage', () => prevPage());

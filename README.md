@@ -14,6 +14,11 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.69 - Pick one type, or several.** The Type filter, in the Model Manager and the Civitai
+Browser, picks one type as before; tick Select several, at the bottom of its list, to pick any
+number, such as LoRAs and embeddings together. Combine LoRA kinds, in the settings' Pages and
+cards, shows LORA, LoCon, LoHa, LoKr, DoRA and LyCORIS Full as one entry.
+
 **0.68 - Settings named by what they do.** Every setting now has a name that says what it
 does, in ten groups by what the settings are for. Inside a group, a setting for one tab sits
 under that tab's heading, and one that depends on a switch sits under it, greyed while the
@@ -256,9 +261,9 @@ tab's header says so beside the version.
 Browse and organize the models already on disk.
 
 - **Grid view** with thumbnails, configurable card size, and paginated loading
-- **Filters**: search, type, base model, NSFW level (max or contains mode), Civitai data
-  present, bookmarked, minimum version count, file size, and licence terms (commercial
-  use, derivatives, different licence). **Save Search** keeps them, in the database, and
+- **Filters**: search, type (one, or several with Select several), base model, NSFW level
+  (max or contains mode), Civitai data present, bookmarked, minimum version count, file
+  size, and licence terms (commercial use, derivatives, different licence). **Save Search** keeps them, in the database, and
   the tab opens with them; a right-click on it forgets them
 - **Pins**: pinned models get a **Pinned** tab above the grid, the rest an **Unpinned**
   one; a pin is kept by the model, or by the file for one Civitai does not know

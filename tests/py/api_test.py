@@ -80,6 +80,29 @@ check('filtering by type', body.get('total'), fixtures.CHECKPOINTS)
 code, body = get('/model-manager/models', type='LORA')
 check('and by another type', body.get('total'), fixtures.LORAS)
 
+# Several types at once (#341): the page sends them comma-joined, the LoRA
+# row as its six kinds spelled out.
+code, body = get('/model-manager/models', type='Checkpoint,LORA')
+check('by two types: both, and nothing else', body.get('total'), fixtures.CHECKPOINTS + fixtures.LORAS)
+
+a_lora = facts['lora_ids'][0]
+with db._cursor() as cursor:
+    cursor.execute("UPDATE files SET file_type = 'LoCon' WHERE version_id IN "
+                   "(SELECT id FROM versions WHERE model_id = ?)", (a_lora,))
+code, body = get('/model-manager/models', type='LORA')
+check('a LoCon file Civitai calls LORA is not under LORA alone', body.get('total'), fixtures.LORAS - 1)
+code, body = get('/model-manager/models', type='LORA,LoCon,LoHa,LoKr,DoRA,LyCORIS Full')
+check('but is under the six LoRA kinds', body.get('total'), fixtures.LORAS)
+with db._cursor() as cursor:
+    cursor.execute("UPDATE files SET file_type = NULL WHERE version_id IN "
+                   "(SELECT id FROM versions WHERE model_id = ?)", (a_lora,))
+
+code, body = get('/model-manager/models', type='Checkpoint,LORA', checkpoint_type='Merge')
+check('Checkpoint Type with other types narrows the checkpoints alone',
+      body.get('total'), fixtures.MERGED + fixtures.LORAS)
+code, body = get('/model-manager/models', type='Checkpoint', checkpoint_type='Merge')
+check('and with Checkpoint alone, the merges as before', body.get('total'), fixtures.MERGED)
+
 # By file size, in GB (#40): every fixture file is a few bytes.
 code, body = get('/model-manager/models', min_size_gb='1')
 check('a file size range reaches the query: from 1 GB, nothing here', body.get('total'), 0)

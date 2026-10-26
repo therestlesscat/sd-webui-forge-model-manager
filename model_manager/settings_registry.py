@@ -206,6 +206,13 @@ SETTINGS: Tuple[Setting, ...] = (
             "with a play button in its corner, and the video loads only when you press it. Galleries and the image "
             "viewer are not affected.",
             (MM, CB)),
+    Setting("model_manager_combine_lora_kinds", "pages_and_cards", "checkbox", "Combine LoRA kinds",
+            "Combine every kind of LoRA into one type",
+            "When on, the Type filter lists one entry for every kind of LoRA instead of one entry for each kind, so "
+            "a single pick shows them all: a LoCon or a LoKr shows there together with ordinary LoRAs. When off, "
+            "each kind has its own entry, as before. Model cards and a model's details still name the exact kind. "
+            "This applies to the Type filter in both the Model Manager and the Civitai Browser.",
+            (MM, CB)),
     Setting("model_manager_gallery_originals", "pages_and_cards", "checkbox", "Full-size images in galleries",
             "Load gallery images full size, not resized",
             "When on, galleries load each image as it was uploaded to Civitai, instead of a copy Civitai's image "
@@ -484,7 +491,7 @@ _PREFIX = re.compile(r"^[^:]{2,40}: ")
 _BARE_TAB = re.compile(r"\b(Queue|Generations|Civitai Images|Model Manager|Civitai Browser) tab\b")
 # Words that are names of their own, capitals and all.
 _PROPER = re.compile(r"\b(Queue Tab|Generations Tab|Civitai Images Tab|Model Manager Tab|Civitai Browser Tab|Civitai|"
-                     r"Forge|Generate|Send|Clip Skip|Clip skip|API|NSFW|PG-13|PG|SFW|VAE|X|Model Manager|"
+                     r"Forge|Generate|Send|Clip Skip|Clip skip|API|NSFW|PG-13|PG|SFW|VAE|LoRA|X|Model Manager|"
                      r"Flux\.1|Chroma|Flux\.2|Klein|Lumina|Image|Z-Image|Anima|Wan|Qwen-Image|Krea|ERNIE-Image|"
                      r"PiD|Your generations|Sync images|Hide explicit images by default)\b")
 

@@ -42,6 +42,9 @@ let cardVideosNow = { play: true };
 // Whether the Civitai Browser marks on-site-only versions (#229): off until an
 // answer says otherwise, as the setting is by default.
 let onSiteMarksNow = { on: false };
+// Whether the Type filters show every kind of LoRA as one row (#341): off
+// until an answer says otherwise, as the setting is by default.
+let combineLoraKindsNow = { on: false };
 // How many of Civitai's images load at once (#213), from the last answer:
 // the setting's default until one is in, or from a server too old to say.
 const IMAGES_AT_ONCE = 64;
@@ -52,6 +55,7 @@ function learn(data) {
         asUploadedNow = { gallery: data.gallery_originals === true, cards: data.card_originals === true };
         cardVideosNow = { play: data.card_videos_play !== false };
         onSiteMarksNow = { on: data.civitai_on_site_marks === true };
+        combineLoraKindsNow = { on: data.combine_lora_kinds === true };
         const atOnce = Number(data.images_at_once);
         imagesAtOnceNow = Number.isInteger(atOnce) && atOnce >= 1 ? atOnce : IMAGES_AT_ONCE;
     }
@@ -71,6 +75,11 @@ export function cardVideos() {
 /** Whether the Civitai Browser marks on-site-only versions, as the last answer said: {on}. */
 export function onSiteMarks() {
     return onSiteMarksNow;
+}
+
+/** Whether the Type filters show every kind of LoRA as one row, as the last answer said: {on}. */
+export function combineLoraKinds() {
+    return combineLoraKindsNow;
 }
 
 /** How many of Civitai's images may load at once, as the last answer said. */

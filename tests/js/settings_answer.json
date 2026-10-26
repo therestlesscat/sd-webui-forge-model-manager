@@ -282,6 +282,27 @@
    "switch": null,
    "value": true
   },
+  "model_manager_combine_lora_kinds": {
+   "label": "Combine every kind of LoRA into one type",
+   "info": "When on, the Type filter lists one entry for every kind of LoRA instead of one entry for each kind, so a single pick shows them all: a LoCon or a LoKr shows there together with ordinary LoRAs. When off, each kind has its own entry, as before. Model cards and a model's details still name the exact kind. This applies to the Type filter in both the Model Manager and the Civitai Browser.",
+   "kind": "bool",
+   "default": false,
+   "name": "Combine LoRA kinds",
+   "group": "pages_and_cards",
+   "heading": "Shared across tabs",
+   "tags": [
+    "model_manager",
+    "civitai_browser"
+   ],
+   "shown_with": [
+    "model_manager",
+    "civitai_browser"
+   ],
+   "under": null,
+   "badges": [],
+   "switch": null,
+   "value": false
+  },
   "model_manager_gallery_originals": {
    "label": "Load gallery images full size, not resized",
    "info": "When on, galleries load each image as it was uploaded to Civitai, instead of a copy Civitai's image server resizes to fit. Uploads are much larger: on 20 images, a card-sized copy was 54 KB on average and the upload 3.6 MB, 66 times as much. Even so, a copy is often slower the first time, because Civitai seldom has it ready: in one test it had 1 copy in 34, against 15 uploads in 33, and took about half a second to make each copy. Videos always load as copies, because an upload can be a GIF that cannot play. The image viewer shows the upload either way. This applies to model galleries and the Civitai Images tab.",
@@ -1382,6 +1403,7 @@
   "model_manager_civitai_folder_template",
   "model_manager_card_originals",
   "model_manager_card_videos_play",
+  "model_manager_combine_lora_kinds",
   "model_manager_gallery_originals",
   "model_manager_generations_grid",
   "model_manager_generations_reading",

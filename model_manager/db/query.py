@@ -28,6 +28,9 @@ from .library import LIBRARY
 # How many of a version's images "Only Show Models with SFW images" looks at - the same
 # sample the Civitai Browser judges a model by (PROMPT_SAMPLE_SIZE there).
 SFW_SAMPLE_SIZE = 20
+
+# What a file is, for the Type filter and Checkpoint Type alike.
+FILE_TYPE_SQL = "COALESCE(v.file_type, m.type, 'Unknown')"
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from ..console import say
 
@@ -118,7 +121,9 @@ class GridQuery:
     query_models_grouped(). Each default is the grid unfiltered.
     """
     search: Optional[str] = None
-    model_type: Optional[str] = None
+    # What the files are, any of them (#341): the page sends the LoRA row as
+    # its six kinds, so no family is known here.
+    model_types: Optional[Tuple[str, ...]] = None
     base_model: Optional[str] = None
     # NSFW levels as numbers: "max" shows models up to the highest of them,
     # "contains" those with any of them.
@@ -196,12 +201,12 @@ def query_models_grouped(
             search_pattern = f"%{grid.search}%"
             params.extend([search_pattern, search_pattern, search_pattern, search_pattern])
 
-    if grid.model_type:
+    if grid.model_types:
         # What the file is, read from it (file_identity.py); Civitai's type
         # only for a file not read yet - it is what the uploader filed it
         # under, and a VAE shared as a "Checkpoint" is still a VAE.
-        conditions.append("COALESCE(v.file_type, m.type, 'Unknown') = ?")
-        params.append(grid.model_type)
+        conditions.append(f"{FILE_TYPE_SQL} IN ({', '.join('?' for _ in grid.model_types)})")
+        params.extend(grid.model_types)
 
     if grid.base_model:
         conditions.append("v.base_model = ?")
@@ -261,11 +266,18 @@ def query_models_grouped(
     # Trained or merged, which only checkpoints have. Three-valued like the
     # licence columns: NULL is a model nobody has established it for, which is
     # every model Civitai no longer serves.
-    if grid.checkpoint_type == "unknown":
-        conditions.append("m.checkpoint_type IS NULL")
-    elif grid.checkpoint_type in ("Trained", "Merge"):
-        conditions.append("m.checkpoint_type = ?")
-        params.append(grid.checkpoint_type)
+    # Asked with other types beside Checkpoint, it narrows the checkpoints
+    # alone, as Civitai's search does; asked with none, it is the checkpoints
+    # of that kind, as it always was.
+    if grid.checkpoint_type in ("unknown", "Trained", "Merge"):
+        kind = ("m.checkpoint_type IS NULL" if grid.checkpoint_type == "unknown"
+                else "m.checkpoint_type = ?")
+        if grid.checkpoint_type != "unknown":
+            params.append(grid.checkpoint_type)
+        if any(t != "Checkpoint" for t in grid.model_types or ()):
+            conditions.append(f"({FILE_TYPE_SQL} <> 'Checkpoint' OR {kind})")
+        else:
+            conditions.append(kind)
 
     for column, choice in (
         ("allow_derivatives", grid.allow_derivatives),
