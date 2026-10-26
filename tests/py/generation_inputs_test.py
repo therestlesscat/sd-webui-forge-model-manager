@@ -400,12 +400,21 @@ conn.execute("INSERT INTO generations (created_at, mode, image_count) VALUES ('2
 conn.commit()
 
 
+# What a later migration adds, which v44 does not touch: v46's column on
+# models (#262). Such a table is compared by its other columns, not its SQL.
+LATER = {'models': {'civitai_gone_at'}}
+
+
 def dump(path):
     with sqlite3.connect(path) as c:
         tables = [r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type = 'table' "
                                           "AND name NOT IN ('schema_info', 'generation_input_files') ORDER BY name")]
-        return {t: (c.execute("SELECT sql FROM sqlite_master WHERE name = ?", (t,)).fetchone()[0],
-                    c.execute('SELECT * FROM "%s"' % t).fetchall()) for t in tables}
+        out = {}
+        for t in tables:
+            cols = [r[1] for r in c.execute('PRAGMA table_info("%s")' % t) if r[1] not in LATER.get(t, ())]
+            sql = cols if t in LATER else c.execute("SELECT sql FROM sqlite_master WHERE name = ?", (t,)).fetchone()[0]
+            out[t] = (sql, c.execute('SELECT %s FROM "%s"' % (', '.join('"%s"' % x for x in cols), t)).fetchall())
+        return out
 
 
 before = dump(old)

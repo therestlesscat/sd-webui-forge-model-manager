@@ -45,6 +45,7 @@ os.makedirs(FAKE, exist_ok=True)
 from model_manager.db import ModelsDatabase
 import model_manager.db.database as dbmod
 import model_manager.sync_service as ss
+from model_manager.civitai.client import CivitaiClient  # noqa: E402
 from model_manager.db.library import LIBRARY
 
 dbmod._db_instance = db
@@ -139,6 +140,10 @@ check('there is exactly one call to it', len(calls), 1)
 class Stub:
     def get_models_by_ids(self, ids):
         return {}
+    def get_model(self, model_id):
+        return None
+    # The client's own, over the answers above (#262).
+    get_models_or_gone = CivitaiClient.get_models_or_gone
     def get_model_version_by_hash(self, *a, **k):
         return None
     def close(self):

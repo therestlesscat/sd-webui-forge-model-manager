@@ -114,12 +114,56 @@ def nsfw_sent(**kwargs):
 check('NSFW models are asked for unless the caller says not',
       [nsfw_sent(), nsfw_sent(nsfw=False)], ['true', None])
 
+# ---------------------------------------- the models, and which are gone (#262)
+# A batch leaving a model out does not say it is gone: what is left out is
+# asked again without NSFW, unless the caller says not, then alone - and only
+# a 404 alone is gone. One that could not be asked is in neither.
+def gone_or_found(replies, ids, **kwargs):
+    c = Stub(replies)
+    found, gone = c.get_models_or_gone(ids, **kwargs)
+    return sorted(found), sorted(gone), [(a[0], a[1].get('nsfw'), a[1].get('ids')) for a in c.asked]
+
+
+if not hasattr(CivitaiClient, 'get_models_or_gone'):
+    check('the client can say which models are gone', False)
+else:
+    check('the batch, what it left out again without NSFW, then alone',
+          gone_or_found([{'items': [{'id': 1}]}, {'items': [{'id': 2}]}, CivitaiNotFoundError('nope')],
+                        [1, 2, 3]),
+          ([1, 2], [3], [('/models', 'true', '1,2,3'), ('/models', None, '2,3'), ('/models/3', None, None)]))
+    check('without the second batch: what the first left out, alone',
+          gone_or_found([{'items': [{'id': 1}]}, {'id': 2}, CivitaiNotFoundError('nope')],
+                        [1, 2, 3], ask_without_nsfw=False),
+          ([1, 2], [3], [('/models', 'true', '1,2,3'), ('/models/2', None, None), ('/models/3', None, None)]))
+    check('one known to be gone is not asked alone again',
+          gone_or_found([{'items': [{'id': 1}]}], [1, 2], ask_without_nsfw=False, known_gone={2}),
+          ([1], [2], [('/models', 'true', '1,2')]))
+    check('one that could not be asked alone is neither found nor gone',
+          gone_or_found([{'items': []}, CivitaiAPIError('timed out')], [5], ask_without_nsfw=False),
+          ([], [], [('/models', 'true', '5'), ('/models/5', None, None)]))
+    alone = []
+    Stub([{'items': [{'id': 1}]}, {'id': 2}, CivitaiNotFoundError('nope')]).get_models_or_gone(
+        [1, 2, 3], ask_without_nsfw=False, alone=alone)
+    check('and it can say which it asked alone', alone, [2, 3])
+
 # --------------------------------------------------- trained or merged, inferred
 c = Stub([{'items': [{'id': 1}, {'id': 2}]}, {'items': [{'id': 3}]}])
 check('the two queries answer', c.get_checkpoint_types([1, 2, 3, 4]),
       {1: 'Trained', 2: 'Trained', 3: 'Merge'})
-check('asking for each type once', len(c.asked), 2)
-check('naming them', [a[1]['checkpointType'] for a in c.asked], ['Trained', 'Merge'])
+check('asking for each type, and again for the one left unanswered', len(c.asked), 4)
+check('naming them', [a[1]['checkpointType'] for a in c.asked], ['Trained', 'Merge', 'Trained', 'Merge'])
+
+# With no NSFW only checkpoints with a PG rating answer (#262): asked with it,
+# then what is left unanswered without it.
+c = Stub([{'items': [{'id': 1}]}, {'items': [{'id': 2}]}, {'items': [{'id': 3}]}, {'items': []}])
+check('checkpoints with no PG rating answer too: asked with NSFW, then the unanswered without it',
+      (c.get_checkpoint_types([1, 2, 3, 4]),
+       [(a[1]['checkpointType'], a[1].get('nsfw'), a[1]['ids']) for a in c.asked]),
+      ({1: 'Trained', 2: 'Merge', 3: 'Trained'},
+       [('Trained', 'true', '1,2,3,4'), ('Merge', 'true', '1,2,3,4'), ('Trained', None, '3,4'), ('Merge', None, '3,4')]))
+c = Stub([{'items': [{'id': 1}]}, {'items': [{'id': 2}]}])
+check('every one answered: nothing asked again', (c.get_checkpoint_types([1, 2]), len(c.asked)),
+      ({1: 'Trained', 2: 'Merge'}, 2))
 
 c = Stub([{'items': [{'id': 99}]}, {'items': []}])
 check('an answer about something else is discarded', c.get_checkpoint_types([1, 2]), {})

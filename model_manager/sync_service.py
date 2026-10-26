@@ -713,6 +713,8 @@ class SyncService:
             "cover_url": cover_url,
             "safe_cover_url": safe_cover_url,
         })
+        # Kept, so a metadata sync does not ask about the model again (#262).
+        db.set_model_gone(model_id)
         say(f"{name}: model {model_id} is not on Civitai either - filed as its {record} says"
             + ("" if checked_record else ", unchecked: it names no hash of the file"))
         return True
@@ -1360,15 +1362,31 @@ class SyncService:
         if callback:
             callback(self._progress)
 
+        # A batch leaves out models that exist (#262): each it leaves out is
+        # asked alone, and only a 404 is "not on Civitai". Not by a batch
+        # without nsfw, whose payload has lost every showcase image but PG;
+        # nor a model Civitai answered 404 for before, until Force sync finds
+        # its file again.
+        known_gone = {v["model_id"] for v in versions if v.get("model_gone_at")}
+        alone: List[int] = []
         try:
-            fetched = self.client.get_models_by_ids(model_ids)
+            fetched, gone = self.client.get_models_or_gone(
+                model_ids, ask_without_nsfw=False, known_gone=known_gone, alone=alone)
         except Exception as e:
             # Counted, so the page says so: it ended "0 errors", the reason
             # unseen, and nothing refreshed (#208).
             self._progress.fail(f"Could not get the models' details from Civitai: {e}. Nothing was refreshed.")
             return False
 
+        for model_id in gone - known_gone:
+            get_models_db().set_model_gone(model_id)
         say(f"Metadata sync: Civitai returned {len(fetched)} of {len(model_ids)}")
+        if alone or gone:
+            unasked = [m for m in alone if m not in fetched and m not in gone]
+            say(f"Metadata sync: of those the batches left out, {len(gone & known_gone)} "
+                f"known gone, not asked again; {len(alone)} asked alone - "
+                f"{len([m for m in alone if m in fetched])} found, "
+                f"{len([m for m in alone if m in gone])} gone, {len(unasked)} could not be asked")
 
         def process(version: Dict[str, Any]) -> None:
             if self._cancel_requested:
@@ -1384,7 +1402,14 @@ class SyncService:
             if not model_data:
                 with self._progress_lock:
                     self._progress.processed += 1
-                    self._progress.not_found += 1
+                    if version["model_id"] in gone:
+                        self._progress.not_found += 1
+                    else:
+                        # Neither found nor a 404: Civitai could not be asked
+                        # about it alone, and "not on Civitai" means a 404.
+                        self._progress.errors += 1
+                        self._progress.error_messages.append(
+                            f"{name}: Civitai could not be asked about its model")
                 return
 
             try:

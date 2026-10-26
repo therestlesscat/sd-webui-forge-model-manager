@@ -28,6 +28,7 @@ import webui_stub                                        # noqa: E402
 webui_stub.install()
 
 import model_manager.db.database as dbmod                # noqa: E402
+from model_manager.civitai.client import CivitaiClient  # noqa: E402
 from model_manager.civitai import TokenBucketRateLimiter  # noqa: E402
 from model_manager.db import ModelsDatabase, GridQuery   # noqa: E402
 from model_manager.db import migrations                  # noqa: E402
@@ -73,6 +74,9 @@ class Civitai:
 
     def get_models_by_ids(self, ids):
         return {MODEL: MODEL_PAYLOAD}
+
+    # The client's own, over the answers above (#262).
+    get_models_or_gone = CivitaiClient.get_models_or_gone
 
     def get_model_images(self, version_id, cursor=None, limit=100):
         if cursor is None:

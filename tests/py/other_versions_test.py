@@ -32,6 +32,7 @@ except ImportError:
 
 import fixtures                                          # noqa: E402
 import model_manager.db.database as dbmod                # noqa: E402
+from model_manager.civitai.client import CivitaiClient  # noqa: E402
 import model_manager.forge_host as host                  # noqa: E402
 import model_manager.model_dirs as dirs                  # noqa: E402
 from model_manager.api import setup_api                  # noqa: E402
@@ -157,6 +158,9 @@ class Civitai(object):
         return {REUPLOAD: {'type': 'Checkpoint', 'name': 'A re-upload', 'modelVersions': [
             {'id': ITS_VERSION, 'name': 'v1.0', 'files': [{'name': self.name, 'primary': True, 'type': 'Model',
                                                           'hashes': self.hashes}]}]}}
+
+    # The client's own, over the answers above (#262).
+    get_models_or_gone = CivitaiClient.get_models_or_gone
 
     def get_model(self, model_id):
         return None

@@ -63,14 +63,17 @@ class Server(CivitaiClient):
         ids = list(self.answers.get(kind, []))
         if self.both:
             ids = list(self.answers.get('Trained', []))
-        return {"items": [{"id": i} for i in ids + self.stray]}
+        # As Civitai: of the ids asked - the strays aside.
+        asked = {int(i) for i in params['ids'].split(',')}
+        return {"items": [{"id": i} for i in ids if i in asked] + [{"id": i} for i in self.stray]}
 
 
 ASKED = [1, 2, 3, 4]
 good = Server({'Trained': [1, 2], 'Merge': [3]})
 check('the two queries answer for the batch',
       good.get_checkpoint_types(ASKED), {1: 'Trained', 2: 'Trained', 3: 'Merge'})
-check('and it took two requests', good.calls, 2)
+# The one neither answered is asked again without NSFW (#262).
+check('and it took two requests, and two more for the one neither answered', good.calls, 4)
 check('an id in neither is simply absent', 4 in good.get_checkpoint_types(ASKED), False)
 
 check('no ids, no requests', CivitaiClient.get_checkpoint_types(

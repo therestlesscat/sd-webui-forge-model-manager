@@ -8,7 +8,7 @@ import time
 import threading
 import requests
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional, List, Dict, Any, Callable, Iterator, Tuple
+from typing import Optional, List, Dict, Any, Callable, Iterable, Iterator, Set, Tuple
 from urllib.parse import quote, urlencode
 
 from ..forge_host import setting
@@ -616,6 +616,11 @@ class CivitaiClient:
         Since that is inference rather than a documented field, a batch whose
         answers do not partition it is discarded rather than guessed at.
 
+        Asked with `nsfw`, as the batches are: without it only checkpoints
+        with a PG rating answer (#262) - in one library none of 43 without
+        one, and 39 with it. What is left unanswered is asked once more
+        without it, which answers the ones Civitai keeps out of its NSFW lists.
+
         Args:
             model_ids: Civitai model ids, which should be checkpoints. Asking
                 about anything else simply returns nothing for it.
@@ -631,45 +636,53 @@ class CivitaiClient:
 
         for start in range(0, len(ids), self.MODELS_BY_ID_BATCH):
             batch = ids[start:start + self.MODELS_BY_ID_BATCH]
-            wanted = set(batch)
-            answers: Dict[str, set] = {}
-
-            for kind in self.CHECKPOINT_TYPES:
-                try:
-                    data = self._request("GET", "/models", params={
-                        "ids": ",".join(str(i) for i in batch),
-                        "checkpointType": kind,
-                        "limit": self.MODELS_BY_ID_BATCH,
-                    })
-                except CivitaiAPIError as e:
-                    say(f"checkpointType {kind} batch failed: {e}")
-                    answers = {}
-                    break
-
-                # An id we did not ask about means `ids` was not applied, and
-                # the whole answer is about somebody else's models.
-                returned = {m.get("id") for m in (data.get("items") or []) if m.get("id")}
-                answers[kind] = returned & wanted
-                if returned - wanted:
-                    say("checkpointType answer included ids that were "
-                          "not asked for; ignoring this batch")
-                    answers = {}
-                    break
-
-            if len(answers) != len(self.CHECKPOINT_TYPES):
+            answered = self._checkpoint_types_of(batch, nsfw=True)
+            if answered is None:
                 continue
+            out.update(answered)
+            left = [i for i in batch if i not in answered]
+            if left:
+                out.update(self._checkpoint_types_of(left, nsfw=False) or {})
 
-            trained, merged = answers["Trained"], answers["Merge"]
-            if trained & merged:
-                say("a model came back as both Trained and Merge; "
-                      "ignoring this batch")
-                continue
+        return out
 
-            for model_id in trained:
-                out[model_id] = "Trained"
-            for model_id in merged:
-                out[model_id] = "Merge"
+    def _checkpoint_types_of(self, batch: List[int], nsfw: bool) -> Optional[Dict[int, str]]:
+        """get_checkpoint_types() for one batch, asked with or without `nsfw`.
+        None when the batch failed or its answers do not partition it."""
+        wanted = set(batch)
+        answers: Dict[str, set] = {}
 
+        for kind in self.CHECKPOINT_TYPES:
+            params: Dict[str, Any] = {
+                "ids": ",".join(str(i) for i in batch),
+                "checkpointType": kind,
+                "limit": self.MODELS_BY_ID_BATCH,
+            }
+            if nsfw:
+                params["nsfw"] = "true"
+            try:
+                data = self._request("GET", "/models", params=params)
+            except CivitaiAPIError as e:
+                say(f"checkpointType {kind} batch failed: {e}")
+                return None
+
+            # An id we did not ask about means `ids` was not applied, and
+            # the whole answer is about somebody else's models.
+            returned = {m.get("id") for m in (data.get("items") or []) if m.get("id")}
+            answers[kind] = returned & wanted
+            if returned - wanted:
+                say("checkpointType answer included ids that were "
+                      "not asked for; ignoring this batch")
+                return None
+
+        trained, merged = answers["Trained"], answers["Merge"]
+        if trained & merged:
+            say("a model came back as both Trained and Merge; "
+                  "ignoring this batch")
+            return None
+
+        out = {model_id: "Trained" for model_id in trained}
+        out.update({model_id: "Merge" for model_id in merged})
         return out
 
     def get_models_by_ids(self, model_ids: List[int], nsfw: bool = True) -> Dict[int, Dict[str, Any]]:
@@ -709,6 +722,56 @@ class CivitaiClient:
                     found[item["id"]] = item
 
         return found
+
+    def get_models_or_gone(self, model_ids: List[int], ask_without_nsfw: bool = True,
+                           known_gone: Iterable[int] = (),
+                           alone: Optional[List[int]] = None,
+                           ) -> Tuple[Dict[int, Dict[str, Any]], Set[int]]:
+        """
+        Civitai's models by id, and the ids it answered 404 for.
+
+        A batch (/models?ids) leaves out more than deleted models (#262): with
+        `nsfw` the ones Civitai keeps out of its NSFW lists, and some either
+        way - 5 of the 18 one library's batch left out still existed. So what
+        it leaves out is asked again without `nsfw`, and what is still missing
+        alone, where only a 404 says gone (#260). One that could not be asked
+        is in neither.
+
+        Args:
+            model_ids: Civitai model ids.
+            ask_without_nsfw: the second batch. Without `nsfw` Civitai strips
+                every showcase image but PG, and the version's cover with them:
+                a caller that stores the payload - the metadata sync - goes
+                straight to asking alone.
+            known_gone: ids Civitai answered 404 for before. Left out of the
+                batches, they are gone without being asked alone again.
+            alone: given a list, the ids asked alone are added to it.
+        """
+        models = self.get_models_by_ids(model_ids)
+        left = [m for m in model_ids if m not in models]
+        if left and ask_without_nsfw:
+            try:
+                models.update(self.get_models_by_ids(left, nsfw=False))
+            except Exception as e:
+                say(f"Models {left} could not be asked again: {e}")
+        known_gone = set(known_gone)
+        gone = set()
+        for model_id in [m for m in model_ids if m not in models]:
+            if model_id in known_gone:
+                gone.add(model_id)
+                continue
+            if alone is not None:
+                alone.append(model_id)
+            try:
+                model = self.get_model(model_id)
+            except Exception as e:
+                say(f"Model {model_id} could not be asked: {e}")
+                continue
+            if model is None:
+                gone.add(model_id)
+            else:
+                models[model_id] = model
+        return models, gone
 
     def search_tags(
         self,

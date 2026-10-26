@@ -33,7 +33,8 @@ opts = webui_stub.install()
 import fixtures                                          # noqa: E402
 import model_manager.db.database as dbmod                # noqa: E402
 from model_manager.civitai import (                      # noqa: E402
-    CivitaiAPIError, CivitaiNotFoundError, TokenBucketRateLimiter,
+    CivitaiAPIError, CivitaiClient, CivitaiNotFoundError, CivitaiRateLimitError,
+    TokenBucketRateLimiter,
 )
 from model_manager.hashing import HashResult, ModelHasher  # noqa: E402
 from model_manager.sync_estimates import (               # noqa: E402
@@ -67,6 +68,8 @@ class Client:
     def __init__(self, **answers):
         self.by_hash = answers.get('by_hash', {})
         self.model = answers.get('model')
+        # A model asked alone, by id: its payload, None for a 404, or what it raises.
+        self.singles = answers.get('singles', {})
         self.models = answers.get('models', {})
         self.images = answers.get('images', {'images': [], 'next_cursor': None})
         self.limits = []
@@ -89,13 +92,21 @@ class Client:
 
     def get_model(self, model_id):
         self.asked.append(('model', model_id))
+        if model_id in self.singles:
+            answer = self.singles[model_id]
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
         return self.model
 
-    def get_models_by_ids(self, ids):
-        self.asked.append(('models', list(ids)))
+    def get_models_by_ids(self, ids, nsfw=True):
+        self.asked.append(('models' if nsfw else 'models without nsfw', list(ids)))
         if self.models_raises is not None:
             raise self.models_raises
         return self.models
+
+    # The client's own, over the answers above: the batches, then alone.
+    get_models_or_gone = getattr(CivitaiClient, 'get_models_or_gone', None)
 
     def get_model_images(self, version_id, cursor=None, limit=None):
         self.asked.append(('images', version_id))
@@ -740,6 +751,90 @@ check('a cancelled metadata sync fetches no galleries',
 check('and asks no checkpoint question',
       [a for a in client.asked if a[0] == 'types'], [])
 check('while still finishing', progress.is_complete, True)
+
+# ------------------------------------------ models the batch leaves out (#262)
+# Civitai's batch leaves out models that exist. Each is asked alone, and only
+# a 404 is "not on Civitai" - kept on the model, so it is not asked again.
+MID, VID = one_row['model_id'], one_row['id']
+sidecar_of = sys.modules['model_manager.sync_service'].get_metadata_paths
+asking = ('models', 'models without nsfw', 'model')
+
+
+def gone_at(model_id):
+    """When Civitai answered 404 for the model, as stored."""
+    try:
+        with db._cursor() as cursor:
+            cursor.execute("SELECT civitai_gone_at FROM models WHERE id = ?", (model_id,))
+            return cursor.fetchone()[0]
+    except Exception as error:
+        return 'no answer: %s' % error
+
+
+def kept(stamp):
+    return bool(stamp) and not str(stamp).startswith('no answer')
+
+
+sync, client = service(models={MID: model_payload(MID, [VID])})
+progress = sync.sync_metadata(model_paths=[ONE_PATH])
+check('a batch that leaves nothing out costs no request more',
+      [a for a in client.asked if a[0] in asking], [('models', [MID])])
+
+alone = model_payload(MID, [VID], description='<p>asked alone</p>')
+sync, client = service(models={}, singles={MID: alone})
+progress = sync.sync_metadata(model_paths=[ONE_PATH])
+check('a model the batch leaves out, that exists, is refreshed: asked alone',
+      (progress.synced, progress.not_found, progress.errors), (1, 0, 0))
+check('its details written from that answer', db.get_civitai_model(MID)['description'], '<p>asked alone</p>')
+check('and its sidecar',
+      json.loads(io.open(sidecar_of(ONE_PATH)[0], encoding='utf-8').read()).get('description'),
+      '<p>asked alone</p>')
+check('asked by the batch, then alone - never by a batch without NSFW',
+      [a for a in client.asked if a[0] in asking], [('models', [MID]), ('model', MID)])
+check('a checkpoint found alone is asked whether it is trained or merged',
+      ('types', [MID]) in client.asked, True)
+
+sync, client = service(models={}, singles={MID: None})
+progress = sync.sync_metadata(model_paths=[ONE_PATH])
+check('one Civitai answers 404 for alone is not on Civitai, not an error',
+      (progress.not_found, progress.errors), (1, 0))
+check('and its 404 is kept on the model', kept(gone_at(MID)), True)
+
+sync, client = service(models={}, singles={MID: alone})
+progress = sync.sync_metadata(model_paths=[ONE_PATH])
+check('a model with a kept 404 is not asked alone again', [a for a in client.asked if a[0] == 'model'], [])
+check('and is still not on Civitai', (progress.not_found, progress.errors), (1, 0))
+
+# Force sync is the way back: it finds the file by its hashes.
+stamped = gone_at(MID)
+sync, client = service(by_hash={hashes.sha256: version_payload(VID, MID)}, model=model_payload(MID, [VID]))
+sync.sync_all(model_paths=[ONE_PATH], force=True, max_workers=1)
+check('Force sync finds a model with a kept 404 by its file, and clears the 404',
+      (kept(stamped), gone_at(MID)), (True, None))
+
+for label, raised in (('a timeout', CivitaiAPIError('timed out')),
+                      ('a 429 still refused after the waits', CivitaiRateLimitError('too many requests'))):
+    sync, client = service(models={}, singles={MID: raised})
+    progress = sync.sync_metadata(model_paths=[ONE_PATH])
+    said = [line['text'] for line in console.since(progress.log_from)[0]]
+    check('%s: a model that could not be asked alone is an error, not "not on Civitai"' % label,
+          (progress.not_found, progress.errors), (0, 1))
+    check('%s: naming the file' % label,
+          any(os.path.basename(ONE_PATH) in m for m in progress.error_messages), True)
+    check('%s: the reason in the log' % label, any(str(raised) in t for t in said), True)
+    check('%s: and no 404 kept' % label, gone_at(MID), None)
+
+# The identifying sync's sidecar step files a file under a model Civitai
+# answers 404 for: that 404 is kept too.
+ORPHAN = os.path.join(facts['models_dir'], 'Lora', 'of_a_deleted_model.safetensors')
+io.open(ORPHAN, 'wb').write(b'weights of a model Civitai deleted')
+orphan_sidecar = fixtures.sidecar(ORPHAN, model_payload(70500, [70501], model_type='LORA'))
+sync, client = service(model=None)
+sync.sync_model(ORPHAN, force=True)
+check('a file filed from its sidecar, its model a 404', (db.get_version(ORPHAN) or {}).get('id'), 70501)
+check('keeps that 404 on the model: no metadata sync asks again', kept(gone_at(70500)), True)
+db.delete_version(ORPHAN)
+os.remove(ORPHAN)
+os.remove(orphan_sidecar)
 
 # --------------------------------------------------------- classifying checkpoints
 sync, client = service(types={CHECKPOINT_ID: 'Merge'})

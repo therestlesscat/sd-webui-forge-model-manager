@@ -24,6 +24,7 @@ opts = webui_stub.install()
 
 import fixtures                                          # noqa: E402
 import model_manager.db.database as dbmod                # noqa: E402
+from model_manager.civitai.client import CivitaiClient  # noqa: E402
 import model_manager.gallery as gallery                  # noqa: E402
 from model_manager.civitai import TokenBucketRateLimiter  # noqa: E402
 from model_manager.sync_estimates import estimate_metadata_sync  # noqa: E402
@@ -62,6 +63,12 @@ class Civitai(object):
 
     def get_models_by_ids(self, ids):
         return {}
+
+    def get_model(self, model_id):
+        return None
+
+    # The client's own, over the answers above (#262).
+    get_models_or_gone = CivitaiClient.get_models_or_gone
 
     def get_generation_data(self, ids, workers=1, errors=None):
         return {}

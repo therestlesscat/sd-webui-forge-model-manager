@@ -2570,6 +2570,23 @@ def _migrate_to_v45(cursor):
     print("[ModelManager] Migration to v45 complete")
 
 
+def _migrate_to_v46(cursor):
+    """
+    When Civitai answered 404 for a model (#262): `models.civitai_gone_at`,
+    so a metadata sync does not ask about a deleted model alone again at
+    every run - a batch leaves deleted models out, and models that exist too.
+    Nothing is changed or dropped: the column starts empty, and the syncs
+    fill it.
+    """
+    print("[ModelManager] Migrating to v46: models Civitai answered 404 for...")
+    cursor.execute("PRAGMA table_info(models)")
+    columns = {row[1] for row in cursor.fetchall()}
+    # No columns: no models table, as in a test's partial database.
+    if columns and "civitai_gone_at" not in columns:
+        cursor.execute("ALTER TABLE models ADD COLUMN civitai_gone_at TEXT")
+    print("[ModelManager] Migration to v46 complete")
+
+
 def run_migrations(cursor, from_version: int, to_version: int,
                    db_path: str, db_dir: str, progress=None):
     """
@@ -2597,7 +2614,7 @@ def run_migrations(cursor, from_version: int, to_version: int,
         38: _migrate_to_v38, 39: _migrate_to_v39, 40: _migrate_to_v40,
         41: lambda c: _migrate_to_v41(c, db_path),
         42: lambda c: _migrate_to_v42(c, db_path, progress),
-        43: _migrate_to_v43, 44: _migrate_to_v44, 45: _migrate_to_v45,
+        43: _migrate_to_v43, 44: _migrate_to_v44, 45: _migrate_to_v45, 46: _migrate_to_v46,
     }
     for version in sorted(steps):
         if from_version < version <= to_version:

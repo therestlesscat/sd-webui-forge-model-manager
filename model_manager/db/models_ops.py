@@ -137,6 +137,7 @@ MODEL_COLUMNS_ELSEWHERE = {
     "is_bookmarked": "set_bookmark(): the person's",
     "versions": "_store_versions(): every version Civitai lists",
     "versions_synced_at": "_store_versions(): when a sync wrote the list",
+    "civitai_gone_at": "set_model_gone(): a 404 for the model; any write from Civitai clears it",
 }
 
 # A version is one row, found by its Civitai id, and written only when the
@@ -347,9 +348,26 @@ class ModelsOps:
             "civitai_synced_at": now if from_civitai else None,
             "checkpoint_type": model_data.get("checkpoint_type"),
         }))
+        if from_civitai:
+            # Civitai answered with the model: whatever 404 it gave before
+            # no longer holds (#262).
+            cursor.execute("UPDATE models SET civitai_gone_at = NULL "
+                           "WHERE id = ? AND civitai_gone_at IS NOT NULL", (model_data.get("id"),))
         if model_data.get("versions"):
             self._store_versions(cursor, model_data.get("id"), model_data["versions"],
                                  from_civitai, now)
+
+    def set_model_gone(self, model_id: int) -> None:
+        """
+        Civitai answered 404 for this model (#262): a metadata sync counts its
+        files "not on Civitai" without asking about it alone again. Kept from
+        the first 404 until Civitai answers with the model - a batch, a single
+        lookup, a file found by its hashes - which Force sync asks for.
+        """
+        with self._cursor() as cursor:
+            cursor.execute("UPDATE models SET civitai_gone_at = ? "
+                           "WHERE id = ? AND civitai_gone_at IS NULL",
+                           (datetime.now().isoformat(), model_id))
 
     def store_civitai_versions(self, model_id: int, versions: List[Dict[str, Any]],
                                from_civitai: bool = False) -> bool:
@@ -838,8 +856,9 @@ class ModelsOps:
 
         Returns:
             One dict per file, each with its version id, its stored hashes,
-            when it was downloaded, and when its model was last refreshed
-            (None if never). A version with two files is in it twice.
+            when it was downloaded, when its model was last refreshed
+            (None if never), and when Civitai answered 404 for the model
+            (None if it has not). A version with two files is in it twice.
         """
         where = "v.id IS NOT NULL AND v.model_id IS NOT NULL AND v.file_path IS NOT NULL"
         params: List[Any] = []
@@ -855,7 +874,8 @@ class ModelsOps:
             cursor.execute(f"""
                 SELECT v.id, v.model_id, v.file_path, v.file_hashes,
                        v.downloaded_at,
-                       m.civitai_synced_at AS model_synced_at
+                       m.civitai_synced_at AS model_synced_at,
+                       m.civitai_gone_at AS model_gone_at
                 FROM {LIBRARY} v
                 LEFT JOIN models m ON m.id = v.model_id
                 WHERE %s
@@ -868,6 +888,7 @@ class ModelsOps:
                     "file_hashes": json.loads(row["file_hashes"]) if row["file_hashes"] else {},
                     "downloaded_at": row["downloaded_at"],
                     "model_synced_at": row["model_synced_at"],
+                    "model_gone_at": row["model_gone_at"],
                 }
                 for row in cursor.fetchall()
             ]

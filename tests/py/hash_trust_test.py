@@ -27,6 +27,7 @@ webui_stub.install()
 
 import fixtures                                          # noqa: E402
 import model_manager.db.database as dbmod                # noqa: E402
+from model_manager.civitai.client import CivitaiClient  # noqa: E402
 import model_manager.sync_service as sync_module         # noqa: E402
 from modules import paths                                # noqa: E402  (webui_stub's)
 from model_manager.architecture import Architecture     # noqa: E402
@@ -77,6 +78,9 @@ class Client:
     def get_models_by_ids(self, ids):
         self.asked.append(('models', list(ids)))
         return {i: self.models[i] for i in ids if i in self.models}
+
+    # The client's own, over the answers above (#262).
+    get_models_or_gone = CivitaiClient.get_models_or_gone
 
     def get_model_images(self, version_id, cursor=None, limit=None):
         return {'items': [], 'metadata': {}}

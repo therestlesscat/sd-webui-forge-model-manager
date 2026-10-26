@@ -39,7 +39,7 @@ from ..console import say
 
 
 # The schema this code expects. Bumping it means adding a migration.
-SCHEMA_VERSION = 45
+SCHEMA_VERSION = 46
 
 # How long a call waits for another's write before "database is locked".
 BUSY_SECONDS = 30.0
@@ -206,6 +206,10 @@ class ModelsDatabase:
                              from_civitai: bool = False):
         """Insert or update a Civitai model record. See db/models_ops.py."""
         self._models.upsert_civitai_model(model_data, from_civitai)
+
+    def set_model_gone(self, model_id: int) -> None:
+        """Civitai answered 404 for this model (#262). See db/models_ops.py."""
+        self._models.set_model_gone(model_id)
 
     def store_civitai_versions(self, model_id: int, versions: List[Dict[str, Any]],
                                from_civitai: bool = False) -> bool:

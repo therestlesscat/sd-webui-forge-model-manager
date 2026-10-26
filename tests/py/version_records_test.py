@@ -188,6 +188,9 @@ class Client(Lookup):
     def get_models_by_ids(self, ids):
         return {i: self.get_model(i) for i in ids if i in MODELS}
 
+    # The client's own, over the answers above (#262).
+    get_models_or_gone = CivitaiClient.get_models_or_gone
+
     def get_model_images(self, version_id, cursor=None, limit=None):
         return {'items': [], 'metadata': {}}
 

@@ -835,6 +835,10 @@ class _Missing:
             raise RuntimeError('Civitai is down')
         return _Missing.models.get(model_id)
 
+    # The client's own, over the answers above (#262).
+    get_models_or_gone = getattr(sys.modules['model_manager.civitai.client'].CivitaiClient,
+                                 'get_models_or_gone', None)
+
     def get_model_version(self, version_id):
         _Missing.asked.append(('version', version_id))
         return _Missing.versions.get(version_id)
