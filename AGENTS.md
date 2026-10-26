@@ -633,6 +633,12 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   live check that does not reproduce the failure shows the change runs, not
   that it fixes: #213's uncapped run loaded 763 images of 763. Say so in
   the commit, and ask for the observation that would settle it.
+- **A file Civitai should not know has a byte changed inside AutoV1's
+  window.** AutoV1 hashes the 64 KB at 1 MB (`hashing.py`), and Civitai is
+  asked with it when the SHA-256 misses. #350's live check appended a byte
+  to a copy of a LoRA, and the sync still found the original "via AUTOV1";
+  a byte flipped at `0x100010`, in a file over 1.1 MB, made the copy
+  unknown.
 - **Reproduce the slow case.** Fast's break of the 64-at-once cap did not
   show while Civitai had its copies ready: 3 in flight at most. Each Civitai
   answer held 2 s in the test browser (`page.route`) showed 214. A check of a
@@ -853,6 +859,14 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   Apply and restart UI can. Debug code goes in from a file and is parsed
   before the restart: a heredoc turned a `\n` inside a string into a
   newline, and 7880's extension failed to load (#299).
+- **The extension's Restart keeps the arguments the WebUI started with.**
+  Neo's restart writes `tmp/restart` and exits (`modules/restart.py`), and
+  `webui.bat` launches again from its own `:launch`, in the same window:
+  `webui-user.bat` is not read again. In #348, 7880's start arguments lost
+  their three shared folders, and after a Restart the new process still
+  listed `--vae-dirs`, `--text-encoder-dirs` and `--esrgan-models-path` in
+  `path_roots`. A change to the arguments needs a real stop and start, and
+  `path_roots` read after it.
 - WSL's git reads a Windows checkout's line endings as changes: 7880's clone
   showed 318 files modified, and 0 with `-c core.autocrlf=true` or Windows'
   `git.exe`. Ask the latter before calling a clone dirty.

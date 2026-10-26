@@ -186,6 +186,10 @@ ran first: the viewer, which closes on Send, closes once the click is done.
   into one visible row's label, measured and put back covered all 62 without
   changing a setting (#346: 416 px at most, against a 547 px column at a
   1024 px screen).
+- **Send's notices stay 12 s** (`.mm-notice`, `showNotice` in
+  `shared/send.mjs`). A check that sends again sooner and reads the newest
+  notice reads the previous Send's: in the rc test of 0.68.10, Clip skip's
+  notices came one Send behind until the check waited for the old one to go.
 
 ## Kept elsewhere, and true here too
 
