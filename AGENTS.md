@@ -229,7 +229,12 @@ the code (2026-10-16).
   #34 chose keeping the press's inputs because Load to UI "already" set
   canvases back, never tried for img2img; a side agent flagged it, and a
   check on 7880 saw it work - and found Load to UI showing img2img's plain
-  mode while the mode Forge reads said Inpaint.
+  mode while the mode Forge reads said Inpaint. So is what a route takes,
+  against what reaches the outside: #341's survey said the Civitai Browser
+  could already search several types, read from its route's comma split; the
+  client joined them with commas, which Civitai refuses (a `ZodError`), and
+  answers two base models with no model at all. A request to Civitai settled
+  it.
 - **An approved check is never weakened in code.** v37's plan said the
   files each image used must come out of the migration the same set as
   `generation_files`; it was written as a subset - every old row found,
