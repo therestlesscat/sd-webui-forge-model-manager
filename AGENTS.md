@@ -116,9 +116,14 @@ the code (2026-10-16).
   account or user name - and a path in it starts inside a WebUI's folder
   (`models\ESRGAN`), the WebUI named in words ("Neo's own"), never a drive
   or the folder a WebUI is installed in. It is posted only once the owner
-  has seen its text and said yes. A change to the plan found while
-  building goes in a second comment, saying what changed - never an edit
-  of the first (#179). Two issues folded into one plan get one comment, on
+  has seen its text and said yes. Its text is written first into a tab of
+  the plan doc of its own, named Final - the questions as a Decided list,
+  no rounds line, no ports - and read there before posting; a second
+  comment gets a tab too. On #355 it went to a scratch file, and the
+  owner: "lets always write final doc in new tab. as we did before."
+  (2026-10-27). A round of changes is still never a tab. A change to the
+  plan found while building goes in a second comment, saying what
+  changed - never an edit of the first (#179). Two issues folded into one plan get one comment, on
   the first: #197's for #198, #105's for #107. Work with no issue - a fix a
   check turned up - gets one before its plan is posted: 0.58.3's build began
   before #246 existed, and the owner asked "where's issue and plan in it?"
@@ -867,8 +872,12 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   newline, and 7880's extension failed to load (#299). It is started with
   the original Forge's model folders shared (#348): a sync there writes
   `.civitai.info` beside its files in those folders - 51 of its identified
-  files on 2026-10-26. A live check scopes its sync to 7880's own folders
-  (`paths`).
+  files on 2026-10-26. A sync from the dialog walks every folder it was
+  given and identifies any file never asked about, whatever its scope
+  (`sync_metadata`), so before a live check's sync,
+  `/model-manager/sync/new-files` must answer 0 and ui-options'
+  `path_roots` must list only 7880's own folder - both were so on
+  2026-10-27. `paths` is gone since 0.69.2 (#355).
 - **The extension's Restart keeps the arguments the WebUI started with.**
   Neo's restart writes `tmp/restart` and exits (`modules/restart.py`), and
   `webui.bat` launches again from its own `:launch`, in the same window:

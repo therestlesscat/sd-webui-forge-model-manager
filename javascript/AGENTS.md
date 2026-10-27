@@ -49,6 +49,15 @@ click in the capture phase. An action runs as the click reaches the
 document, after anything around its element has heard it - an inline handler
 ran first: the viewer, which closes on Send, closes once the click is done.
 
+**A request names what the person picked, never what the server handed the
+page.** The sync dialog fetched the files its filters select
+(`/models?paths_only`), then sent them back comma-joined to the sync and its
+cost: a comma in a path cut the file out, and a long list broke the address
+(#355). It now sends the filters, `scope=results`, read by `grid_filters`; a
+model's Sync sends its id, and the server finds the files. The owner, on the
+plan: "all information are calculated in the server, why does client has to
+send this info back?"
+
 ## The WebUI's rules, which are not obvious
 
 - **Esc that reaches the page interrupts a generation.** The WebUI's
