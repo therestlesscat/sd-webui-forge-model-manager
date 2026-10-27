@@ -49,8 +49,8 @@ the code (2026-10-16).
   Each choice goes to the owner as a numbered question with a
   recommendation. Code starts on an explicit yes to that plan, and anything
   found later that changes it goes back as a plan. Answered questions are not
-  that yes: the answers go into a revision tab and the Final tab, then the
-  owner is asked, in one message, to post the Final on its issue and to start
+  that yes: the answers go into the doc, in one write, then the owner is
+  asked, in one message, to post the doc on its issue and to start
   building. #279 (0.59.3) was built the turn its answers came: "why didnt you
   ask to post before and ask to start building" (2026-10-15). #287's build
   changed a rule mid-way - a paused queue no longer stopped a compact - and
@@ -87,33 +87,29 @@ the code (2026-10-16).
   both WebUIs. #214's on-site-only plan recommended remembering Civitai's
   answer for five minutes with neither, and the owner had to ask how
   complex it was (2026-10-10).
-- **A Final tab holds the whole merged plan**, never a pointer to the main
-  tab: #220's was first written as one, and refilled.
-- **A plan doc keeps its first draft; each round of changes is a tab.**
-  Nothing in a plan doc is deleted: what a decision removes is crossed
-  out where it stands (2026-10-10). What a round of discussion adds - one
-  batch of comments answered, one side note acted on - goes in a tab of
-  its own under the plan (R2, R3, ...), holding only that round: what
-  prompted it, quoted; where it changes the plan; the new material. The
-  plan links its tab at each place a change applies, beside the words it
-  strikes, and a line under the byline lists every tab. #214 part 5's
-  changes were first written into the plan, highlighted and tagged by
-  round; the owner found it "still hard to understand and catch quickly"
-  (2026-10-11). The plan always ends with its questions, numbered, each
-  with its recommendation - a revision tab's too, linked to the tab that
-  argues it, and added in the same turn - so every open decision is in one
-  place. In that doc the questions sat before "What else", and three the
-  revision tabs raised were in no list. A revision that changes a decision
-  strikes or rewords, in the same turn, every question and draft line it
-  makes stale: part 6's R4 replaced watched folders with a Sync button,
-  and left "watched folders" in two questions and "Add a folder" in the
-  draft's steps until the owner asked.
+- **A plan doc is edited in place; each round of changes is one write.**
+  The doc always holds the plan as it stands. What a round changes is
+  changed where it stands - not struck, boxed or put in a tab - and the
+  doc's Version history (its name menu) keeps every round and what it
+  removed. A round's edits go in one update, made after the owner's last
+  read: writes made back to back in one sitting showed as one item in the
+  history, and one made after the owner's read as its own (#262,
+  2026-10-27). A line under the byline names each round and what prompted
+  it. Three other ways failed: highlights tagged by round, "still hard to
+  understand and catch quickly" (#214, 2026-10-11); a tab per round, away
+  from the words it changes; coloured boxes in the doc, tables to resize,
+  and changes in a row each a box of their own (#262, 2026-10-26). The plan
+  always ends with its questions, numbered, each with its recommendation
+  and, once given, its answer beside it, so every open decision is in one
+  place. A round that changes a decision rewords, in the same write, every
+  question and draft line it makes stale: #214 part 6's R4 replaced watched
+  folders with a Sync button, and left "watched folders" in two questions
+  and "Add a folder" in the draft's steps until the owner asked.
 - **An approved plan goes on its issue.** Once a plan is approved to be
   built, it is posted as a comment on the related GitHub issue, so the
-  issue keeps the record of what was decided. It is the doc's Final tab -
-  the first draft and every revision tab merged, every answer applied,
-  nothing struck - in markdown, its headings, tables and code kept, never
-  flattened to plain text. Issues it depends on are created first and
+  issue keeps the record of what was decided. It is the doc as it stands,
+  every answer applied - in markdown, its headings, tables and code kept,
+  never flattened to plain text. Issues it depends on are created first and
   named at its top; follow-ups go under "Not in this issue" (#233, with
   #231 before it and #232 after, 2026-10-11). The repository is public:
   the comment holds no personal information - no one's name, email,
