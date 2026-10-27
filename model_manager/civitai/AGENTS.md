@@ -28,16 +28,19 @@ because that would mean the assumption no longer holds.
   139 and 58 of 58 versions on two models, the same as `/models/{id}` and as
   a sync's stored list (2026-10-16). A card can be judged from the search
   answer alone (#218).
-- **Civitai's `nsfw` search parameter has two states, not three, and
-  neither is "every model".** `true` leaves out the models Civitai marks
-  `minor` (4 of 4 seen); left out, or `false`, it returns only models whose
+- **Civitai's `nsfw` search parameter has two states, not three, and neither
+  is "every model".** `true` leaves out models Civitai keeps out of its NSFW
+  lists (4 of 4 seen); left out, or `false`, it returns only models whose
   `nsfwLevel` has the PG bit (56 of 100 random models, every level odd),
   whatever their `nsfw` flag - not "the safe ones alone", as this said. There
   is no "NSFW only". A batch by `ids` also leaves out some models for no known
-  reason: absent is not deleted, only a 404 from `/models/<id>` is (#262). The
-  same with an API key and without; rapid single lookups get 429 after about
-  30. Every model payload carries `nsfw` (300 of 300); a thin sidecar may not
-  (8 of 1,032 here), and the flag is then stored as not said (#141).
+  reason: absent is not deleted, only a 404 from `/models/<id>` is (#262).
+  Which existing models a batch leaves out changes from moment to moment: one
+  library's 130, asked in batches of 100 and 30, lost 31 (30 of them
+  existing), and 20 minutes later only the 1 deleted one, with an API key and
+  without (#262). Rapid single lookups get 429 after about 30. Every model
+  payload carries `nsfw` (300 of 300); a thin sidecar may not (8 of 1,032
+  here), and the flag is then stored as not said (#141).
 - **Every `CivitaiClient.from_settings()` opens a new `requests.Session`**, so
   its first request pays a new connection: `/models/{id}` took a median of 333
   to 340 ms with a new one, 63 ms with one reused - the same ten models, timed

@@ -150,6 +150,10 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   now (acorn, #116), and a name has to be created where it is used: its
   function, a block around it, or the file. Its other checks still read the
   text.
+- **A client method made of the client's own calls is given to the fakes as
+  it is** (`get_models_or_gone = CivitaiClient.get_models_or_gone`), so
+  suites run the real logic over the fake's answers. 11 fakes needed it for
+  #262; a stub per fake would copy the rule 11 times.
 
 ### The environment
 

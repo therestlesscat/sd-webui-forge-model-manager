@@ -212,7 +212,12 @@ the code (2026-10-16).
   data's size. Nor a CSS class: #217's Search modifier was
   first `filter-group-half`, already the Tag group's (`max-width: 50%`), and
   Search stopped at half the row until a headless probe measured it. Grep
-  `style.css` and the markup for a new class first.
+  `style.css` and the markup for a new class first. Nor what a column
+  means, from its name: #262's plan read `files.civitai_lookup_failed_at` on
+  a linked file as "its model is deleted". It is set on any failed lookup by
+  hash, and before 0.48.3 Scan Disk linked files from their sidecars alone:
+  3 of the 13 models linked to such files exist on Civitai. Read every
+  writer and its history (`git log -S`) first.
 - **Verify before asserting, especially about your own effects.** "I only work
   on copies" was said in this repository while a test was overwriting 747 real
   sidecars and applying migrations to the live database. If you have not
@@ -859,7 +864,11 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   `/model-manager/restart` is its own route - but Forge's Extensions ->
   Apply and restart UI can. Debug code goes in from a file and is parsed
   before the restart: a heredoc turned a `\n` inside a string into a
-  newline, and 7880's extension failed to load (#299).
+  newline, and 7880's extension failed to load (#299). It is started with
+  the original Forge's model folders shared (#348): a sync there writes
+  `.civitai.info` beside its files in those folders - 51 of its identified
+  files on 2026-10-26. A live check scopes its sync to 7880's own folders
+  (`paths`).
 - **The extension's Restart keeps the arguments the WebUI started with.**
   Neo's restart writes `tmp/restart` and exits (`modules/restart.py`), and
   `webui.bat` launches again from its own `:launch`, in the same window:

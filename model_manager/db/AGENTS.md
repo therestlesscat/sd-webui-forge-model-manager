@@ -209,6 +209,13 @@ the lookup and the write leaves a row naming nothing.
   (`migration_v42_test`: four times the images, under six times SQLite's
   virtual machine steps); the live library migrated in 13.0 s, 117,142
   images.
+- **A migration meets databases it was not written for.** Suites build
+  partial ones: `image_galleries_test` has no `models` table, and v46's
+  `ALTER TABLE` raised there until it checked. An older migration's suite
+  migrates to `SCHEMA_VERSION`, not to its own version:
+  `generation_inputs_test`'s "every other table as it was" broke on v46's new
+  column, the first later migration to change a table. Its dump now lists
+  what later migrations add (#262).
 
 ### The data
 
