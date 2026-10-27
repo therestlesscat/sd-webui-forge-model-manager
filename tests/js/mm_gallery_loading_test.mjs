@@ -157,7 +157,9 @@ check('Sync asks how many images come back, each way costed, as many as each has
       [choice('kept')?.checked, Array.from(question().querySelectorAll('.mm-dialog-cost')).map((c) => c.textContent),
        question().querySelector('[data-value="true"]')?.textContent.trim()],
       [true, ['~16 req', '~5 req'], 'Sync']);
-check('over the model\'s files', estimates.at(-1)?.get('paths'), 'C:/m/a.safetensors');
+// By the model, as its Sync goes: the server reads its files (#355).
+check('over the model\'s files, by its id and no path',
+      [estimates.at(-1)?.get('model_id'), estimates.at(-1)?.has('paths')], ['4001', false]);
 check('saying the images may not be these, and deleting nothing',
       [said().includes('won\'t necessarily be the ones you have now'), said().includes('deletes')], [true, false]);
 choice('first').checked = true;

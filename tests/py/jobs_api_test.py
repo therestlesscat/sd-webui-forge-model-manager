@@ -57,8 +57,8 @@ setup_api(app)
 client = TestClient(app)
 
 
-def post(url, **data):
-    r = client.post(url, data=data)
+def post(url, params=None, **data):
+    r = client.post(url, data=data, params=params)
     return r.status_code, r.json()
 
 
@@ -137,7 +137,7 @@ check('a sync starts', (status, body['success']), (200, True))
 check('and says so', body['message'], 'Sync started')
 name, asked = Job.asked[0]
 check('it is the hashing sync that runs', name, 'sync_all')
-check('over everything by default', asked['model_paths'], None)
+check('over everything by default: it names no files', 'model_paths' in asked, False)
 check('without forcing', asked['force'], False)
 check('and targeting all of them', asked['targets'], 'all')
 check('its walk reading headers only for new or changed files, and moving nothing',
@@ -175,11 +175,13 @@ finished()
 check('a set nobody offers falls back to all', Job.asked[0][1]['targets'], 'all')
 check('and does not force', Job.asked[0][1]['force'], False)
 
+# A page loaded before #355 names files by path, comma-joined: cut at a
+# comma in a name. Ignored, its scoped sync would run over every file.
+OLD_PAGE = (400, {'success': False, 'error': 'This page is older than the extension: reload it.'})
 reset()
-post('/model-manager/sync', paths=' a.safetensors , b.safetensors ,, ')
-finished()
-check('the path list is split and trimmed',
-      Job.asked[0][1]['model_paths'], ['a.safetensors', 'b.safetensors'])
+check('a sync naming files by path is refused, saying to reload',
+      post('/model-manager/sync', paths='a.safetensors,b.safetensors'), OLD_PAGE)
+check('and nothing runs', Job.asked, [])
 
 # --------------------------------------------------------- one sync at a time
 hold = reset(hold=True)
@@ -251,11 +253,42 @@ check('and so does a download window', bool(asked['downloaded_after']), True)
 check('the older window is the earlier date',
       asked['downloaded_after'] < asked['synced_before'], True)
 
+# "These results" (#355): the page sends the grid's filters, in the address
+# as the grid is asked, and the server finds the files - one whose path holds
+# a comma among them, which a comma-joined list cut in two.
+import sqlite3                                           # noqa: E402
+LORA = facts['lora_ids'][0]
+lora_path = [path for path in facts['linked_paths'] if '_%d_' % LORA in path][0]
+comma_path = lora_path.replace('.safetensors', ', v2.safetensors')
+os.rename(lora_path, comma_path)
+with sqlite3.connect(facts['db_path']) as raw:
+    raw.execute("UPDATE files SET file_path = ? WHERE file_path = ?", (comma_path, lora_path))
+FILTERS = {'search': 'Model %d' % LORA, 'type': '', 'sort_by': 'name'}
+results = get('/model-manager/models', paths_only='true', **FILTERS)[1]['paths']
+check('the filters select the file whose path holds a comma', results, [comma_path])
+
 reset()
-post('/model-manager/sync/metadata', paths='x.safetensors')
+status, body = post('/model-manager/sync/metadata', params=FILTERS, scope='results')
 finished()
-check('paths reach the metadata sync too',
-      Job.asked[0][1]['model_paths'], ['x.safetensors'])
+check('a sync of these results starts', (status, body['success']), (200, True))
+check('over exactly the files the filters select, the comma path whole',
+      Job.asked[0][1]['model_paths'], results)
+
+reset()
+post('/model-manager/sync/metadata', params={'search': 'no such model'}, scope='results')
+finished()
+check('results that select nothing sync nothing, not every file',
+      Job.asked[0][1]['model_paths'], [])
+
+reset()
+post('/model-manager/sync/metadata', params=FILTERS)
+finished()
+check('the filters alone, without the scope, leave every file', Job.asked[0][1]['model_paths'], None)
+
+reset()
+check('a metadata sync naming files by path is refused, saying to reload',
+      post('/model-manager/sync/metadata', paths=comma_path), OLD_PAGE)
+check('and nothing runs', Job.asked, [])
 
 hold = reset(hold=True)
 post('/model-manager/sync/metadata')
@@ -313,9 +346,17 @@ check('costed against the images that are actually there',
       with_prompts['estimate']['images'],
       fixtures.LINKED_VERSIONS * fixtures.IMAGES_PER_VERSION)
 
-status, narrow = get('/model-manager/sync/estimate',
-                     paths=facts['linked_paths'][0])
-check('naming one path costs one version', narrow['estimate']['versions'], 1)
+status, narrow = get('/model-manager/sync/estimate', scope='results', **FILTERS)
+check('these results cost their own version, the comma path\'s',
+      (narrow['estimate']['versions'], narrow['estimate']['models']), (1, 1))
+
+two_files = facts['checkpoint_ids'][0]
+status, one_model = get('/model-manager/sync/estimate', model_id=two_files)
+check('a model\'s Sync costs that model\'s files, both of them',
+      (one_model['estimate']['versions'], one_model['estimate']['models']), (2, 1))
+
+check('an estimate naming files by path is refused, saying to reload',
+      get('/model-manager/sync/estimate', paths=facts['linked_paths'][0]), OLD_PAGE)
 
 status, stale = get('/model-manager/sync/estimate', stale_days=1)
 check('a staleness window can only narrow it',

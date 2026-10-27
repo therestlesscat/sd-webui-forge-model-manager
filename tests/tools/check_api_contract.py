@@ -27,8 +27,31 @@ def fail(m):
 
 # --- what the endpoints accept ---------------------------------------------
 endpoints = {}
-for path in ('model_manager/api/jobs.py', 'model_manager/api/models.py'):
-    tree = ast.parse(io.open(path, encoding='utf-8').read())
+trees = [ast.parse(io.open(path, encoding='utf-8').read())
+         for path in ('model_manager/api/jobs.py', 'model_manager/api/models.py')]
+# The grid's filters, which a route takes as one dependency (#355): its names
+# are the route's.
+grid_filters = {a.arg for tree in trees for node in ast.walk(tree)
+                if isinstance(node, ast.FunctionDef) and node.name == 'grid_filters'
+                for a in node.args.args}
+
+
+def taken(node):
+    """A route's parameter names, a Depends(grid_filters) read as its filters."""
+    args = node.args.args + node.args.kwonlyargs
+    defaults = [None] * (len(node.args.args) - len(node.args.defaults)) + node.args.defaults \
+        + node.args.kw_defaults
+    names = set()
+    for arg, default in zip(args, defaults):
+        if (isinstance(default, ast.Call) and getattr(default.func, 'id', None) == 'Depends'
+                and default.args and getattr(default.args[0], 'id', None) == 'grid_filters'):
+            names |= grid_filters
+        else:
+            names.add(arg.arg)
+    return names
+
+
+for tree in trees:
     for node in ast.walk(tree):
         # Plain def or async: a handler that waits on the database or disk is
         # a plain def, which FastAPI runs off the event loop (#80).
@@ -39,8 +62,7 @@ for path in ('model_manager/api/jobs.py', 'model_manager/api/models.py'):
                 continue
             route = dec.args[0].value
             method = dec.func.attr.upper() if isinstance(dec.func, ast.Attribute) else '?'
-            names = {a.arg for a in node.args.args} | {a.arg for a in node.args.kwonlyargs}
-            endpoints[(method, route)] = names
+            endpoints[(method, route)] = taken(node)
 
 print('--- endpoints found ---')
 for (method, route), names in sorted(endpoints.items()):
@@ -74,7 +96,7 @@ if not m:
     fail('could not find the estimate params in the JS')
 else:
     sent = set(re.findall(r'(\w+):\s', m.group(1)))
-    sent.add('paths')            # added conditionally, just below
+    sent.add('scope')            # added with the filters, just below
     accepted = endpoints.get(('GET', '/model-manager/sync/estimate'), set())
     print('   sends   : %s' % ', '.join(sorted(sent)))
     print('   accepts : %s' % ', '.join(sorted(accepted)))
@@ -82,7 +104,7 @@ else:
         fail('JS asks /sync/estimate for "%s", which it does not accept' % key)
 
 print('\n--- the paths_only request ---')
-if 'filters.paths_only = true' not in js:
+if 'paths_only: true' not in js:
     fail('the JS no longer sets paths_only')
 elif 'paths_only' not in endpoints.get(('GET', '/model-manager/models'), set()):
     fail('/model-manager/models does not accept paths_only')

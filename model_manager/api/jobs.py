@@ -7,16 +7,17 @@ progress until it finishes or is cancelled. Which job runs, and how far along
 it is, is model_manager.jobs': both are the "sync", one at a time.
 """
 from typing import Any, Optional
-from fastapi import FastAPI, Form
+from fastapi import Depends, FastAPI, Form
 from fastapi.responses import JSONResponse
 
-from ..db import get_models_db
+from ..db import GridQuery, get_models_db
 from ..jobs import jobs
 from ..model_dirs import misplaced_files
 from ..sync_estimates import (estimate_metadata_sync, files_to_hash, gallery_refresh_options,
                               sync_window_counts, window_cutoff)
 from ..sync_service import SyncService
 from .common import failed, gate
+from .models import filter_files, grid_filters
 from .. import console
 from ..console import say
 
@@ -53,6 +54,22 @@ def _yes(value: Any) -> bool:
     return str(value).lower() in ("true", "1", "yes")
 
 
+def _old_page() -> JSONResponse:
+    """
+    The answer to a request naming files by path. The page names what was
+    picked instead - the grid's filters, a model's id (#355) - and a page
+    loaded before that sends paths: ignored, its scoped sync would run over
+    every file.
+    """
+    return JSONResponse({"success": False, "error": "This page is older than the extension: reload it."},
+                        status_code=400)
+
+
+def _scoped(scope: str) -> bool:
+    """A sync or an estimate over "these results": the grid's filters' files."""
+    return scope == "results"
+
+
 def register(app: FastAPI):
     """Attach this module's endpoints to the app."""
     @app.post("/model-manager/sync")
@@ -60,7 +77,7 @@ def register(app: FastAPI):
     async def start_sync(
         force: str = Form(default="false"),  # Form data comes as string
         targets: str = Form(default="all"),
-        paths: str = Form(default=""),  # Comma-separated paths, empty = all models
+        paths: str = Form(default=""),  # Refused: see _old_page
         keep_image_count: str = Form(default="false"),
         reread_headers: str = Form(default="false"),
         move_misplaced: str = Form(default="false"),
@@ -73,7 +90,7 @@ def register(app: FastAPI):
             targets: "all", "identified", or "unidentified" - which of the
                 files on disk to work on. Anything but "all" implies force,
                 since picking a set is the point of asking.
-            paths: Comma-separated model paths, or empty for all.
+            paths: Refused (_old_page): a sync names its files by `targets`.
             keep_image_count: "true" to refetch as many images as each
                 gallery has stored, rather than its first page (#103).
             reread_headers: "true" to read every file's header again in the
@@ -84,6 +101,8 @@ def register(app: FastAPI):
 
         Returns immediately. Poll /model-manager/sync/progress for status.
         """
+        if paths:
+            return _old_page()
         # Parse force as boolean (form data sends strings)
         target_set = targets if targets in ("all", "identified", "unidentified") else "all"
         # Choosing a set is itself a request to re-read them, so it forces.
@@ -91,12 +110,8 @@ def register(app: FastAPI):
                       or target_set != "all")
         say(f"Sync requested: targets={target_set} force={force_bool}")
 
-        model_paths = None
-        if paths:
-            model_paths = [p.strip() for p in paths.split(",") if p.strip()]
-
         return _start("sync", SyncService,
-                      lambda sync: sync.sync_all(model_paths=model_paths, force=force_bool,
+                      lambda sync: sync.sync_all(force=force_bool,
                                                  targets=target_set,
                                                  keep_image_count=_yes(keep_image_count),
                                                  reread_headers=_yes(reread_headers),
@@ -110,7 +125,9 @@ def register(app: FastAPI):
         include_prompts: str = Form(default="true"),
         stale_days: int = Form(default=0),
         downloaded_days: int = Form(default=0),
-        paths: str = Form(default=""),  # Comma-separated paths, empty = all models
+        scope: str = Form(default=""),
+        grid: GridQuery = Depends(grid_filters),
+        paths: str = Form(default=""),  # Refused: see _old_page
         keep_image_count: str = Form(default="false"),
         reread_headers: str = Form(default="false"),
         move_misplaced: str = Form(default="false"),
@@ -132,7 +149,10 @@ def register(app: FastAPI):
                 days. 0 means every model, however recently it was refreshed.
             downloaded_days: Only versions downloaded within this many days.
                 0 means every version, however long ago it arrived.
-            paths: Comma-separated model paths, or empty for all.
+            scope: "results" for the files the grid's filters select - the
+                filters in the address, as the grid is asked (`grid_filters`)
+                - read on the sync's own thread; else every file.
+            paths: Refused (_old_page).
             keep_image_count: With images, "true" to refetch as many as each
                 gallery has stored, rather than its first page (#103).
             reread_headers, move_misplaced: the walk's, as /model-manager/sync.
@@ -142,17 +162,17 @@ def register(app: FastAPI):
         Shares the progress and cancel endpoints with the full sync. Returns
         immediately; poll /model-manager/sync/progress.
         """
+        if paths:
+            return _old_page()
         with_images = str(include_images).lower() in ('true', '1', 'yes')
         with_prompts = str(include_prompts).lower() in ('true', '1', 'yes')
         synced_before = window_cutoff(stale_days) if stale_days > 0 else None
         downloaded_after = window_cutoff(downloaded_days) if downloaded_days > 0 else None
-
-        model_paths = None
-        if paths:
-            model_paths = [p.strip() for p in paths.split(",") if p.strip()]
+        scoped = _scoped(scope)
 
         return _start("sync", SyncService,
-                      lambda sync: sync.sync_metadata(model_paths=model_paths,
+                      lambda sync: sync.sync_metadata(model_paths=(filter_files(get_models_db(), grid)[0]
+                                                                   if scoped else None),
                                                       include_images=with_images,
                                                       include_prompts=with_prompts,
                                                       synced_before=synced_before,
@@ -169,7 +189,10 @@ def register(app: FastAPI):
         include_prompts: str = "true",
         stale_days: int = 0,
         downloaded_days: int = 0,
-        paths: str = "",
+        scope: str = "",
+        grid: GridQuery = Depends(grid_filters),
+        model_id: Optional[int] = None,
+        paths: str = "",  # Refused: see _old_page
         keep_image_count: str = "false",
         force_mode: str = "",
     ):
@@ -186,11 +209,24 @@ def register(app: FastAPI):
         `force_mode` - all, identified, unidentified - costs a force sync's
         galleries instead (`force_images`): its files are counted, not its
         requests, but either way of refetching the images is (#103).
+
+        Over the files the grid's filters select with `scope` "results", as
+        the sync it costs; over a model's local files with `model_id` - those
+        /models/force-sync refreshes, by the same read; else every file.
         """
+        if paths:
+            return _old_page()
         try:
             with_images = str(include_images).lower() in ('true', '1', 'yes')
             with_prompts = str(include_prompts).lower() in ('true', '1', 'yes')
-            model_paths = [p.strip() for p in paths.split(",") if p.strip()] if paths else None
+            db = get_models_db()
+            if _scoped(scope):
+                model_paths = filter_files(db, grid)[0]
+            elif model_id is not None:
+                model_paths = [v["file_path"] for v in db.get_versions_for_model(model_id)
+                               if v.get("file_path")]
+            else:
+                model_paths = None
 
             estimate = estimate_metadata_sync(
                 model_paths=model_paths,

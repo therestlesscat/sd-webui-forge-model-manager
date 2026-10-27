@@ -1714,9 +1714,8 @@ async function forceSyncModel() {
     // model's files (#103): the first page deletes the images stored past it.
     let options = null;
     try {
-        const paths = currentVersions.map((v) => v.file_path).filter(Boolean);
         const costs = await apiCall({ endpoint: '/model-manager/sync/estimate', params: {
-            include_images: true, include_prompts: true, paths: (paths.length ? paths : [model.file_path]).join(',') } });
+            include_images: true, include_prompts: true, model_id: modelId } });
         options = costs?.success ? costs.estimate?.image_options : null;
     } catch (error) {
         console.error('[ModelManager] Sync estimate failed:', error);

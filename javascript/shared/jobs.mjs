@@ -12,7 +12,7 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { TIMING, apiCall, escapeHtml, formatBytes, setText } = await shared('core.mjs');
+const { TIMING, apiCall, apiUrl, escapeHtml, formatBytes, setText } = await shared('core.mjs');
 const { refreshWebUiModelLists } = await shared('forge.mjs');
 
 /** A sync that changed files refreshes Forge's lists in line (#321): through forge.mjs. */
@@ -250,7 +250,8 @@ async function cancelSync() {
 // batching, so the figure cannot drift from what actually happens.
 
 let syncEstimateTimer = null;
-let syncResultPaths = null;     // resolved lazily, for the "these results" scope
+let syncResultFilters = null;   // the filter bar as the dialog opened, for the "these results" scope
+let syncResultPaths = null;     // resolved lazily, for that scope's count
 let syncDepthBeforeRehash = null;   // restored when the scope leaves "force"
 let syncImagesWereOn = false;       // to tell "just switched on" from "still on"
 let syncUnidentified = null;        // {unidentified, never_asked, asked_not_found, identified}
@@ -356,12 +357,19 @@ function syncDialogChoice() {
     };
 }
 
-/** The file paths the filter bar currently selects, fetched once per opening. */
+/**
+ * "These results": the filter bar as it stood when the dialog opened, which
+ * the cost and the sync both send - the server finds the files (#355).
+ */
+function resultFilters() {
+    if (!syncResultFilters) syncResultFilters = getFilters();
+    return syncResultFilters;
+}
+
+/** The file paths those filters select, fetched once per opening: the scope's count. */
 async function resolveResultPaths() {
     if (syncResultPaths) return syncResultPaths;
-    const filters = getFilters();
-    filters.paths_only = true;
-    const data = await apiCall({ endpoint: '/model-manager/models', params: filters });
+    const data = await apiCall({ endpoint: '/model-manager/models', params: { ...resultFilters(), paths_only: true } });
     syncResultPaths = (data && data.success) ? (data.paths || []) : [];
     return syncResultPaths;
 }
@@ -408,9 +416,7 @@ function refreshSyncEstimate() {
                 stale_days: choice.staleDays,
                 downloaded_days: choice.downloadedDays,
             };
-            if (choice.scope === 'results') {
-                params.paths = (await resolveResultPaths()).join(',');
-            }
+            if (choice.scope === 'results') Object.assign(params, resultFilters(), { scope: 'results' });
             const data = await apiCall({ endpoint: '/model-manager/sync/estimate', params });
             if (!data || !data.success) return;
 
@@ -635,6 +641,7 @@ let syncWindow = null;
 
 function openSyncDialog() {
     if (isSyncing) return;
+    syncResultFilters = null;
     syncResultPaths = null;
     const dialog = document.getElementById('mm_sync_dialog');
     if (!dialog) return;
@@ -692,21 +699,20 @@ async function startSyncFromDialog() {
         return;
     }
 
-    const paths = choice.scope === 'results' ? await resolveResultPaths() : null;
     startMetadataSync({
         includeImages: choice.images,
         includePrompts: choice.images && choice.prompts,
         keepImageCount: choice.keepImageCount,
         staleDays: choice.staleDays,
         downloadedDays: choice.downloadedDays,
-        paths,
+        filters: choice.scope === 'results' ? resultFilters() : null,
         ...walk,
     });
 }
 
 async function startMetadataSync({ includeImages = false, includePrompts = true, keepImageCount = false,
                                    staleDays = 0, downloadedDays = 0,
-                                   paths = null, rereadHeaders = false, moveMisplaced = false } = {}) {
+                                   filters = null, rereadHeaders = false, moveMisplaced = false } = {}) {
     if (isSyncing) return;
 
     isSyncing = true;
@@ -725,9 +731,10 @@ async function startMetadataSync({ includeImages = false, includePrompts = true,
             reread_headers: String(rereadHeaders),
             move_misplaced: String(moveMisplaced),
         });
-        if (paths && paths.length) body.set('paths', paths.join(','));
+        // The grid's filters go in the address, as the grid's own request sends them.
+        if (filters) body.set('scope', 'results');
 
-        const response = await fetch('/model-manager/sync/metadata', {
+        const response = await fetch(apiUrl('/model-manager/sync/metadata', filters || {}), {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: body.toString()

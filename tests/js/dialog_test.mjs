@@ -110,6 +110,7 @@ Object.defineProperty(inputProto, 'checked', {
 // --- the server, as far as the dialog is concerned --------------------------
 const posts = [];
 let lastEstimateQuery = null;
+let resultsQuery = null;        // the filters the dialog read "these results" with
 
 const ESTIMATE = {
     success: true,
@@ -214,8 +215,10 @@ globalThis.fetch = async (url, init = {}) => {
     if (href.includes('/model-manager/models')) {
         const params = new URL(href).searchParams;
         if (params.get('paths_only')) {
+            resultsQuery = params;
+            // A comma in each, which a comma-joined list cut in two (#355).
             return { ok: true, json: async () => ({ success: true, models: 47,
-                paths: Array.from({ length: 47 }, (_, i) => `C:/models/m${i}.safetensors`) }) };
+                paths: Array.from({ length: 47 }, (_, i) => `C:/models/m${i}, v2.safetensors`) }) };
         }
         return { ok: true, json: async () => ({
             success: true, total: 47, page: 1, page_size: 10,
@@ -546,8 +549,14 @@ check('and counts it without being picked', $('mm_scope_results').textContent, '
 resultsRadio.checked = true;
 change(resultsRadio);
 await estimated('the estimate of the results');
-check('and passes them to the estimate',
-    lastEstimateQuery.get('paths').split(',').length, 47);
+// The page sends the filters it counted the results with, and the server
+// finds the files: no list of paths (#355).
+const filtersOf = (query) => [...query].filter(([key]) => key !== 'paths_only');
+check('the estimate is asked for these results', lastEstimateQuery.get('scope'), 'results');
+check('by the filters they were counted with',
+    filtersOf(resultsQuery).every(([key, value]) => lastEstimateQuery.get(key) === value), true);
+check('which are the grid\'s', resultsQuery.get('type'), 'Checkpoint');
+check('and names no file', lastEstimateQuery.has('paths'), false);
 
 // Start sends exactly what was chosen
 click('mm_sync_dialog_start');
@@ -557,11 +566,15 @@ await waitFor('the sync to be posted', () => posts.length > 0);
 check('dialog closes on start', $('mm_sync_dialog').open, false);
 check('one request was posted', posts.length, 1);
 const body = new URLSearchParams(posts[0].body);
-check('posted to the metadata sync', posts[0].url, '/model-manager/sync/metadata');
+const posted = new URL(posts[0].url, 'http://x');
+check('posted to the metadata sync', posted.pathname, '/model-manager/sync/metadata');
+check('for these results', body.get('scope'), 'results');
+check('with their filters in the address, as the grid is asked',
+    [...posted.searchParams], filtersOf(resultsQuery));
+check('and no file named', body.has('paths'), false);
 check('with images', body.get('include_images'), 'true');
 check('with prompts', body.get('include_prompts'), 'true');
 check('as many images as each has', body.get('keep_image_count'), 'true');
-check('with the 47 paths', body.get('paths').split(',').length, 47);
 check('and no window, since the scope is results', body.get('stale_days'), '0');
 check('nor a download window', body.get('downloaded_days'), '0');
 check('nor anything the walk does besides', [body.get('reread_headers'), body.get('move_misplaced')],

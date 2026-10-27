@@ -50,8 +50,9 @@ made = [node for node in ast.walk(tree)
         if isinstance(node, ast.Call) and getattr(node.func, 'id', None) == 'GridQuery']
 check('the endpoint makes the GridQuery once', len(made), 1)
 if made:
-    check('and sets every option of it, so none is declared and left unparsed',
-          sorted(set(fields) - {keyword.arg for keyword in made[0].keywords}), [])
+    # The page - limit and offset - is each route's own (grid_filters, #355).
+    check('and sets every option of it but the page, so none is declared and left unparsed',
+          sorted(set(fields) - {keyword.arg for keyword in made[0].keywords}), ['limit', 'offset'])
 
 hints = typing.get_type_hints(GridQuery)
 check('the licence choices are the strings the query reads - "true", "false", "unknown"',

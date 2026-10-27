@@ -59,14 +59,19 @@ export function onReady(callback) {
     }
 }
 
-export async function apiCall({ endpoint, params = {} }) {
+/** `endpoint` with `params` in its address, each left out when it is empty. */
+export function apiUrl(endpoint, params = {}) {
     const url = new URL(endpoint, window.location.origin);
     Object.entries(params).forEach(([key, value]) => {
         if (value !== undefined && value !== null && value !== '') {
             url.searchParams.append(key, value);
         }
     });
-    const response = await fetch(url);
+    return url;
+}
+
+export async function apiCall({ endpoint, params = {} }) {
+    const response = await fetch(apiUrl(endpoint, params));
     return response.json();
 }
 
@@ -110,13 +115,7 @@ export async function readEvents(response, handle) {
  * stream is read as apiCall reads one.
  */
 export async function apiCallTelling({ endpoint, params = {}, form = null, onStatus = () => {} }) {
-    const url = new URL(endpoint, window.location.origin);
-    Object.entries(params).forEach(([key, value]) => {
-        if (value !== undefined && value !== null && value !== '') {
-            url.searchParams.append(key, value);
-        }
-    });
-    const response = await fetch(url, form
+    const response = await fetch(apiUrl(endpoint, params), form
         ? { method: 'POST', body: new URLSearchParams(form).toString(),
             headers: { Accept: 'application/x-ndjson', 'Content-Type': 'application/x-www-form-urlencoded' } }
         : { headers: { Accept: 'application/x-ndjson' } });

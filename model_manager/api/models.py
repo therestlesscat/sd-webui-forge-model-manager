@@ -8,8 +8,9 @@ answers "which models do I have, and what is this one".
 import json
 import os
 import time
-from typing import Optional
-from fastapi import FastAPI, Form
+from dataclasses import replace
+from typing import List, Optional, Tuple
+from fastapi import Depends, FastAPI, Form
 from fastapi.responses import JSONResponse
 
 from ..db import GridQuery, get_models_db
@@ -47,6 +48,145 @@ def mark_newer_versions(db, models) -> None:
         model["versions_synced_at"] = lists.get(model_id, (None, None))[1]
 
 
+def grid_filters(
+    search: str = "",
+    type: str = "",
+    base_model: str = "",
+    nsfw_max: str = "",
+    nsfw_levels: str = "",  # Comma-separated list of levels (PG, PG-13, R, X, XXX, Unknown)
+    nsfw_mode: str = "max",  # "max" = up to selected level, "contains" = has any selected level
+    has_civitai: str = "",
+    is_bookmarked: Optional[bool] = None,  # None = all, True = bookmarked only
+    min_versions: str = "",  # Minimum number of local versions
+    # The file's size, in GB (1024^3 bytes); either may be left empty
+    min_size_gb: str = "",
+    max_size_gb: str = "",
+    preview_least_nsfw: Optional[bool] = None,  # None = use setting, True/False = override
+    commercial_use: str = "",  # Filter by commercial use: None, Image, Rent, RentCivit, Sell
+    # "" = any, "true"/"false" = that value, "unknown" = no Civitai licence
+    allow_derivatives: str = "",
+    allow_different_license: str = "",
+    # "", "Trained", "Merge", or "unknown" - only checkpoints have one
+    checkpoint_type: str = "",
+    # Only models with no image in the library above PG-13
+    sfw_only: bool = False,
+    # "available": only models Civitai lists a newer version of (#218)
+    newer_version: str = "",
+    # The grid's tabs: True the pinned cards, False the rest, None all.
+    # The response says how many each tab holds under these filters.
+    pinned: Optional[bool] = None,
+    sort_by: str = "downloaded_at",
+    sort_order: str = "desc",
+) -> GridQuery:
+    """
+    The grid's filters and sort, read from the address into a GridQuery -
+    a dependency of every route that takes them: the grid, and the sync and
+    its estimate over "these results" (#355), so they cannot be read one
+    way in one and another way in another. The page is the route's own.
+    """
+    # Valid sort columns in DB
+    valid_sort_columns = {
+        "name", "display_name", "file_name", "file_size", "file_modified",
+        "model_type", "base_model", "nsfw_level", "rating",
+        "download_count", "published_at",
+        # offered by the sort dropdown; without these they silently
+        # fell through to sorting by name
+        "downloaded_at", "scanned_at", "updated_at",
+        "image_count",
+    }
+
+    # Map short aliases to DB columns
+    sort_aliases = {
+        "name": "display_name",
+        "size": "file_size",
+        "date": "file_modified",
+        "downloads": "download_count",
+        "type": "model_type",
+    }
+
+    # Use alias if exists, otherwise use directly if valid, else default
+    if sort_by in sort_aliases:
+        db_sort_by = sort_aliases[sort_by]
+    elif sort_by in valid_sort_columns:
+        db_sort_by = sort_by
+    else:
+        db_sort_by = "name"
+
+    # Convert NSFW level names to integers
+    nsfw_level_ints = None
+    if nsfw_levels:
+        level_names = [l.strip() for l in nsfw_levels.split(",") if l.strip()]
+        nsfw_level_ints = []
+        for name in level_names:
+            if name in NAME_TO_LEVEL:
+                nsfw_level_ints.append(NAME_TO_LEVEL[name])
+        # Remove duplicates and ensure we have at least some levels
+        if nsfw_level_ints:
+            nsfw_level_ints = list(set(nsfw_level_ints))
+
+    # Parse min_versions
+    min_versions_int = None
+    if min_versions:
+        try:
+            min_versions_int = int(min_versions)
+        except ValueError:
+            pass
+
+    def size_bound(value: str) -> Optional[float]:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        return number if number > 0 else None
+
+    # Get preview setting - use parameter if provided, otherwise use setting
+    if preview_least_nsfw is None:
+        preview_least_nsfw = setting('model_manager_preview_least_nsfw')
+    preview_least_nsfw = bool(preview_least_nsfw)
+
+    return GridQuery(
+        search=search if search else None,
+        # Comma-joined: any of them (#341).
+        model_types=tuple(t.strip() for t in (type or "").split(",")
+                          if t.strip() not in ("", "All")) or None,
+        base_model=base_model if base_model and base_model != "All" else None,
+        nsfw_levels=nsfw_level_ints,
+        nsfw_mode=nsfw_mode if nsfw_mode in ("max", "contains") else "max",
+        has_civitai=True if has_civitai == "Yes" else (False if has_civitai == "No" else None),
+        is_bookmarked=is_bookmarked,
+        min_versions=min_versions_int,
+        min_size_gb=size_bound(min_size_gb),
+        max_size_gb=size_bound(max_size_gb),
+        commercial_use=commercial_use if commercial_use else None,
+        allow_derivatives=allow_derivatives or None,
+        allow_different_license=allow_different_license or None,
+        checkpoint_type=checkpoint_type or None,
+        sort_by=db_sort_by,
+        sort_order=sort_order,
+        preview_least_nsfw=preview_least_nsfw,
+        sfw_only=sfw_only,
+        newer_only=newer_version == "available",
+        pinned=pinned,
+    )
+
+
+def filter_files(db, grid: GridQuery) -> Tuple[List[str], int]:
+    """
+    Every file the grid's filters select, whatever its tab or page, and how
+    many cards they match: what "these results" means to the sync dialog -
+    its count, its cost and its sync (#355).
+    """
+    models, total_count = db.query_models_grouped(replace(grid, limit=1000000, offset=0, pinned=None))
+    # Grouped rows carry one version each; a sync works on models,
+    # so every local version of a matched model belongs in scope.
+    model_ids = {m["model_id"] for m in models if m.get("model_id")}
+    paths = {m["file_path"] for m in models if m.get("file_path")}
+    for version in db.get_linked_versions():
+        if version["model_id"] in model_ids:
+            paths.add(version["file_path"])
+    return sorted(paths), total_count
+
+
 def register(app: FastAPI):
     """Attach this module's endpoints to the app.
 
@@ -60,39 +200,10 @@ def register(app: FastAPI):
     @app.get("/model-manager/models")
     @gate("model_manager")
     def get_models(
-        search: str = "",
-        type: str = "",
-        base_model: str = "",
-        nsfw_max: str = "",
-        nsfw_levels: str = "",  # Comma-separated list of levels (PG, PG-13, R, X, XXX, Unknown)
-        nsfw_mode: str = "max",  # "max" = up to selected level, "contains" = has any selected level
-        has_civitai: str = "",
-        is_bookmarked: Optional[bool] = None,  # None = all, True = bookmarked only
-        min_versions: str = "",  # Minimum number of local versions
-        # The file's size, in GB (1024^3 bytes); either may be left empty
-        min_size_gb: str = "",
-        max_size_gb: str = "",
-        preview_least_nsfw: Optional[bool] = None,  # None = use setting, True/False = override
-        commercial_use: str = "",  # Filter by commercial use: None, Image, Rent, RentCivit, Sell
-        # "" = any, "true"/"false" = that value, "unknown" = no Civitai licence
-        allow_derivatives: str = "",
-        allow_different_license: str = "",
-        # "", "Trained", "Merge", or "unknown" - only checkpoints have one
-        checkpoint_type: str = "",
-        # Only models with no image in the library above PG-13
-        sfw_only: bool = False,
-        # "available": only models Civitai lists a newer version of (#218)
-        newer_version: str = "",
-        # The grid's tabs: True the pinned cards, False the rest, None all.
-        # The response says how many each tab holds under these filters.
-        pinned: Optional[bool] = None,
+        grid: GridQuery = Depends(grid_filters),
         # Return only the file paths the filters select, with no paging. The
-        # sync dialog uses it to turn "these results" into a scope; it reuses
-        # this endpoint so the filters cannot be parsed one way here and
-        # another way there.
+        # sync dialog counts "these results" with it.
         paths_only: bool = False,
-        sort_by: str = "downloaded_at",
-        sort_order: str = "desc",
         page: int = 1,
         page_size: int = 0,  # 0 = use setting
     ):
@@ -110,114 +221,22 @@ def register(app: FastAPI):
             # Parse card size setting (format: WIDTHxHEIGHT)
             card_width, card_height = card_size('model_manager_card_size')
 
-            # Valid sort columns in DB
-            valid_sort_columns = {
-                "name", "display_name", "file_name", "file_size", "file_modified",
-                "model_type", "base_model", "nsfw_level", "rating",
-                "download_count", "published_at",
-                # offered by the sort dropdown; without these they silently
-                # fell through to sorting by name
-                "downloaded_at", "scanned_at", "updated_at",
-                "image_count",
-            }
-
-            # Map short aliases to DB columns
-            sort_aliases = {
-                "name": "display_name",
-                "size": "file_size",
-                "date": "file_modified",
-                "downloads": "download_count",
-                "type": "model_type",
-            }
-
-            # Use alias if exists, otherwise use directly if valid, else default
-            if sort_by in sort_aliases:
-                db_sort_by = sort_aliases[sort_by]
-            elif sort_by in valid_sort_columns:
-                db_sort_by = sort_by
-            else:
-                db_sort_by = "name"
-
             # Calculate offset
             offset = (page - 1) * page_size
-
-            # Convert NSFW level names to integers
-            nsfw_level_ints = None
-            if nsfw_levels:
-                level_names = [l.strip() for l in nsfw_levels.split(",") if l.strip()]
-                nsfw_level_ints = []
-                for name in level_names:
-                    if name in NAME_TO_LEVEL:
-                        nsfw_level_ints.append(NAME_TO_LEVEL[name])
-                # Remove duplicates and ensure we have at least some levels
-                if nsfw_level_ints:
-                    nsfw_level_ints = list(set(nsfw_level_ints))
-
-            # Parse min_versions
-            min_versions_int = None
-            if min_versions:
-                try:
-                    min_versions_int = int(min_versions)
-                except ValueError:
-                    pass
-
-            def size_bound(value: str) -> Optional[float]:
-                try:
-                    number = float(value)
-                except (TypeError, ValueError):
-                    return None
-                return number if number > 0 else None
-
-            # Get preview setting - use parameter if provided, otherwise use setting
-            if preview_least_nsfw is None:
-                preview_least_nsfw = setting('model_manager_preview_least_nsfw')
-            preview_least_nsfw = bool(preview_least_nsfw)
 
             # Query database with grouped query
             db = get_models_db()
             query_start = time.perf_counter()
-            tab_counts = {}
-            grid = GridQuery(
-                search=search if search else None,
-                # Comma-joined: any of them (#341).
-                model_types=tuple(t.strip() for t in (type or "").split(",")
-                                  if t.strip() not in ("", "All")) or None,
-                base_model=base_model if base_model and base_model != "All" else None,
-                nsfw_levels=nsfw_level_ints,
-                nsfw_mode=nsfw_mode if nsfw_mode in ("max", "contains") else "max",
-                has_civitai=True if has_civitai == "Yes" else (False if has_civitai == "No" else None),
-                is_bookmarked=is_bookmarked,
-                min_versions=min_versions_int,
-                min_size_gb=size_bound(min_size_gb),
-                max_size_gb=size_bound(max_size_gb),
-                commercial_use=commercial_use if commercial_use else None,
-                allow_derivatives=allow_derivatives or None,
-                allow_different_license=allow_different_license or None,
-                checkpoint_type=checkpoint_type or None,
-                sort_by=db_sort_by,
-                sort_order=sort_order,
-                limit=1000000 if paths_only else page_size,
-                offset=0 if paths_only else offset,
-                preview_least_nsfw=preview_least_nsfw,
-                sfw_only=sfw_only,
-                newer_only=newer_version == "available",
-                pinned=None if paths_only else pinned,
-            )
-            models, total_count = db.query_models_grouped(grid, counts=tab_counts)
-
             if paths_only:
-                # Grouped rows carry one version each; a sync works on models,
-                # so every local version of a matched model belongs in scope.
-                model_ids = {m["model_id"] for m in models if m.get("model_id")}
-                paths = {m["file_path"] for m in models if m.get("file_path")}
-                for version in db.get_linked_versions():
-                    if version["model_id"] in model_ids:
-                        paths.add(version["file_path"])
+                paths, total_count = filter_files(db, grid)
                 return JSONResponse({
                     "success": True,
-                    "paths": sorted(paths),
+                    "paths": paths,
                     "models": total_count,
                 })
+            tab_counts = {}
+            grid = replace(grid, limit=page_size, offset=offset)
+            models, total_count = db.query_models_grouped(grid, counts=tab_counts)
             query_ms = (time.perf_counter() - query_start) * 1000
             # A file in a folder this WebUI does not load says why (#195).
             for model in models:

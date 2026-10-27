@@ -132,8 +132,9 @@ SAMPLES = {
     ('GET', '/model-manager/generations/page'): {'params': {'path': some}},
     ('GET', '/model-manager/generations/{generation_id}/images'): {'url': '/model-manager/generations/1/images'},
     ('GET', '/model-manager/generations/images/{image_id}/file'): {'url': '/model-manager/generations/images/1/file'},
-    ('POST', '/model-manager/sync'): {'data': {'paths': some}},
-    ('POST', '/model-manager/sync/metadata'): {'data': {'paths': some}},
+    ('POST', '/model-manager/sync'): {'data': {'targets': 'identified'}},
+    # These results: the grid's filters in the address, read on the sync's thread (#355).
+    ('POST', '/model-manager/sync/metadata'): {'data': {'scope': 'results'}, 'params': {'search': 'Model'}},
     ('GET', '/model-manager/sync/estimate'): {},
     ('GET', '/model-manager/sync/progress'): {},
     ('POST', '/model-manager/sync/cancel'): {},
