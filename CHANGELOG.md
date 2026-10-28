@@ -6,6 +6,17 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.70 - Send catches Forge up
+
+*27 October 2026*
+
+Send no longer stops when your library has a checkpoint Forge has not listed yet - one added
+since the page was loaded: it refreshes Forge's checkpoint list itself and carries on. And a
+checkpoint's own gallery now loads that checkpoint from any folder Forge was told to look in,
+not only models\Stable-diffusion.
+
+- **0.70.0** (build 573) - Send from a checkpoint's own gallery guessed the checkpoint's name from a folder named Stable-diffusion in its path, where every other Send asks Forge's own list. A checkpoint in any other folder Forge was given - `--ckpt-dirs` pointing at ComfyUI's `models\checkpoints`, say - got no name, and Send went on without a word, leaving Forge on the checkpoint it had (#323). The gallery's checkpoint is now found in Forge's list too. A checkpoint the library has in this WebUI's folders that Forge has not listed yet - one added since the page was loaded, which Forge lists only at a refresh or a page load - no longer stops Send, from any gallery or your generations: Send presses Forge's checkpoint refresh, waits for its answer, and carries on. A gallery's own checkpoint in the other WebUI's folder, or gone from disk, is said in a notice, and nothing is set.
+
 ## 0.69 - Pick one type, or several
 
 *26 October 2026*

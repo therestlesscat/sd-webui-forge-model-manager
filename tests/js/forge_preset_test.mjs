@@ -9,7 +9,9 @@
 // goes in, since a preset change resets the sampler, steps and modules, and
 // selects the modules after the paste, which re-renders but never touches
 // them. What is checked here is that order, and what is selected.
-import { ROOT, act, checker, mountTab, sendLoaders, sharedModule, startTab, withGalleryPages } from './harness.mjs';
+import {
+    ROOT, act, checker, forgeRefreshButtons, mountTab, sendLoaders, sharedModule, startTab, withGalleryPages,
+} from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 // The page's waits and polls, shortened: the fake server answers at once,
@@ -461,31 +463,45 @@ check('asked again, still not listed: the line says Send waits for Forge',
       'Waiting for Forge to list the checkpoint…');
 closeResources();
 
-// One Forge does not list yet: the dialog presses Forge's own refresh, asks
-// the server again, and its Send works once Forge lists it.
-const refresh = document.createElement('button');
-refresh.id = 'forge_refresh_checkpoint';
-let listed = false;
-refresh.addEventListener('click', () => { events.push('refresh'); setTimeout(() => { listed = true; }, 50); });
-document.body.appendChild(refresh);
+// One Forge does not list yet: Send presses Forge's own refresh, waits for
+// its answer, asks the server again, and sends once Forge lists it - the
+// library was ahead of Forge, and a stop asked for a second press (#323).
+// The plan the server gives changes once Forge's refresh has been pressed.
+const refreshes = forgeRefreshButtons(document, window);
+document.getElementById('forge_refresh_checkpoint').addEventListener('click', () => events.push('refresh'));
+const onceRefreshed = (before, after) => setInterval(() => {
+    plan = refreshes.includes('checkpoints') ? after : before;
+}, 5);
 const notListed = { ...plan, checkpoint: null, checkpoint_problem: { reason: 'not_listed', name: 'anima.safetensors',
                                                                        path: 'C:/models/Stable-diffusion/anima.safetensors' } };
 const listedNow = { ...plan, checkpoint: 'anima.safetensors [635cf338]', checkpoint_problem: null };
 plan = notListed;
-const planNow = setInterval(() => { plan = listed ? listedNow : notListed; }, 5);
+let planNow = onceRefreshed(notListed, listedNow);
 await send();
-check('a checkpoint Forge does not list yet: Forge\'s refresh pressed, nothing sent',
-      [events.includes('refresh'), events.includes('paste')], [true, false]);
+clearInterval(planNow);
+check('an image\'s checkpoint Forge does not list yet: Forge\'s refresh pressed first, then sent with it, no dialog',
+      [events.filter((e) => /^(refresh|preset|checkpoint|paste)/.test(e))[0],
+       events.filter((e) => /^(checkpoint|paste)/.test(e)), document.querySelector('.mm-resources-modal')],
+      ['refresh', ['checkpoint:anima.safetensors [635cf338]', 'paste'], null]);
+closeResources();
+
+// Still not listed once Forge has answered: the stop, as before - the dialog
+// waits for Forge, and its Send works once Forge lists it.
+refreshes.length = 0;
+plan = notListed;
+await send();
+await waitFor('Forge\'s refresh', () => refreshes.length > 0);
+check('still not listed after the refresh: nothing sent, and the dialog waits for Forge',
+      [events.includes('paste'), Boolean(document.querySelector('.mm-resources-modal'))], [false, true]);
+plan = listedNow;
 await waitFor('the dialog\'s Send', () => dialogSend() && !dialogSend().disabled);
 check('once Forge lists it, the dialog\'s Send works', dialogSend()?.hasAttribute('title'), false);
 events.length = 0;
 await act('resources.sendAgain', {});
 await whenSendSettled();
-clearInterval(planNow);
 check('pressed, the dialog closes and the image is sent, with its checkpoint',
       [document.querySelector('.mm-resources-modal'), events.filter((e) => /^(checkpoint|paste)/.test(e))],
       [null, ['checkpoint:anima.safetensors [635cf338]', 'paste']]);
-refresh.remove();
 plan = { ...listedNow };
 
 // A VAE's or text encoder's gallery: its file is in the plan's target, which
@@ -498,13 +514,110 @@ check('a gallery\'s VAE Forge does not list is said, by name',
 document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
 delete plan.own_not_listed;
 
-// A checkpoint's gallery loads its own, whatever the plan says of others.
+// A checkpoint's gallery loads its own file, by the name the server says
+// Forge lists it under (#323). The page guessed the name from a folder named
+// Stable-diffusion in the file's path - this gallery's file has none - and
+// selected nothing.
 MODEL.model_type = 'Checkpoint';
-plan = { ...plan, checkpoint_problem: { reason: 'missing', name: 'anima-preview2' } };
+const ownListed = { ...listedNow, checkpoint: 'flux.safetensors [abcd1234]', checkpoint_problem: null };
+plan = { ...ownListed, preset: 'qwen' };
 await send();
-check('a checkpoint\'s gallery is never stopped for the image\'s checkpoint',
-      [events.includes('paste'), resourcesNote()], [true, undefined]);
+check('a checkpoint\'s gallery selects its own file by Forge\'s name, after the preset and before the paste',
+      events.filter((e) => /^(preset|checkpoint|paste)/.test(e)),
+      ['preset:qwen', 'checkpoint:flux.safetensors [abcd1234]', 'paste']);
+
+// Nor does the page guess any more: a file under Stable-diffusion, and a
+// plan naming no checkpoint, selects none.
+const reselect = async () => {
+    await act('modelManager.selectModel', { index: 0 });
+    await waitFor('the gallery', () => document.querySelector('#mm_images .mm-send-btn'));
+};
+MODEL.file_path = 'C:/models/Stable-diffusion/_Flux/flux.safetensors';
+await reselect();
+plan = { ...ownListed, checkpoint: null };
+await send();
+check('a file under Stable-diffusion, the plan naming no checkpoint: nothing is guessed',
+      [planAsked[0]?.get('file_path'), events.filter((e) => e.startsWith('checkpoint'))],
+      ['C:/models/Stable-diffusion/_Flux/flux.safetensors', []]);
+MODEL.file_path = 'C:/models/flux.safetensors';
+await reselect();
+
+// Its own file Forge does not list yet: refreshed and sent, as an image's.
+const ownProblem = (reason, path) => ({ ...ownListed, checkpoint: null,
+                                        checkpoint_problem: { reason, name: 'flux.safetensors', path, own: true } });
+const ownNotListed = ownProblem('not_listed', 'C:/models/flux.safetensors');
+refreshes.length = 0;
+plan = ownNotListed;
+planNow = onceRefreshed(ownNotListed, ownListed);
+await send();
+clearInterval(planNow);
+check('its own file Forge does not list yet: Forge\'s refresh pressed, the plan asked again, sent with it, no dialog',
+      [events.filter((e) => /^(refresh|checkpoint|paste)/.test(e)), planAsked.length,
+       document.querySelector('.mm-resources-modal')],
+      [['refresh', 'checkpoint:flux.safetensors [abcd1234]', 'paste'], 2, null]);
+
+// Still not listed, in another WebUI's folder, or gone: nothing set, said in
+// a notice alone, in the gallery's words - no wait in the dialog would end.
+for (const [reason, path, words] of [
+    ['not_listed', 'C:/models/flux.safetensors',
+     'This gallery\'s checkpoint, flux.safetensors, is in your library at C:/models/flux.safetensors, but Forge '
+     + 'does not list it even after refreshing its checkpoint list, so nothing was set. Check that Forge\'s '
+     + 'Checkpoint box offers it, then press Send again.'],
+    ['elsewhere', 'D:/other-webui/models/Stable-diffusion/flux.safetensors',
+     'This gallery\'s checkpoint, flux.safetensors, is in your library at '
+     + 'D:/other-webui/models/Stable-diffusion/flux.safetensors, a folder this WebUI does not load. Move it into '
+     + 'this WebUI\'s models folder, then Sync and press Send again.'],
+    ['gone', 'C:/models/flux.safetensors',
+     'This gallery\'s checkpoint, flux.safetensors, is no longer at C:/models/flux.safetensors. Sync with Civitai '
+     + 'to bring your library up to date.']]) {
+    notices_().forEach((n) => n.remove());
+    refreshes.length = 0;
+    plan = ownProblem(reason, path);
+    await send();
+    check(`its own file ${reason}: nothing set or pasted, no dialog, and the gallery's words`,
+          [events.filter((e) => /^(preset|checkpoint|paste|module)/.test(e)),
+           refreshes.length > 0, document.querySelector('.mm-resources-modal'), notices_().map((n) => n.textContent).pop()],
+          [[], reason === 'not_listed', null, words]);
+}
+notices_().forEach((n) => n.remove());
+
+// Into img2img, its own file not listed yet: refreshed first there too, then
+// selected, and the picture sent into the mode.
+const sendInto = (await sharedModule('send.mjs')).sendGalleryImage;
+const intoPrompt = document.createElement('div');         // img2img's prompt, which the paste needs
+intoPrompt.id = 'img2img_prompt';
+intoPrompt.innerHTML = '<textarea></textarea>';
+document.body.append(intoPrompt);
+refreshes.length = 0;
+plan = ownNotListed;
+planNow = onceRefreshed(ownNotListed, ownListed);
+events.length = 0;
+const intoFrom = loaderAsked.length;
+await sendInto({ img: IMAGE, model: MODEL, version: MODEL, into: { mode: 0 } });
+await whenSendSettled();
+clearInterval(planNow);
+check('into img2img, its own file not listed yet: refreshed, then selected, and the picture sent',
+      [events.filter((e) => /^(refresh|checkpoint)/.test(e)), loaderAsked.slice(intoFrom).some((r) => r.canvas === 0)],
+      [['refresh', 'checkpoint:flux.safetensors [abcd1234]'], true]);
+// Into img2img a missing checkpoint is said, never a stop (#299): its own
+// file gone from disk, the picture goes in with the checkpoint loaded.
+notices_().forEach((n) => n.remove());
+plan = ownProblem('gone', 'C:/models/flux.safetensors');
+events.length = 0;
+const goneFrom = loaderAsked.length;
+await sendInto({ img: IMAGE, model: MODEL, version: MODEL, into: { mode: 0 } });
+await whenSendSettled();
+check('into img2img, its own file gone: said, and the picture sent with the checkpoint loaded',
+      [events.filter((e) => e.startsWith('checkpoint')), loaderAsked.slice(goneFrom).some((r) => r.canvas === 0),
+       notices_().map((n) => n.textContent)[0]],
+      [[], true, 'The checkpoint is no longer on disk. The picture is sent with the checkpoint loaded instead of '
+                 + 'flux.safetensors.']);
+notices_().forEach((n) => n.remove());
+intoPrompt.remove();
 MODEL.model_type = 'LORA';
+document.getElementById('forge_refresh_checkpoint')?.remove();
+document.getElementById('txt2img_lora_extra_refresh_internal')?.remove();
+plan = { ...listedNow };
 
 // An image that names no checkpoint - no Model, no model hash, no checkpoint
 // among its resources - cannot be sent from a gallery that is not a
@@ -1186,6 +1299,26 @@ check('a generation whose checkpoint is in a folder this WebUI does not load: no
       [(document.querySelector('.mm-resources-modal .mm-banner')?.textContent || '').includes('a folder this WebUI does not load'),
        events.includes('paste')], [true, false]);
 document.querySelectorAll('#mm_meta_modal').forEach((n) => n.close());
+// One Forge does not list yet: refreshed and sent, as a gallery's (#323).
+const genRefreshes = forgeRefreshButtons(document, window);
+document.getElementById('forge_refresh_checkpoint').addEventListener('click', () => events.push('refresh'));
+const genNotListed = { success: true, preset: null, checkpoint: null, checkpoint_missing: 'mine.safetensors',
+                       checkpoint_problem: { reason: 'not_listed', name: 'mine.safetensors',
+                                             path: 'C:/models/Stable-diffusion/mine.safetensors' },
+                       target: [], modules_missing: [] };
+const genListed = { success: true, preset: null, checkpoint: 'mine.safetensors [1ce84e0c8c]', checkpoint_missing: null,
+                    target: [], modules_missing: [] };
+generationPlan = genNotListed;
+const genNow = setInterval(() => {
+    generationPlan = genRefreshes.includes('checkpoints') ? genListed : genNotListed;
+}, 5);
+await sendGeneration(300, { resources: [{ type: 'Checkpoint', name: 'mine', weight: null, hash: '1ce84e0c8c' }] });
+clearInterval(genNow);
+check('a generation whose checkpoint Forge does not list yet: Forge\'s refresh pressed, then sent with it, no dialog',
+      [events.filter((e) => /^(refresh|checkpoint|paste)/.test(e)), document.querySelector('.mm-resources-modal')],
+      [['refresh', 'checkpoint:mine.safetensors [1ce84e0c8c]', 'paste'], null]);
+document.getElementById('forge_refresh_checkpoint')?.remove();
+document.getElementById('txt2img_lora_extra_refresh_internal')?.remove();
 generationPlan = { success: true, preset: null, checkpoint: null, checkpoint_missing: null,
                    target: [], modules_missing: ['qwen_image_vae.safetensors'] };
 await sendGeneration(300);

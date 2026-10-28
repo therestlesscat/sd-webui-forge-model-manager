@@ -94,7 +94,8 @@ export async function sendInfotext({ infotext, mode, meta = {}, generationId = n
                              width: into.width ?? null, height: into.height ?? null } : null;
     if ((!infotext && !sending) || generationId === null || generationId === undefined) return false;
     meta = meta || {};
-    const plan = await fetchGenerationPlan(generationId, useVersion);
+    const askPlan = () => fetchGenerationPlan(generationId, useVersion);
+    const plan = await whenListed(await askPlan(), askPlan);
     // The server builds what is set (#302): with no plan, there is nothing to send.
     if (!plan) {
         showNotice('Could not send: the server did not answer.');
@@ -214,40 +215,6 @@ async function putPicture(sending) {
         showNotice(`The settings are in img2img, but the picture could not be put in: ${answer.error}.`);
     }
     return answer;
-}
-
-// Convert full file path to dropdown-compatible path
-// Full: F:\...\models\Stable-diffusion\_SD_1_5\model.safetensors
-// Dropdown: _SD_1_5/model.safetensors (relative to type folder)
-function getDropdownPath(filePath, modelType) {
-    if (!filePath) return null;
-
-    // Map model types to their folder names
-    const typeFolderMap = {
-        'Checkpoint': 'Stable-diffusion',
-        'LORA': 'Lora',
-        'TextualInversion': 'embeddings',
-        'VAE': 'VAE',
-        'Controlnet': 'ControlNet',
-        'Upscaler': 'ESRGAN',
-    };
-
-    const typeFolder = typeFolderMap[modelType];
-    if (!typeFolder) return null;
-
-    // Find the type folder in the path and take everything after it
-    // Match: /Stable-diffusion/ or \Stable-diffusion\
-    // Escape special regex chars in folder name, then match separator + folder + separator
-    const escapedFolder = typeFolder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(`[\\\\\/]${escapedFolder}[\\\\\/](.+)$`, 'i');
-    const match = filePath.match(regex);
-
-    if (match) {
-        // Return path as-is (preserve original separators)
-        return match[1];
-    }
-
-    return null;
 }
 
 // Match VAE name from metadata to dropdown option
@@ -971,7 +938,21 @@ const CHECKPOINT_WAITS = {
     elsewhere: 'The checkpoint is in a folder this WebUI does not load.',
     not_listed: 'Forge does not list the checkpoint yet.',
     not_checkpoint: 'The image names no checkpoint.',
+    gone: 'The checkpoint is no longer on disk.',
 };
+
+/**
+ * The plan once Forge lists its checkpoint (#323): one the library has in
+ * this WebUI's folders that Forge has not listed yet - a download that has
+ * just landed - is listed by Forge's own refresh, waited for, and the plan
+ * asked again. The library was ahead of Forge, and a stop asked the person
+ * to press Send twice for it. Any other plan comes back as it is.
+ */
+async function whenListed(plan, askAgain) {
+    if (plan?.checkpoint_problem?.reason !== 'not_listed') return plan;
+    await refreshWebUiModelList();
+    return (await askAgain()) || plan;
+}
 
 /**
  * The reason a server's answer gives for still waiting - one the dialog has
@@ -998,8 +979,24 @@ function insteadNotice(file, kind) {
  * the server says the checkpoint can be loaded. Nothing is moved or
  * downloaded by itself; one Forge does not list yet gets Forge's refresh.
  */
-/** Why a send stopped for its checkpoint, as the person reads it - any image's, a Civitai one's or yours. */
+/**
+ * Why a send stopped for its checkpoint, as the person reads it - any
+ * image's, a Civitai one's or yours; or a checkpoint's gallery's own (`own`),
+ * said in a notice alone: no wait in the dialog would end, as the gallery
+ * asks by the file's path (#323).
+ */
 function checkpointNote(problem) {
+    if (problem.own) {
+        const own = `This gallery's checkpoint, ${problem.name}`;
+        return {
+            not_listed: `${own}, is in your library at ${problem.path}, but Forge does not list it even after `
+                        + 'refreshing its checkpoint list, so nothing was set. Check that Forge\'s Checkpoint box '
+                        + 'offers it, then press Send again.',
+            elsewhere: `${own}, is in your library at ${problem.path}, a folder this WebUI does not load. `
+                       + 'Move it into this WebUI\'s models folder, then Sync and press Send again.',
+            gone: `${own}, is no longer at ${problem.path}. Sync with Civitai to bring your library up to date.`,
+        }[problem.reason];
+    }
     const made = `The checkpoint this image was made with, ${problem.name}`;
     return {
         missing: `${made}, is not in your library. Download it here, then press Send.`,
@@ -1403,7 +1400,8 @@ async function sendGalleryImageTo({ img, model, version, useVersion, useKind, se
         // Forge's UI preset first: changing it resets what the image is about
         // to set. The chips' resources are asked meanwhile.
         const filesAsked = fetchImageFiles(img);
-        const plan = await fetchSendPlan(model, version, img, useVersion);
+        const askPlan = () => fetchSendPlan(model, version, img, useVersion);
+        const plan = await whenListed(await askPlan(), askPlan);
         // The server builds what is pasted (#302): with no plan, there is
         // nothing to send - where the page once built a text of its own.
         if (!plan) {
@@ -1411,14 +1409,20 @@ async function sendGalleryImageTo({ img, model, version, useVersion, useKind, se
             return;
         }
 
-        // The gallery's own file is loaded when it is a checkpoint. Any other
-        // gallery's image needs its own checkpoint, the one thing a send
-        // cannot go without: one Forge cannot load stops it (#134).
-        const checkpointGallery = galleryIsCheckpoint(model, version);
-        if (!checkpointGallery && plan.checkpoint_problem && sending) {
-            showNotice(keptCheckpointNote(plan.checkpoint_problem), { info: true });
-        } else if (!checkpointGallery && plan.checkpoint_problem) {
-            await stopForCheckpoint(img, model, version, plan.checkpoint_problem);
+        // The checkpoint, the one thing a send cannot go without: the
+        // gallery's own file when it is a checkpoint's, else the image's.
+        // One Forge cannot load stops it (#134) - the gallery's own with a
+        // notice alone (#323).
+        const problem = plan.checkpoint_problem;
+        if (problem && sending) {
+            showNotice(keptCheckpointNote(problem), { info: true });
+        } else if (problem?.own) {
+            const note = checkpointNote(problem);
+            console.log('[ModelManager] Not sent:', note);
+            showNotice(note);
+            return;
+        } else if (problem) {
+            await stopForCheckpoint(img, model, version, problem);
             return;
         }
         if (plan.instead) showNotice(insteadNotice(plan.instead, useKind), { info: true });
@@ -1433,12 +1437,10 @@ async function sendGalleryImageTo({ img, model, version, useVersion, useKind, se
         if (plan.preset) await switchForgePreset(plan.preset);
 
         // After the preset, which brings back a checkpoint of its own: the
-        // gallery's, or the image's by the name Forge lists it under.
-        const checkpointPath = checkpointGallery
-            ? getDropdownPath(version.file_path, 'Checkpoint') : plan.checkpoint || null;
-        if (checkpointPath && typeof selectCheckpoint === 'function') {
-            console.log('[ModelManager] Setting checkpoint:', checkpointPath);
-            selectCheckpoint(checkpointPath);
+        // gallery's or the image's, by the name Forge lists it under.
+        if (plan.checkpoint && typeof selectCheckpoint === 'function') {
+            console.log('[ModelManager] Setting checkpoint:', plan.checkpoint);
+            selectCheckpoint(plan.checkpoint);
         }
 
         // A video model makes a still unless it is told how many frames:
@@ -1502,7 +1504,7 @@ async function sendGalleryImageTo({ img, model, version, useVersion, useKind, se
             }
         }
 
-        console.log(`[ModelManager] Sent to ${tab}:`, { image: img.id, checkpoint: checkpointPath, source });
+        console.log(`[ModelManager] Sent to ${tab}:`, { image: img.id, checkpoint: plan.checkpoint || null, source });
 
     } catch (error) {
         console.error('[ModelManager] Error sending to txt2img:', error);

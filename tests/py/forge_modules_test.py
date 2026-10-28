@@ -373,9 +373,24 @@ host.checkpoint_name = lambda path: names.get(path)
 body = sent_from(lora_path, version_ids=str(flux_id))
 check('a LoRA\'s gallery, the image\'s checkpoint in the library: Forge\'s name for it, nothing wrong',
       (body.get('checkpoint'), body.get('checkpoint_problem')), ('flux.safetensors [abcd1234]', None))
-check('a checkpoint\'s gallery loads its own, and is told of no other',
-      (sent_from(flux_path).get('checkpoint'), sent_from(flux_path).get('checkpoint_problem')), (None, None))
+# A checkpoint's gallery asks the same of its own file: the page guessed
+# its name from a folder named Stable-diffusion, and one in any other
+# folder Forge was given was never selected (#323).
+body = sent_from(flux_path)
+check('a checkpoint\'s gallery: its own file, by the name Forge lists it under',
+      (body.get('checkpoint'), body.get('checkpoint_problem')), ('flux.safetensors [abcd1234]', None))
 names.clear()
+check('its own file Forge does not list, outside this WebUI\'s folders: where it is, as the gallery\'s',
+      (sent_from(flux_path).get('checkpoint'), sent_from(flux_path).get('checkpoint_problem')),
+      (None, {'reason': 'elsewhere', 'name': os.path.basename(flux_path), 'path': flux_path, 'own': True}))
+os.rename(flux_path, flux_path + '.away')
+try:
+    body = sent_from(flux_path)
+finally:
+    os.rename(flux_path + '.away', flux_path)
+check('its own file gone from disk: gone, as the gallery\'s',
+      body.get('checkpoint_problem'),
+      {'reason': 'gone', 'name': os.path.basename(flux_path), 'path': flux_path, 'own': True})
 body = sent_from(lora_path, version_ids=str(flux_id))
 check('one Forge does not list, outside this WebUI\'s folders: where it is',
       (body.get('checkpoint'), body.get('checkpoint_problem')),
@@ -385,6 +400,9 @@ dirs.loads_here = sp.loads_here = lambda path, *a, **k: True
 body = sent_from(lora_path, version_ids=str(flux_id))
 check('one in this WebUI\'s folders that Forge does not list yet: said so',
       (body.get('checkpoint_problem') or {}).get('reason'), 'not_listed')
+check('and the gallery\'s own file there, not listed yet: said so, as the gallery\'s',
+      [(sent_from(flux_path).get('checkpoint_problem') or {}).get(key) for key in ('reason', 'own')],
+      ['not_listed', True])
 dirs.loads_here = sp.loads_here = here
 body = sent_from(lora_path, model_name='a_checkpoint_i_lack', hashes='0123456789')
 check('one the library lacks: missing, by its name',

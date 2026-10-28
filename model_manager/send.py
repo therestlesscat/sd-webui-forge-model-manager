@@ -123,6 +123,26 @@ def _image_checkpoint(db, file_path: str, version_ids: str, hashes: str, model_n
     return {}
 
 
+def _gallery_checkpoint(path: str) -> dict:
+    """
+    A checkpoint's gallery's own file, by the name Forge lists it under:
+    {checkpoint} or {checkpoint_problem}, the problem marked `own` for the
+    page to name it as the gallery's. The page once guessed the name from a
+    folder named Stable-diffusion in the path, and a checkpoint in any other
+    folder Forge was given was never selected (#323).
+    """
+    from .forge_host import checkpoint_name
+    from .model_dirs import loads_here
+    name = checkpoint_name(path)
+    if name:
+        return {"checkpoint": name}
+    if not os.path.isfile(path):
+        reason = "gone"
+    else:
+        reason = "not_listed" if loads_here(path) else "elsewhere"
+    return {"checkpoint_problem": {"reason": reason, "name": os.path.basename(path), "path": path, "own": True}}
+
+
 def _listed_label(path: str, installed: dict):
     """The label Forge lists a module file under, by its path; None if it does not list it."""
     wanted = os.path.normcase(os.path.abspath(path))
@@ -202,6 +222,8 @@ def civitai_plan(db, file_path: str = "", base_model: str = "", version_ids: str
         {reason: elsewhere | not_listed, name, path} for one the library has
         in a folder this WebUI does not load, or that Forge has not listed
         yet, {reason: not_checkpoint} - and the page sends nothing. From a
+        checkpoint's, the same two for its own file (#323), the problem
+        marked `own` - {reason: gone} for a file no longer on disk. From a
         VAE's or a text encoder's, that file is in `target` in its kind's
         place; own_not_listed, its name when Forge does not list it. From an
         upscaler's, upscaler: the name Forge lists it under, for Hires fix's;
@@ -243,7 +265,9 @@ def civitai_plan(db, file_path: str = "", base_model: str = "", version_ids: str
               "checkpoint": None, "checkpoint_problem": None, "own_not_listed": None,
               "upscaler": None, "upscaler_not_listed": None}
     gallery_type = ((db.get_version(file_path) or {}).get("file_type") if file_path else None)
-    if gallery_type != "Checkpoint":
+    if gallery_type == "Checkpoint":
+        answer.update(_gallery_checkpoint(file_path))
+    else:
         answer.update(_image_checkpoint(db, file_path, version_ids, hashes, model_name, bool(use_version), local))
     if gallery_type == "Upscaler":
         answer["upscaler"] = _listed_upscaler(db, file_path)

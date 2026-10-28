@@ -14,6 +14,11 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.70 - Send catches Forge up.** A checkpoint your library has but Forge has not listed yet -
+one added since the page was loaded - no longer stops Send: Send refreshes Forge's checkpoint
+list and carries on. A checkpoint's own gallery now loads its checkpoint from any folder Forge
+was given, such as one named with `--ckpt-dirs`, not only `models\Stable-diffusion`.
+
 **0.69 - Pick one type, or several.** The Type filter, in the Model Manager and the Civitai
 Browser, picks one type as before; tick Select several, at the bottom of its list, to pick any
 number, such as LoRAs and embeddings together. Combine LoRA kinds, in the settings' Pages and
