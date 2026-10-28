@@ -16,7 +16,7 @@ import os
 import subprocess
 from typing import Dict, Optional
 
-VERSION = "0.70.1"
+VERSION = "0.70.2"
 
 REPOSITORY = "https://github.com/therestlesscat/sd-webui-forge-model-manager"
 CHANGELOG_URL = REPOSITORY + "/blob/HEAD/CHANGELOG.md"

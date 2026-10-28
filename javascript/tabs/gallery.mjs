@@ -76,8 +76,8 @@ const previousPlace = previousPosition({ id: 'gal_scroll_restore_btn', action: '
 
 // What this tab uses that has work of its own: the loading module starts each
 // once for the page, before this tab (#182, #183).
-export const STARTS = ['core.mjs', 'ui_options.mjs', 'notes.mjs', 'media.mjs', 'image_card.mjs', 'resources.mjs',
-    'send.mjs', 'update_notice.mjs', 'settings.mjs'];
+export const STARTS = ['core.mjs', 'calls.mjs', 'ui_options.mjs', 'notes.mjs', 'media.mjs', 'image_card.mjs',
+    'resources.mjs', 'send.mjs', 'update_notice.mjs', 'settings.mjs'];
 
 // What this tab does once started, done by start(scope) through the scope.
 const work = tabWork();
