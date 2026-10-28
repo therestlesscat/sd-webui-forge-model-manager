@@ -943,10 +943,11 @@ const CHECKPOINT_WAITS = {
 
 /**
  * The plan once Forge lists its checkpoint (#323): one the library has in
- * this WebUI's folders that Forge has not listed yet - a download that has
- * just landed - is listed by Forge's own refresh, waited for, and the plan
- * asked again. The library was ahead of Forge, and a stop asked the person
- * to press Send twice for it. Any other plan comes back as it is.
+ * this WebUI's folders that Forge has not listed yet - one added since the
+ * page loaded: Forge lists them at every page load - is listed by Forge's
+ * own refresh, waited for, and the plan asked again. The library was ahead
+ * of Forge, and a stop asked the person to press Send twice for it. Any
+ * other plan comes back as it is.
  */
 async function whenListed(plan, askAgain) {
     if (plan?.checkpoint_problem?.reason !== 'not_listed') return plan;

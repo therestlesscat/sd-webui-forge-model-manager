@@ -876,8 +876,11 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   given and identifies any file never asked about, whatever its scope
   (`sync_metadata`), so before a live check's sync,
   `/model-manager/sync/new-files` must answer 0 and ui-options'
-  `path_roots` must list only 7880's own folder - both were so on
-  2026-10-27. `paths` is gone since 0.69.2 (#355).
+  `path_roots` must list only 7880's own folder. Its `webui-user.bat` names
+  the three shared folders, so that holds only after a start without them:
+  restarted from that file for #323's check (2026-10-27), it answered 6
+  files, 5 of them the original Forge's, 22.3 GB, and the owner started it
+  again without them. `paths` is gone since 0.69.2 (#355).
 - **The extension's Restart keeps the arguments the WebUI started with.**
   Neo's restart writes `tmp/restart` and exits (`modules/restart.py`), and
   `webui.bat` launches again from its own `:launch`, in the same window:

@@ -174,6 +174,21 @@ showed:
   cleared the first radio's value.
 - **The Checkpoint box.** Neo's is `#setting_sd_model_checkpoint`; the
   original Forge's has no id, and is found by its label in the quick settings.
+  Forge's `selectCheckpoint` matches a name loosely. Neo
+  (`get_closet_checkpoint_match`) takes an alias, else the shortest title
+  holding the name, and warns "Failed to find model" for none; the original
+  Forge (`match_checkpoint_to_name`) takes the first title that holds the
+  name or sits inside it. So Send hands it Forge's own name
+  (`checkpoint_name`): a guessed one can select another file (#323; read
+  from the code, not seen).
+- **The checkpoint list.** Both WebUIs refresh it at every page load
+  (`Context.root_block.load(...)` in `modules_forge/main_entry.py`: Neo line
+  65, the original Forge line 96), so a checkpoint Forge does not list is one
+  added after the page loaded. Send presses Forge's refresh for it and asks
+  again (`whenListed`, #323). A live check of that case adds the file while
+  the page is open, and syncs from outside the page: reloaded, #323's second
+  link was listed before its Send; a sync started from outside, with the page
+  open, left the third unlisted.
 - **The VAE / Text Encoder control.** Neo's has the id `setting_sd_modules`;
   the original Forge's has none, and is found by its label. Every change to
   it is a request of Forge's own carrying the whole selection, and they can
