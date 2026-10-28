@@ -450,6 +450,32 @@ def unavailable(tab: str, infotext: str, controls: Dict[str, Any]) -> List[Dict[
     return names
 
 
+def detector_choices(tab: str) -> Dict[str, List[str]]:
+    """
+    Each ADetailer tab's detector choices among the controls Forge's paste
+    sets, labels and values, by the tab's ordinal - "" for the 1st, "2nd",
+    ... (#328). Not among Generate's inputs: ADetailer hands Generate one
+    State per tab. None where this WebUI draws no ADetailer.
+    """
+    found: Dict[str, List[str]] = {}
+    # Only a rename rides on it: unread, the text goes as built, never a
+    # Send stopped for it.
+    try:
+        controls = paste_outputs(tab)
+    except Exception as e:
+        say(f"Send: ADetailer's detectors on {tab} could not be read: {e}")
+        return found
+    for component in controls:
+        tab_of = re.fullmatch(rf"script_{tab}_adetailer_ad_model(?:_(\d+(?:st|nd|rd|th)))?",
+                              getattr(component, "elem_id", None) or "")
+        if tab_of:
+            choices = []
+            for choice in getattr(component, "choices", None) or []:
+                choices.extend(choice[:2] if isinstance(choice, (list, tuple)) else (choice,))
+            found[tab_of.group(1) or ""] = [str(c) for c in choices]
+    return found
+
+
 def _offers(component, label: str) -> bool:
     """Whether a dropdown offers this choice, by its label or its value."""
     for choice in getattr(component, "choices", None) or []:
@@ -663,13 +689,18 @@ def _loader(tab: str, kept: List[int], extras: List[Any] = (), names: List[Optio
             # fix off, in the same event. A generation's kept press (#7) is
             # replayed instead, and a replay that fails is pasted.
             if request.get("source") is not None:
-                from ..send import renamed, settings
+                from ..send import match_detectors, renamed, settings
                 source = request["source"]
                 generation_id = int(source["generation"]) if source.get("kind") == "generation" else None
                 found = settings(get_models_db(), source, bool(into))
                 if found is None:
                     raise replay.TaskError(f"No generation #{generation_id}" if generation_id is not None
                                            else "The image is not in the library")
+                # Each ADetailer detector under this WebUI's name for it
+                # (#328), before either paste - ours, or the page's press of
+                # Forge's own - reads the text.
+                if found.get("text"):
+                    found["text"] = match_detectors(found["text"], detector_choices(tab))
                 if found.get("replay"):
                     try:
                         values, skipped, notes = generation_values(tab, generation_id, source.get("image"),

@@ -433,6 +433,45 @@ send.forge_lists = lambda: ([], [])
 check('no samplers to read: nothing said of them',
       attempt(lambda: load.unavailable('txt2img', 'x\nSteps: 20, Sampler: DPM2 a, Schedule type: beta57', {})), [])
 send.forge_lists = held_lists
+# Each ADetailer detector under this WebUI's name for it (#328): the two
+# ADetailers name their MediaPipe detectors differently, and Forge's paste
+# sets a dropdown only to a choice it offers.
+NEO_DETECTORS = ['None', 'face_yolov8n.pt', 'mediapipe_face_full.tflite', 'mediapipe_face_short.tflite',
+                 'face_landmarker.task']
+ORIGINAL_DETECTORS = ['None', 'face_yolov8n.pt', 'mediapipe_face_full', 'mediapipe_face_short',
+                      'mediapipe_face_mesh', 'mediapipe_face_mesh_eyes_only']
+check("each pair both ways: the original Forge's names where the tab offers Neo's, Neo's where it offers the original's",
+      [attempt(lambda: send.match_detectors(
+          'x\nSteps: 20, ADetailer model: mediapipe_face_full, ADetailer model 2nd: mediapipe_face_short, '
+          'ADetailer model 3rd: mediapipe_face_mesh', {'': NEO_DETECTORS, '2nd': NEO_DETECTORS, '3rd': NEO_DETECTORS})),
+       attempt(lambda: send.match_detectors(
+           'x\nSteps: 20, ADetailer model: mediapipe_face_full.tflite, ADetailer model 2nd: mediapipe_face_short.tflite, '
+           'ADetailer model 3rd: face_landmarker.task',
+           {'': ORIGINAL_DETECTORS, '2nd': ORIGINAL_DETECTORS, '3rd': ORIGINAL_DETECTORS}))],
+      ['x\nSteps: 20, ADetailer model: mediapipe_face_full.tflite, ADetailer model 2nd: mediapipe_face_short.tflite, '
+       'ADetailer model 3rd: face_landmarker.task',
+       'x\nSteps: 20, ADetailer model: mediapipe_face_full, ADetailer model 2nd: mediapipe_face_short, '
+       'ADetailer model 3rd: mediapipe_face_mesh'])
+check('a tab offering neither name keeps the name given, as does eyes only, which Neo lacks - the notice names both',
+      attempt(lambda: send.match_detectors(
+          'x\nSteps: 20, ADetailer model: mediapipe_face_full, ADetailer model 2nd: mediapipe_face_mesh_eyes_only',
+          {'': ['None', 'face_yolov8n.pt'], '2nd': NEO_DETECTORS})),
+      'x\nSteps: 20, ADetailer model: mediapipe_face_full, ADetailer model 2nd: mediapipe_face_mesh_eyes_only')
+check('a name the tab offers is kept, though its pair is offered too',
+      attempt(lambda: send.match_detectors('x\nSteps: 20, ADetailer model: mediapipe_face_full, Seed: 1',
+                                           {'': NEO_DETECTORS + ['mediapipe_face_full']})),
+      'x\nSteps: 20, ADetailer model: mediapipe_face_full, Seed: 1')
+check("only a tab's detector field: its classes, the prompt, and a tab this WebUI does not draw stay as they are",
+      attempt(lambda: send.match_detectors(
+          'mediapipe_face_full\nNegative prompt: ADetailer model: mediapipe_face_full\nSteps: 20, '
+          'ADetailer model classes: mediapipe_face_full, ADetailer model 5th: mediapipe_face_full, '
+          'ADetailer prompt: mediapipe_face_full', {'': NEO_DETECTORS})),
+      'mediapipe_face_full\nNegative prompt: ADetailer model: mediapipe_face_full\nSteps: 20, '
+      'ADetailer model classes: mediapipe_face_full, ADetailer model 5th: mediapipe_face_full, '
+      'ADetailer prompt: mediapipe_face_full')
+check('no ADetailer drawn: the text as it is',
+      attempt(lambda: send.match_detectors('x\nSteps: 20, ADetailer model: mediapipe_face_full', {})),
+      'x\nSteps: 20, ADetailer model: mediapipe_face_full')
 
 # The image's clip skip as an entry of the tab's Override settings, where
 # Send's setting asks it and it differs from Forge's Clip Skip: for the
@@ -546,7 +585,73 @@ answer = attempt(lambda: load._loader('txt2img', list(range(generate_count)), ex
 check('a generation\'s image is answered as a task is',
       attempt(lambda: json.loads(answer[-1])),
       {'nonce': 'g1', 'replayed': True, 'generation': generation_id, 'skipped': [], 'notes': []})
+# Before either paste reads the text, each ADetailer detector is given this
+# WebUI's name for it (#328): a Civitai image's text and a generation's own.
+# ADetailer's detector boxes are among the fields Forge's paste sets, and the
+# loader's extra outputs - not Generate's inputs, which get one State per tab.
+AD_FIRST = Dropdown('ADetailer detector', 'script_txt2img_adetailer_ad_model', value='None',
+                    choices=[(c, c) for c in NEO_DETECTORS])
+AD_THIRD = Dropdown('ADetailer detector 3rd', 'script_txt2img_adetailer_ad_model_3rd', value='None',
+                    choices=[(c, c) for c in NEO_DETECTORS])
+held_paste = (list(infotext_utils.paste_fields['txt2img']['fields']), PASTE.outputs, PASTE.fn)
+infotext_utils.paste_fields['txt2img']['fields'] += [(AD_FIRST, 'ADetailer model'), (AD_THIRD, 'ADetailer model 3rd')]
+PASTE.outputs = PASTE_OUTPUTS + [AD_FIRST, AD_THIRD]
+ad_extras = extras + [AD_FIRST, AD_THIRD]
+pasted_texts = []
+
+
+def ad_paste(text):
+    pasted_texts.append(text)
+    return paste_func(text) + [{'__type__': 'update'}, {'__type__': 'update'}]
+
+
+ad_paste.__name__ = 'paste_func'
+PASTE.fn = ad_paste
+db.store_images(facts['version_ids'][0], page=2, images=[
+    {'id': 990001, 'url': 'https://example.invalid/i/990001.jpeg', 'width': 512, 'height': 768, 'browsingLevel': 1,
+     'createdAt': '2026-01-01T00:00:00.000Z',
+     'meta': {'prompt': 'a face', 'Steps': 20, 'Seed': 3, 'ADetailer model': 'mediapipe_face_full'}}])
+ad_generation = db.record_generation(
+    {'created_at': '2026-10-27T12:00:00', 'mode': 'txt2img', 'prompt': 'y', 'n_iter': 1, 'batch_size': 1,
+     'image_count': 1},
+    [{'position': 0, 'iteration': 0, 'path': 'ad.png', 'prompt': 'y', 'seed': 2, 'subseed': 2, 'negative_prompt': '',
+      'infotext': 'y\nSteps: 1, Seed: 2, ADetailer model: face_yolov8n.pt, ADetailer model 3rd: mediapipe_face_mesh'}],
+    [[]])
+
+
+def ad_send(source, nonce):
+    del pasted_texts[:]
+    answer = attempt(lambda: load._loader('txt2img', list(range(generate_count)), ad_extras)(
+        json.dumps({'source': source, 'nonce': nonce})))
+    return attempt(lambda: (pasted_texts[-1].split('\n')[-1] if pasted_texts else None,
+                            json.loads(answer[-1]).get('unavailable')))
+
+
+check("a Civitai image's mediapipe_face_full reaches Forge's paste as Neo's name, and the notice does not name it",
+      attempt(lambda: (lambda line, said: ('ADetailer model: mediapipe_face_full.tflite' in line, said))(
+          *ad_send({'kind': 'civitai', 'image': 990001}, 'ad1'))),
+      (True, []))
+check("a generation's own text: its 3rd tab's face mesh reaches the paste as Neo's Face Landmarker, its 1st tab as it was",
+      attempt(lambda: (lambda line, said: ('ADetailer model 3rd: face_landmarker.task' in line,
+                                           'ADetailer model: face_yolov8n.pt' in line, said))(
+          *ad_send({'kind': 'generation', 'generation': ad_generation}, 'ad2'))),
+      (True, True, []))
+eyes_generation = db.record_generation(
+    {'created_at': '2026-10-27T12:01:00', 'mode': 'txt2img', 'prompt': 'z', 'n_iter': 1, 'batch_size': 1,
+     'image_count': 1},
+    [{'position': 0, 'iteration': 0, 'path': 'eyes.png', 'prompt': 'z', 'seed': 4, 'subseed': 4, 'negative_prompt': '',
+      'infotext': 'z\nSteps: 1, Seed: 4, ADetailer model: mediapipe_face_mesh_eyes_only'}], [[]])
+check('eyes only, which Neo lacks under any name, reaches the paste as given, and the notice names it',
+      attempt(lambda: (lambda line, said: ('ADetailer model: mediapipe_face_mesh_eyes_only' in line, said))(
+          *ad_send({'kind': 'generation', 'generation': eyes_generation}, 'ad4'))),
+      (True, [{'name': 'mediapipe_face_mesh_eyes_only', 'kind': 'ADetailer detector'}]))
 del PAGE.fns[1]
+check("with Forge's paste not found, the text the page pastes itself carries Neo's name too",
+      attempt(lambda: 'ADetailer model: mediapipe_face_full.tflite' in json.loads(load._loader(
+          'txt2img', list(range(generate_count)), ad_extras)(json.dumps({'source': {'kind': 'civitai', 'image': 990001},
+                                                               'nonce': 'ad3'}))[-1]).get('text', '')),
+      True)
+infotext_utils.paste_fields['txt2img']['fields'][:], PASTE.outputs, PASTE.fn = held_paste
 answer = attempt(lambda: load._loader('txt2img', list(range(generate_count)), extras)(
     json.dumps({'source': {'kind': 'generation', 'generation': pasted_id}, 'nonce': 'p2'})))
 check('with Forge\'s paste not found, nothing is set and the page is told to paste itself',

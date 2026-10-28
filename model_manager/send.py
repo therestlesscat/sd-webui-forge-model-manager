@@ -602,6 +602,47 @@ def match_upscaler(name: Any, upscalers: List[str]) -> Any:
     return name
 
 
+# The two ADetailers' names for the same MediaPipe detector (#328): the
+# original Forge's names the detector, ADetailer-Neo the file it downloads.
+# Eyes only has none in Neo: its Face Landmarker masks the whole face.
+_DETECTORS = (("mediapipe_face_full", "mediapipe_face_full.tflite"),
+              ("mediapipe_face_short", "mediapipe_face_short.tflite"),
+              ("mediapipe_face_mesh", "face_landmarker.task"))
+
+# `ADetailer model`, `ADetailer model 2nd`, ... as fields of a settings line;
+# `ADetailer model classes` is not one.
+_DETECTOR_FIELD = re.compile(r"(^|, )(ADetailer model(?: (\d+(?:st|nd|rd|th)))?): ([^,]*)")
+
+
+def match_detectors(infotext: str, offered: Dict[str, List[str]]) -> str:
+    """
+    The infotext with each ADetailer tab's detector under this WebUI's name
+    for it (#328): where the tab's dropdown does not offer the name given,
+    but offers the other ADetailer's name for the same detector. `offered`:
+    each tab's choices, by its ordinal - "" for the 1st, "2nd", ... Every
+    other field, and a name with no offered pair, as it was: Forge's paste
+    sets a dropdown only to a choice it offers, and left the box empty.
+    """
+    if not infotext or not offered:
+        return infotext
+    lines = infotext.split("\n")
+
+    def respelled(found: "re.Match") -> str:
+        choices = offered.get(found.group(3) or "")
+        given = found.group(4).strip()
+        if choices is None or given in choices:
+            return found.group(0)
+        for pair in _DETECTORS:
+            if given in pair:
+                other = pair[1 - pair.index(given)]
+                if other in choices:
+                    return f"{found.group(1)}{found.group(2)}: {other}"
+        return found.group(0)
+
+    lines[-1] = _DETECTOR_FIELD.sub(respelled, lines[-1])
+    return "\n".join(lines)
+
+
 def _unquoted(text: Any) -> Any:
     """A prompt Civitai stored in quotes, without them; any other as it is."""
     trimmed = ("" if text is None else str(text)).strip()
