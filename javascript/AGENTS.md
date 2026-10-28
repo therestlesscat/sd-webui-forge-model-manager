@@ -194,7 +194,10 @@ send this info back?"
   name wrapping missed the longest name, 62 characters. Each name written
   into one visible row's label, measured and put back covered all 62 without
   changing a setting (#346: 416 px at most, against a 547 px column at a
-  1024 px screen).
+  1024 px screen). Opened from a tab's ⚙, it shows that tab's settings
+  alone - its band says "Showing Civitai Images Tab settings 10 · All
+  settings 63" - and the rest are in the page, hidden: a Playwright wait for
+  the Queue's switch timed out at 30 s (#269). Press All settings first.
 - **Send's notices stay 12 s** (`.mm-notice`, `showNotice` in
   `shared/send.mjs`). A check that sends again sooner and reads the newest
   notice reads the previous Send's: in the rc test of 0.68.10, Clip skip's

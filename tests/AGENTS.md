@@ -20,7 +20,10 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   never says an image came into view, so no image had ever loaded there; a
   side agent's review found it. Two suites now load a gallery through each
   tab (`mm_gallery_queue_test`, `cb_gallery_queue_test`). A guard row names
-  its check, and the check is seen to fail on a break.
+  its check, and the check is seen to fail on a break. And a guard is run on
+  the old code before a plan calls it one: #291's plan listed its 416
+  situation as a guard the old code passes, and run there half of it failed
+  - the old code never set `started_over` on that path.
 - **A new check has to fail on the old code.** A check that has never failed
   has not been shown to check anything: three separate attempts at one fix
   passed a suite that could not have caught the bug. Swap the file for

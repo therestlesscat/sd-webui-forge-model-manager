@@ -247,6 +247,12 @@ the code (2026-10-16).
   extra ones let through - without asking, and a side agent caught it. It was
   put back to equality on the owner's yes. A check in an approved plan is
   changed only by going back with a question, like any other part of it.
+  Nor replaced: #269's plan named a check the page cannot run - a tab
+  switched off and on in one page, which comes back only in a new page
+  (`javascript/AGENTS.md`) - and another was built in its place without
+  asking; a side agent flagged it, and the owner approved it after
+  (2026-10-28). A planned check is read against the rules of what it drives
+  before the plan goes out.
 
 ### The live data, and the WebUI running
 
