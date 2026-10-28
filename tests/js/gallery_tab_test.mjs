@@ -31,6 +31,7 @@ const embedding = (id) => ({ ...imageTile(id), model: { id: 41, name: 'An Embedd
                                                       model_type: 'TextualInversion', base_model: 'SD 1.5' } });
 const STATE = { total: 30, filtered: 24, hidden_nsfw: 6, nsfw_count: 6 };
 let withVideo = false;    // a video among the first part's tiles (#299)
+let withResources = false;    // two images whose data names resources (#362)
 
 // An image's ⋯ menu, as api/gallery.image_menu answers it (#298): a held
 // checkpoint, a LoRA the library lacks, and one whose record names no model.
@@ -86,7 +87,13 @@ globalThis.fetch = async (url, init = {}) => {
         const tiles = page === 1
             ? [{ ...imageTile(1), menu: true }, { ...imageTile(2), menu: true },
                imageTile(3, { meta: { prompt: 'no checkpoint named' } }),
-               ...(withVideo ? [imageTile(6, { url: 'https://image.civitai.com/x/original=true/6.mp4', type: 'video' })] : [])]
+               ...(withVideo ? [imageTile(6, { url: 'https://image.civitai.com/x/original=true/6.mp4', type: 'video' })] : []),
+               ...(withResources ? [
+                   imageTile(7, { meta: { prompt: 'a cat 7', Model: 'someCheckpoint', civitaiResources: [
+                       { type: 'checkpoint', modelVersionId: 701, name: 'Base', modelVersionName: 'v7' },
+                       { type: 'lora', modelVersionId: 400, name: 'A LoRA', modelVersionName: 'v1' }] } }),
+                   imageTile(8, { meta: { prompt: 'a cat 8', Model: 'someCheckpoint', civitaiResources: [
+                       { type: 'lora', modelVersionId: 400, name: 'A LoRA', modelVersionName: 'v1' }] } })] : [])]
             : [imageTile(4, { width: 1600, height: 900 }), embedding(5)];
         return reply({ success: true, seed, more: page === 1, state: STATE, scope: { count: 30 }, tiles });
     }
@@ -297,12 +304,13 @@ check('its × empties it, and shows everything again: no search asked', lastBrow
 // when it does not. Each block reports what is missing as a failure.
 const menuEl = () => document.querySelector('.gen-menu');
 const menuButton = (index) => tileEls()[index]?.querySelector('.gen-menu-btn');
-// After the five sends into img2img (#299), which come first: the Show items.
+// Show All and Resources first (#362), then the five sends into img2img (#299), then the Show items.
+const TOP = 2;
 const SENDS = 5;
 const buttons = () => [...(menuEl()?.querySelectorAll('button') || [])];
-const items = () => buttons().slice(SENDS).map((b) => [b.textContent.trim(), b.disabled]);
-const titles = () => buttons().slice(SENDS).map((b) => b.getAttribute('title'));
-const showItem = (index) => buttons()[SENDS + index];
+const items = () => buttons().slice(TOP + SENDS).map((b) => [b.textContent.trim(), b.disabled]);
+const titles = () => buttons().slice(TOP + SENDS).map((b) => b.getAttribute('title'));
+const showItem = (index) => buttons()[TOP + SENDS + index];
 try {
 check('every image tile has ⋯ - its sends into img2img (#299) - whether the server says it has Show items or not',
       [0, 1, 2].map((i) => !!menuButton(i)), [true, true, true]);
@@ -326,6 +334,9 @@ check('then the menu: a held checkpoint in the Model Manager; a LoRA it lacks in
 check('each saying why, and an item its version\'s name',
       titles(), ['v7', 'The Civitai Browser tab has not started yet', 'Civitai\'s record names no model for it']);
 check('and ⋯ ready again', [menuButton(0)?.disabled, menuButton(0)?.getAttribute('title')], [false, 'More']);
+check('first in it, Show All and Resources (#362): Resources greyed for an image whose data names none, saying so',
+      [buttons().slice(0, TOP).map((b) => [b.textContent.trim(), b.disabled]), buttons()[1]?.getAttribute('title')],
+      [[['Show All', false], ['Resources', true]], 'This image\'s data names no resources']);
 const shownBefore = shownVersions.length;
 showItem(0).dispatchEvent(new window.Event('click', { bubbles: true }));
 // Read at once: the stand-in Model Manager is no tab Gradio can show, and the place is let go after.
@@ -427,11 +438,11 @@ const { originalMediaUrl } = await sharedModule('media.mjs');
 // The settings button's requests, and the canvas buttons' - img2img's canvases set apart.
 const settingsLoads = (from) => loads.slice(from).filter((r) => r.canvas === undefined);
 const canvasLoads = (from) => loads.slice(from).filter((r) => r.canvas !== undefined);
-const sendItem = (label) => buttons().slice(0, SENDS).find((b) => b.textContent.trim() === label);
+const sendItem = (label) => buttons().slice(TOP, TOP + SENDS).find((b) => b.textContent.trim() === label);
 act('gallery.menu', { tile: 0 });
 await waitFor('the menu, for its sends', () => menuEl());
-check('an image\'s menu starts with the five sends into img2img, in Forge\'s order, then its Show items',
-      [buttons().slice(0, SENDS).map((b) => [b.textContent.trim(), b.disabled]), items().length > 0],
+check('an image\'s menu has, after Show All and Resources, the five sends into img2img, in Forge\'s order, then its Show items',
+      [buttons().slice(TOP, TOP + SENDS).map((b) => [b.textContent.trim(), b.disabled]), items().length > 0],
       [[['Send to img2img', false], ['Send to Sketch', false], ['Send to Inpaint', false],
         ['Send to Inpaint sketch', false], ['Send to Inpaint upload', false]], true]);
 let loaded = loads.length;
@@ -449,8 +460,8 @@ check('under the progress popup while it fetched, closed once the send ended', p
 const asksBefore299 = menuAsks.length;
 act('gallery.menu', { tile: 2 });
 await waitFor('the menu of an image with no Show items', () => menuEl());
-check('an image the server says has no Show items: its five sends at once, nothing asked',
-      [buttons().length, menuAsks.length - asksBefore299], [SENDS, 0]);
+check('an image the server says has no Show items: Show All, Resources and its five sends at once, nothing asked',
+      [buttons().length, menuAsks.length - asksBefore299], [TOP + SENDS, 0]);
 loaded = loads.length;
 sendItem('Send to Inpaint').dispatchEvent(new window.Event('click', { bubbles: true }));
 await waitFor('the send of an image naming no checkpoint', () => canvasLoads(loaded).length);
@@ -480,13 +491,49 @@ await new Promise((resolve) => setTimeout(resolve, 100));
 check('Send\'s own button: into txt2img, no mode or picture, no canvas button',
       loads.slice(loaded).map(({ tab, into, canvas }) => [tab, into, canvas]), [['txt2img', undefined, undefined]]);
 
-// A video gets no ⋯: the sends take a picture.
+// A video gets ⋯ too (#362): Show All and Resources, and no sends into
+// img2img, which take a picture.
 withVideo = true;
 act('gallery.refresh');
 await waitFor('the grid with a video', () => tileEls().some((el) => el.querySelector('video')));
 const videoTile = tileEls().findIndex((el) => el.querySelector('video'));
-check('a video\'s tile has no ⋯', [videoTile >= 0, !!menuButton(videoTile)], [true, false]);
+check('a video\'s tile has ⋯', [videoTile >= 0, !!menuButton(videoTile)], [true, true]);
+act('gallery.menu', { tile: videoTile });
+await waitFor('the video\'s menu', () => menuEl());
+check('with Show All and Resources, and no sends into img2img', buttons().map((b) => b.textContent.trim()),
+      ['Show All', 'Resources']);
+document.body.dispatchEvent(Object.assign(new window.Event('keydown', { bubbles: true }), { key: 'Escape' }));
 withVideo = false;
+
+// Show All opens the image's metadata window; Resources, labelled as the
+// viewer's, its resources but the gallery's own model - greyed, saying so,
+// where that is all it names (#362).
+withResources = true;
+act('gallery.refresh');
+const tileOf = (id) => tileEls().findIndex((el) => el.innerHTML.includes(`/${id}.jpeg`));
+await waitFor('the grid with resources', () => tileOf(7) >= 0 && tileOf(8) >= 0);
+act('gallery.menu', { tile: tileOf(7) });
+await waitFor('the menu of an image naming resources', () => menuEl());
+check('an image naming another model: Resources ready, labelled as the viewer labels it',
+      [buttons()[1]?.textContent.trim(), buttons()[1]?.disabled], ['Resources (1)', false]);
+buttons()[1]?.dispatchEvent(new window.Event('click', { bubbles: true }));
+await waitFor('the Resources dialog', () => document.querySelector('.mm-resources-modal'));
+check('pressed: the Resources dialog on that image, the gallery\'s own model left out, the menu closed',
+      [document.querySelector('.mm-resources-modal')?.textContent.includes('Base'),
+       document.querySelector('.mm-resources-modal')?.textContent.includes('A LoRA'), menuEl()], [true, false, null]);
+document.querySelectorAll('#mm_meta_modal').forEach((m) => { m.close?.(); m.remove(); });
+act('gallery.menu', { tile: tileOf(8) });
+await waitFor('the menu of an image naming only this model', () => menuEl());
+check('an image naming only the gallery\'s own model: Resources greyed, saying so',
+      [buttons()[1]?.textContent.trim(), buttons()[1]?.disabled, buttons()[1]?.getAttribute('title')],
+      ['Resources', true, 'This image names no resource but this model']);
+buttons()[0]?.dispatchEvent(new window.Event('click', { bubbles: true }));
+await waitFor('the metadata window', () => document.querySelector('#mm_meta_modal'));
+check('Show All: that image\'s metadata window, the menu closed',
+      [document.querySelector('#mm_meta_modal h3')?.textContent, document.querySelector('#mm_meta_modal')?.textContent.includes('a cat 8'), menuEl()],
+      ['Image Metadata', true, null]);
+document.querySelectorAll('#mm_meta_modal').forEach((m) => { m.close?.(); m.remove(); });
+withResources = false;
 
 // The tab switched off while it asks: its answer opens nothing.
 menuHeld = new Promise((resolve) => { release = resolve; });

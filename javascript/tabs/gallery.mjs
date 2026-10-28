@@ -38,7 +38,7 @@ const {
 } = await shared('media.mjs');
 const { nsfwBadge } = await shared('nsfw.mjs');
 const { imageDetailsHtml, showImageMeta } = await shared('image_card.mjs');
-const { showImageResources, resourceButtonLabel } = await shared('resources.mjs');
+const { showImageResources, resourceButtonLabel, resourcesMenuItem } = await shared('resources.mjs');
 const { sendGalleryImage, cannotSend, IMG2IMG_SENDS } = await shared('send.mjs');
 const { wide, aspect, layoutTiles, pathHtml, endIsNear, watchEnd: watchGridEnd, currentScroll, topOf, MAX_SPAN,
     placedGrid, showTile } = await shared('tiles.mjs');
@@ -405,11 +405,10 @@ function tileHtml(tile, index) {
         actions = `<div class="gen-actions gen-group-facts">${tile.matching_count} image${tile.matching_count === 1 ? '' : 's'}</div>`;
     } else {
         media = `<div class="gen-viewable" data-action="gallery.view" data-tile="${index}" title="View">${imageHtml(image)}</div>`;
-        // More, behind ⋯: its sends into img2img (#299), and its models. Not for a video.
-        if (!isVideoUrl({ url: image.url, type: image.type })) {
-            media += `<button type="button" class="gen-menu-btn" title="More"
-                              data-action="gallery.menu" data-tile="${index}">⋯</button>`;
-        }
+        // More, behind ⋯: Show All and Resources (#362), its sends into img2img
+        // (#299) but for a video, and its models.
+        media += `<button type="button" class="gen-menu-btn" title="More"
+                          data-action="gallery.menu" data-tile="${index}">⋯</button>`;
         const blocked = cannotSend(image, tile.model, tile.version);
         actions = `<div class="gen-actions">
                 <button type="button" class="mm-btn primary mm-btn-small" data-action="gallery.send" data-tile="${index}"
@@ -540,8 +539,8 @@ function showModel(tile) {
 }
 
 // ------------------------------------------------------------- the ⋯ menu
-// An image's sends into img2img's modes (#299), its original into the mode's
-// canvas; then its checkpoints and LoRAs, each in the Model Manager when the
+// An image's Show All and Resources (#362); its sends into img2img's modes
+// (#299), its original into the mode's canvas; then its checkpoints and LoRAs, each in the Model Manager when the
 // library holds it, in the Civitai Browser when it does not (#298). Those are
 // asked of the server when ⋯ is pressed, and only when the tile's `menu`
 // says it has any: what the library holds is as of the press.
@@ -557,9 +556,16 @@ async function openTileMenu(index, button) {
     if (!tile || tile.kind !== 'image' || !button || button.disabled) return;
     const asked = ++menuAsked;
     closeMenu();
-    const sends = IMG2IMG_SENDS.map(({ mode, label }) => ({ label, run: () => sendTile(tile, mode) }));
+    // Show All and Resources first, as the viewer offers them (#362); a
+    // video goes into no img2img mode.
+    const image = tile.image;
+    const top = [{ label: 'Show All', run: () => showImageMeta(image) },
+                 resourcesMenuItem(image, tile.version?.id,
+                                   { leaving: () => previousPlace.remember(placeOf(tile, image)) })];
+    const first = [...top, ...(isVideoUrl({ url: image.url, type: image.type }) ? []
+        : IMG2IMG_SENDS.map(({ mode, label }) => ({ label, run: () => sendTile(tile, mode) })))];
     if (!tile.menu) {
-        openMenu(tabScope, button, sends);
+        openMenu(tabScope, button, first);
         return;
     }
     // Asking: a second press asks nothing more.
@@ -578,7 +584,7 @@ async function openTileMenu(index, button) {
     const items = answer?.success
         ? (answer.items || []).map((resource) => resourceItem(resource, tile))
         : [{ label: 'Could not read its resources', disabled: true, title: answer?.error || 'No answer' }];
-    openMenu(tabScope, button, [...sends, ...items]);
+    openMenu(tabScope, button, [...first, ...items]);
 }
 
 /** One resource as the menu offers it: held, in the Model Manager; else in the Civitai Browser. */

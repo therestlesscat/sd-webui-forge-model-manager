@@ -79,6 +79,11 @@ globalThis.fetch = async (url) => {
                        scope: { count: 1 } });
     }
     if (href.includes('/model-manager/send/plan')) return reply(planAnswer);
+    // The Resources dialog's lookup (#362): the one LoRA an image names.
+    if (href.includes('/model-manager/resolve-hashes')) {
+        return reply({ success: true, deferred: [], resolved: {
+            aaaaaaaaaa: { version_id: 11, model_id: 10, name: 'sea_spray', model_type: 'LORA', version_name: 'v1' } } });
+    }
     return reply({ success: true });
 };
 
@@ -294,15 +299,43 @@ const canvasAsked = (from) => loaderAsked.slice(from).filter((r) => r.canvas !==
 const SEND_LABELS = ['Send to img2img', 'Send to Sketch', 'Send to Inpaint', 'Send to Inpaint sketch',
                      'Send to Inpaint upload'];
 try {
-check('an image tile\'s menu starts with the five sends into img2img, in Forge\'s order',
-      (await act('generations.menu', { tile: 0 }), menuItems().slice(0, 5)), SEND_LABELS.map((l) => [l, false]));
+// Resources first (#362), as the viewer offers it: greyed, saying why, for an
+// image whose data names none.
+check('an image tile\'s menu starts with Resources, then the five sends into img2img, in Forge\'s order',
+      (await act('generations.menu', { tile: 0 }), menuItems().slice(0, 6)),
+      [['Resources', true], ...SEND_LABELS.map((l) => [l, false])]);
+check('Resources greyed for an image whose data names none, saying so',
+      document.querySelector('.gen-menu button')?.getAttribute('title'), 'This image\'s data names no resources');
 document.body.dispatchEvent(Object.assign(new window.Event('keydown', { bubbles: true }), { key: 'Escape' }));
 check('a batch of several images has none - which image would go? - nor a ⋯ at all here', !!menuOf(3), false);
 await act('generations.menu', { tile: 2 });
 check('a tile whose file is gone has them greyed, saying so',
-      [menuItems().slice(0, 5).every(([, off]) => off),
-       document.querySelector('.gen-menu button')?.getAttribute('title')], [true, 'The image file is gone: deleted or moved']);
+      [menuItems().slice(1, 6).every(([, off]) => off),
+       document.querySelectorAll('.gen-menu button')[1]?.getAttribute('title')], [true, 'The image file is gone: deleted or moved']);
 document.body.dispatchEvent(Object.assign(new window.Event('keydown', { bubbles: true }), { key: 'Escape' }));
+// An image whose data names its LoRAs: its Resources opens the dialog on them.
+const named = { ...image, id: 14, url: '/model-manager/generations/images/14/file',
+                meta: { ...image.meta, resources: [{ type: 'lora', name: 'sea_spray', weight: 0.8, hash: 'aaaaaaaaaa' }] } };
+const heldTiles = tiles;
+tiles = [...tiles, { kind: 'generation', generation: { ...generation, id: 5 }, matching_count: 1, images: [named],
+                     loras: [], level: 1, user_level: null }];
+await act('generations.refresh');
+await waitFor('five tiles', () => document.querySelectorAll('#gen_grid .gen-tile').length === 5);
+await act('generations.menu', { tile: 4 });
+const resourcesItem = document.querySelector('.gen-menu button');
+check('an image whose data names its LoRAs: Resources first, labelled as in the viewer, ready',
+      [/^Resources/.test(resourcesItem?.textContent.trim() || ''), resourcesItem?.disabled], [true, false]);
+resourcesItem?.dispatchEvent(new window.Event('click', { bubbles: true }));
+await waitFor('the Resources dialog, its LoRA looked up',
+              () => document.querySelector('.mm-resources-modal')?.textContent.includes('sea_spray'));
+check('pressed: the Resources dialog on that image\'s LoRA, the menu closed',
+      [document.querySelector('.mm-resources-modal')?.textContent.includes('sea_spray'), !!document.querySelector('.gen-menu')],
+      [true, false]);
+document.querySelectorAll('#mm_meta_modal').forEach((m) => m.close?.());
+document.querySelectorAll('#mm_meta_modal').forEach((m) => m.remove());
+tiles = heldTiles;
+await act('generations.refresh');
+await waitFor('four tiles again', () => document.querySelectorAll('#gen_grid .gen-tile').length === 4);
 
 planAnswer = NO_PLAN;
 let at = loaderAsked.length;

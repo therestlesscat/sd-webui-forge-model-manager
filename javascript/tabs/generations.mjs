@@ -41,7 +41,7 @@ const { ready, call } = await shared('calls.mjs');
 const { tabWork, available, open, unavailableReason } = await shared('loading.mjs');
 const { showTab } = await shared('tabs.mjs');
 const { sendInfotext, IMG2IMG_SENDS } = await shared('send.mjs');
-const { showImageResources, resourceButtonLabel } = await shared('resources.mjs');
+const { showImageResources, resourceButtonLabel, resourcesMenuItem } = await shared('resources.mjs');
 const { nsfwModelNoteHtml, galleryDefaults, shownPath } = await shared('ui_options.mjs');
 const { showNotes } = await shared('notes.mjs');
 const { renderFilterBanner } = await shared('gallery.mjs');
@@ -920,11 +920,26 @@ async function deleteSelected() {
 // under its ⋯ - which is not drawn when there is nothing in it.
 
 /**
- * What a tile's menu offers: an image's sends into img2img (#299), then its
- * checkpoint, if its images share one, and the LoRAs they used.
+ * What a tile's menu offers: an image's Resources (#362) and its sends into
+ * img2img (#299), then its checkpoint, if its images share one, and the LoRAs
+ * they used.
  */
 function tileMenu(tile) {
-    return [...img2imgItems(tile), ...menuFor(tile)];
+    return [...resourcesItems(tile), ...img2imgItems(tile), ...menuFor(tile)];
+}
+
+/** The one image a tile stands for - an image, or a batch of one - or null: which of several would it be? */
+function singleImage(tile) {
+    const single = tile?.kind === 'image' || (tile?.kind === 'generation' && tile.matching_count <= 1);
+    const image = single ? tileImage(tile) : null;
+    return image?.id ? image : null;
+}
+
+/** The image's Resources, first in its menu as in the viewer (#362); greyed, saying why, where it names none. */
+function resourcesItems(tile) {
+    const image = singleImage(tile);
+    if (!image) return [];
+    return [resourcesMenuItem(image, null, { leaving: () => previousPlace.remember(placeOf(tile, image)) })];
 }
 
 /**
@@ -933,9 +948,8 @@ function tileMenu(tile) {
  * several images, nor a group - which image would go?
  */
 function img2imgItems(tile) {
-    const single = tile?.kind === 'image' || (tile?.kind === 'generation' && tile.matching_count <= 1);
-    const image = single ? tileImage(tile) : null;
-    if (!image?.id) return [];
+    const image = singleImage(tile);
+    if (!image) return [];
     const gone = image.exists === false ? 'The image file is gone: deleted or moved' : '';
     return IMG2IMG_SENDS.map(({ mode, label }) => (gone ? { label, disabled: true, title: gone }
         : { label, run: () => sendInto(tile, image, mode) }));

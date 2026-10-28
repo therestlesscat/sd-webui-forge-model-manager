@@ -230,6 +230,20 @@ export function resourceButtonLabel(img, exclude) {
 }
 
 /**
+ * Resources as an item of a tile's ⋯ menu (#362): labelled as the viewer's
+ * button, opening the same dialog. Where the viewer draws no button, greyed,
+ * saying why - a press that would do nothing.
+ */
+export function resourcesMenuItem(img, exclude, { leaving = null } = {}) {
+    const label = resourceButtonLabel(img, exclude);
+    if (label) return { label, run: () => showImageResources(img, exclude, { leaving }) };
+    const meta = img.meta || {};
+    const named = (meta.civitaiResources || []).length || (meta.resources || []).length;
+    return { label: 'Resources', disabled: true,
+             title: named ? 'This image names no resource but this model' : 'This image\'s data names no resources' };
+}
+
+/**
  * Learn what the server already knows about these images' hashes, in one
  * request, and tell the tabs, which relabel their buttons with it. Nothing is
  * asked of Civitai: that happens only when a panel is opened.
