@@ -256,7 +256,9 @@ part by part - `restore` adds the sizes up, and every removal takes the parts
 too (`_remove_partial`). The split is fixed at the first start and read back
 from the files; how many parts fetch at once is read at each start or
 resume. A gap in the numbers is a join cut short, and that download starts
-over. One connection keeps the code above unchanged. Civitai's storage holds
+over. One connection keeps a failed try's `.partial` too, and the next asks
+for the rest; after three, a download with bytes kept pauses, saying why,
+and a 416 starts it over (#291). Civitai's storage holds
 each connection to 55-69 MB/s (four runs), and its signed link lasts 24
 hours (`X-Amz-Expires=86400`). What is not over - running,
 paused or waiting - is kept in the `downloads` table, one row each in the

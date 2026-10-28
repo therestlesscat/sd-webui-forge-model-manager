@@ -332,6 +332,16 @@ def http_error(status, body=''):
 TARGET = os.path.join(WORK, 'out.safetensors')
 
 
+def bytes_of(path):
+    """A file's bytes, or None when it is not there - a check fails, not the suite."""
+    return io.open(path, 'rb').read() if path and os.path.exists(path) else None
+
+
+def remove_target():
+    if os.path.exists(TARGET):
+        os.remove(TARGET)
+
+
 def download(*replies, **kwargs):
     """Run one _download_file against a scripted Civitai, and report."""
     civitai_says(*replies)
@@ -355,16 +365,22 @@ check('and no size check is made', progress.total_bytes, 0)
 os.remove(TARGET)
 
 # -------------------------------------------------------------------- truncated
-ok, progress = download(FakeResponse([b'abc'], total=99),
-                        FakeResponse([b'abc'], total=99),
-                        FakeResponse([b'abc'], total=99))
-check('a short file is a failure', ok, False)
+# A file that ends short with no error is a dropped connection seen late
+# (#291): retried from what came. Both WebUIs' urllib3 raise on a short body
+# themselves; an older one, or a proxy that closes cleanly, would not.
+ok, progress = download(FakeResponse([b'abc'], total=6), FakeResponse([b'def'], status_code=206))
+check('a short file is retried for the rest', [ok, len(FakeSession.asked), bytes_of(TARGET)],
+      [True, 2, b'abcdef'])
+check('asked from where it ended', [(h or {}).get('Range') for _, h in FakeSession.asked], [None, 'bytes=3-'])
+remove_target()
+
+ok, progress = download(FakeResponse([b'abc'], total=9),
+                        FakeResponse([b'de'], total=6, status_code=206),
+                        FakeResponse([b'f'], total=4, status_code=206))
+check('short three times: it pauses, keeping what came', [ok, progress.status, bytes_of(TARGET)],
+      [False, 'paused', b'abcdef'])
 check('named as such', 'Incomplete download' in (progress.error or ''), True)
-# NOTE: a truncated file is raised as a bare Exception, which the catch-all
-# handler answers with `return False` - so unlike a connection error it is
-# never retried, though a truncated download is exactly the case a retry
-# would fix. Recorded as it behaves so that changing it fails here.
-check('but it is not retried', len(FakeSession.asked), 1)
+remove_target()
 
 # ------------------------------------------------------------------- cancelled
 civitai_says(FakeResponse([b'a' * 10] * 5))
@@ -431,6 +447,79 @@ check('after the attempts it promised',
 ok, progress = download(timeout, FakeResponse([b'second time lucky']))
 check('but one that opens on the retry succeeds', ok, True)
 os.remove(TARGET)
+
+# --------------------------------------------- a connection that drops (#291)
+# A drop mid-file raises ChunkedEncodingError in both WebUIs' requests (a
+# server closing after 1 MB of 10, cleanly or with a reset). The retry asks
+# for the rest, as Resume does, and keeps what came: it started from 0.
+import hashlib                                           # noqa: E402
+TWENTY = b'0123456789abcdefghij'
+
+
+def drop():
+    raise real_requests.exceptions.ChunkedEncodingError('Connection broken: IncompleteRead')
+
+
+def ranges():
+    return [(headers or {}).get('Range') for _, headers in FakeSession.asked]
+
+
+ok, progress = download(FakeResponse([TWENTY[:11], drop], total=20), FakeResponse([TWENTY[11:]], status_code=206))
+check('a connection that drops mid-file: the retry asks for the rest', ranges(), [None, 'bytes=11-'])
+check('and the file is whole, its SHA-256 the whole file\'s',
+      [ok, bytes_of(TARGET), progress.sha256],
+      [True, TWENTY, hashlib.sha256(TWENTY).hexdigest().upper()])
+remove_target()
+
+civitai_says(FakeResponse([TWENTY[:11], drop], total=20))
+progress = DownloadProgress(version_id=101)
+bar = []
+FakeSession.replies.append(FakeResponse([lambda: bar.append(progress.downloaded_bytes), TWENTY[11:]], status_code=206))
+service._download_file('https://example.invalid/f', TARGET, {}, progress)
+check('the bar stays where the drop left it as the retry starts', bar, [11])
+remove_target()
+
+io.open(TARGET, 'wb').write(TWENTY[:11])
+civitai_says(FakeResponse(error=http_error(503)), FakeResponse([TWENTY[11:]], status_code=206))
+progress = DownloadProgress(version_id=102)
+ok = service._download_file('https://example.invalid/f', TARGET, {}, progress, 11)
+check('a resume answered 503 keeps what it had: both tries ask from it',
+      [ok, ranges(), bytes_of(TARGET)], [True, ['bytes=11-', 'bytes=11-'], TWENTY])
+remove_target()
+
+ok, progress = download(FakeResponse([TWENTY[:5], drop], total=20),
+                        FakeResponse([TWENTY[5:9], drop], status_code=206, total=15),
+                        FakeResponse([TWENTY[9:12], drop], status_code=206, total=11))
+check('three drops, each after some bytes: each try asks from where the last stopped', ranges(),
+      [None, 'bytes=5-', 'bytes=9-'])
+check('and it pauses, keeping what came, saying why and what to do',
+      [ok, progress.status, bytes_of(TARGET), 'after 3 attempts' in (progress.error or ''),
+       (progress.error or '').endswith('Resume to try again.')],
+      [False, 'paused', TWENTY[:12], True, True])
+remove_target()
+
+ok, progress = download(FakeResponse([TWENTY[:11], drop], total=20),
+                        *[FakeResponse([TWENTY], status_code=200) for _ in range(3)])
+check('a drop, then a storage that sends the whole file for the rest: asked three times, then started over',
+      [ranges(), ok, bytes_of(TARGET), progress.started_over],
+      [[None, 'bytes=11-', 'bytes=11-', 'bytes=11-'], True, TWENTY, True])
+remove_target()
+
+ok, progress = download(FakeResponse([TWENTY[:11], drop], total=20), FakeResponse(error=http_error(401)))
+check('a drop, then a 401: no more tries, Error, and nothing left',
+      [ok, progress.status, len(FakeSession.asked), os.path.exists(TARGET)], [False, 'error', 2, False])
+
+# A 416: the server cannot serve the range - the .partial as long as the file,
+# or the file smaller since. Kept, every try and every Resume would get it again.
+io.open(TARGET, 'wb').write(TWENTY[:11])
+civitai_says(FakeResponse(error=http_error(416)), FakeResponse([TWENTY]))
+progress = DownloadProgress(version_id=103)
+ok = service._download_file('https://example.invalid/f', TARGET, {}, progress, 11)
+check('a 416 drops the .partial: the next try asks for the whole file, and finishes',
+      [ok, ranges(), bytes_of(TARGET), progress.status != 'paused'],
+      [True, ['bytes=11-', None], TWENTY, True])
+check('and says it started over', progress.started_over, True)
+remove_target()
 
 ok, progress = download(RuntimeError('something else entirely'))
 check('anything else fails at once', ok, False)
@@ -1035,6 +1124,23 @@ over = service.download_version(531, CHECKPOINT, hashed(531, FULL_SHA), resume=T
 check('a server that sends the whole file every time: taken from the start, and said so',
       [len(FakeSession.asked), over.status, io.open(over.file_path, 'rb').read(), over.started_over],
       [3, 'complete', FULL, True])
+
+# Three drops (#291): paused, not failed - kept to resume, as a pause is.
+kept['rows'] = []
+civitai_says(FakeResponse([FULL[:5], drop], total=len(FULL)),
+             FakeResponse([FULL[5:11], drop], status_code=206, total=len(FULL) - 5),
+             FakeResponse([FULL[11:15], drop], status_code=206, total=len(FULL) - 11))
+dropped = service.download_version(533, CHECKPOINT, hashed(533, FULL_SHA))
+partial = os.path.join(CKPT_DIR, 'hashed_533.safetensors.partial')
+check('three drops: paused, saying to resume, with what came kept and saved',
+      [dropped.status, (dropped.error or '').endswith('Resume to try again.'), bytes_of(partial),
+       [(e['version_id'], e['partial_path']) for e in kept['rows']]],
+      ['paused', True, FULL[:15], [(533, partial)]])
+civitai_says(FakeResponse([FULL[15:]], status_code=206))
+back = service.download_version(533, CHECKPOINT, hashed(533, FULL_SHA), resume=True)
+check('and Resume carries on from there to the whole file, its hash Civitai\'s',
+      [ranges(), back.status, bytes_of(back.file_path), back.sha256],
+      [['bytes=15-'], 'complete', FULL, FULL_SHA])
 
 # After a restart: what was kept comes back paused - one that was running
 # when the WebUI stopped too - and one whose .partial is gone is forgotten.

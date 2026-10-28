@@ -955,7 +955,10 @@ class DownloadService:
         Range request and added to the file. A server that sends the whole
         file instead is taken from the start. A pause stops at the next chunk
         and keeps the file (status "paused"); False is returned, as for any
-        download that did not finish.
+        download that did not finish. A try that fails - a dropped connection,
+        a short file, a 5xx - keeps what it has, and the next asks for the
+        rest the same way (#291); after the last, a download with bytes kept
+        pauses, saying why, so Resume carries on.
         """
         try:
             from tqdm import tqdm
@@ -972,8 +975,11 @@ class DownloadService:
         try:
             for attempt in range(max_retries):
                 try:
-                    # Only the first attempt resumes: a retry starts over, as before.
-                    offset = resume_from if attempt == 0 and os.path.exists(target_path) else 0
+                    # The first attempt starts where it was asked to - a fresh
+                    # download never takes up a stale .partial - and each retry
+                    # from what the attempts before it kept (#291).
+                    offset = ((resume_from if attempt == 0 else os.path.getsize(target_path))
+                              if os.path.exists(target_path) else 0)
                     asked = dict(headers)
                     if offset:
                         asked["Range"] = f"bytes={offset}-"
@@ -1066,9 +1072,12 @@ class DownloadService:
                         if pbar:
                             pbar.close()
 
-                        # Verify file size
+                        # Short, with no error: a dropped connection seen
+                        # late, retried like one (#291). Both WebUIs' urllib3
+                        # raise on a short body themselves.
                         if total_size > 0 and downloaded != total_size:
-                            raise Exception(f"Incomplete download: {downloaded}/{total_size} bytes")
+                            raise requests.exceptions.ChunkedEncodingError(
+                                f"Incomplete download: {downloaded}/{total_size} bytes")
 
                         progress.sha256 = hasher.hexdigest().upper()
                         return True
@@ -1091,45 +1100,49 @@ class DownloadService:
                     if response_body:
                         say(f"Response body: {response_body}")
 
-                    if os.path.exists(target_path):
-                        os.remove(target_path)
-
-                    if status_code == 401:
+                    if status_code in (401, 403):
+                        if os.path.exists(target_path):
+                            os.remove(target_path)
                         progress.status = "error"
-                        progress.error = _refused_401(_civitai_message(response_body),
-                                                      bool(api_key_from_settings()))
-                        return False
-                    elif status_code == 403:
                         # Civitai says why, in JSON - "Early Access", say.
-                        progress.status = "error"
-                        progress.error = _refused_403(_civitai_message(response_body))
+                        progress.error = (_refused_401(_civitai_message(response_body), bool(api_key_from_settings()))
+                                          if status_code == 401 else _refused_403(_civitai_message(response_body)))
                         return False
-                    else:
-                        if attempt < max_retries - 1:
-                            say(f"Retrying in {retry_delay}s...")
-                            time.sleep(retry_delay)
-                        else:
-                            progress.status = "error"
-                            progress.error = f"Download failed (HTTP {status_code}): {e}"
-                            return False
+                    if status_code == 416:
+                        # The rest cannot be sent: the .partial as long as the
+                        # file, or the file smaller since. Kept, every try and
+                        # every Resume would be refused alike: started over.
+                        say(f"The server cannot send the rest of {file_name}: starting it over")
+                        if os.path.exists(target_path):
+                            os.remove(target_path)
+                        progress.started_over = True
+                    failure = f"Download failed (HTTP {status_code}): {e}"
 
                 except requests.exceptions.RequestException as e:
                     say(f"Download attempt {attempt + 1} failed: {e}")
-                    if os.path.exists(target_path):
-                        os.remove(target_path)
-                    if attempt < max_retries - 1:
-                        say(f"Retrying in {retry_delay}s...")
-                        time.sleep(retry_delay)
-                    else:
-                        progress.status = "error"
-                        progress.error = f"Download failed after {max_retries} attempts: {e}"
-                        return False
+                    failure = f"Download failed after {max_retries} attempts: {e}"
 
                 except Exception as e:
                     progress.status = "error"
                     progress.error = f"Download error: {e}"
                     if os.path.exists(target_path):
                         os.remove(target_path)
+                    return False
+
+                # What the attempt got is kept for the next, which asks for
+                # the rest (#291): a drop no longer costs the whole file.
+                kept = os.path.getsize(target_path) if os.path.exists(target_path) else 0
+                if attempt < max_retries - 1:
+                    say(f"Retrying in {retry_delay}s" + (f", from {kept / (1024 * 1024):.1f} MB" if kept else "") + "...")
+                    time.sleep(retry_delay)
+                elif kept:
+                    # A stop needs a way back: Resume carries on from here.
+                    return self._pause_saying(progress, f"{failure}. Resume to try again.")
+                else:
+                    if os.path.exists(target_path):
+                        os.remove(target_path)
+                    progress.status = "error"
+                    progress.error = failure
                     return False
 
             return False
@@ -1423,7 +1436,7 @@ class DownloadService:
                 os.remove(path)
 
     def _pause_saying(self, progress: DownloadProgress, why: str) -> bool:
-        """A download in parts that cannot go on for now: paused, every part kept, saying why (#282)."""
+        """A download that cannot go on for now - in parts (#282), or one connection out of tries (#291): paused, what it has kept, saying why."""
         say(f"Download of {progress.file_name} paused: {why}")
         progress.status = "paused"
         progress.error = why
