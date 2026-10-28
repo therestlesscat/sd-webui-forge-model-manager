@@ -116,6 +116,10 @@ deleted.length = 0;
 await open();
 check('with one version, one button: Delete Model', buttons(), ['Delete Model']);
 refuse = 'C:/models/v1.safetensors';
+// Each delete above that removed a file pressed both refreshes, in line and
+// not waited for: under load the last pair came after the list was emptied,
+// and read as this delete's (1 run in 24 at once).
+await waitFor('the three deletes\' refreshes', () => refreshed.length >= 6);
 refreshed.length = 0;
 await pressLabelled('Delete Model');
 check('a delete that removed nothing refreshes nothing', [deleted, refreshed], [[], []]);
