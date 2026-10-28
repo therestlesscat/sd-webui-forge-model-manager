@@ -478,6 +478,12 @@ LoRAs from); anything that shows one says whose it is (a whole path).
   (`send.rename_lora_tags`), 67,112 of 134,240 renames differed without the
   `$` handling; the case rule changed none on one library, so its suite's
   own cases guard it.
+- **ADetailer hands Generate one State per tab.** Its detector dropdowns
+  are only among the fields Forge's paste sets (`paste_fields`,
+  `forge_host.paste_outputs`), in both ADetailers (`components =
+  [ad_enable, ad_skip_img2img, *states]` in each `ui.py`). #328's first
+  build read the choices from Generate's inputs, found none, and changed
+  nothing: five Sends on Neo looked as before.
 
 ### The environment
 

@@ -799,6 +799,12 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   button, not Send, which writes; the owner then hit a Send crash and asked
   "did you test this". It was old (#266), but the report had not said Send
   went untested.
+- **A generation recorded with its press is replayed, not pasted.** #328's
+  plan sent, in the original Forge, a generation its Neo check had made, to
+  see the paste read Neo's names; the generation had kept its press, so Send
+  replayed it - ADetailer's tabs left as on screen (#297) - and the paste
+  never ran. A live check of what Send pastes uses a Civitai image, or a
+  generation Sync images added.
 - **A slowdown in a long session: the same action in a fresh tab first.**
   In 2026-10-18's Send test, sends that kept the preset went from 520 ms to
   about 880 ms over some 460 sends in one page. A freshly loaded tab took

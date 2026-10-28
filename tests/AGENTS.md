@@ -137,6 +137,11 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   or an `--import` preload) rewrites a page module as Node loads it: no file
   is touched, and suites can be proven side by side - #272's five were, at
   once.
+- **A stand-in puts a control where the WebUI does.** #328's suite put
+  ADetailer's detector dropdowns among Generate's inputs, where the first
+  build looked, and passed; the WebUI has them only among the paste's
+  fields, and the build did nothing live. Read the extension's own `ui()`
+  before standing in for it.
 
 ### The code
 
