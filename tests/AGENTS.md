@@ -145,6 +145,11 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
 
 ### The code
 
+- **In a suite, `database_path()` names the repository's own stale
+  `models.db`.** Suites hand the fixture library in as `_db_instance`, so a
+  helper that reads the path - `migration_state()`, `database_state()` -
+  looks at another file: #241's repairs route answered nothing in its suite,
+  as `migration_state()` read schema 21 there and reported a migration.
 - **Page sizes in a suite:** one paging fewer items than the settings allow
   lowers `gallery.MIN_PAGE_SIZE`; one shrinking the two scrolling tabs' part
   sets `gallery.TILE_PART`. Both are read when asked; `page_sizes_test`

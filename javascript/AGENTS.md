@@ -92,7 +92,9 @@ send this info back?"
   becomes a link error that kills the entire tab. The tabs used their own
   `?mtime` - which stayed the same when only a shared file changed (15 of 60
   releases that touched shared/). They now ask `/model-manager/asset-version`
-  for the newest mtime among the shared files and the tabs' scripts, once a
+  for the newest mtime among the shared files, the tabs' scripts and the
+  repairs' (#241: a new folder of page scripts joins `shared_version`'s list,
+  or a browser keeps its old copy - `asset_version_test` checks each), once a
   page, in the loader (`window.mmSharedVersion`) - an area of `tabs.py`'s
   `ALWAYS`, like ui-options: gated `any`, it refused with every tab off -
   and import every module with it: one URL, so each also **runs once**, not once per tab. It is asked until it

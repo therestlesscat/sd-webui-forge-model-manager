@@ -2,7 +2,7 @@
 Which tabs are on, decided in one place (model_manager/tabs.py, #181): a tab
 switched off has its routes refuse and its startup work left out.
 
-What is checked here: every route naming its area - all 74 held to the table
+What is checked here: every route naming its area - all 96 held to the table
 below, which is the spec; with every tab off, every route but ui-options
 refusing, in the shape every failure answers; an off tab's routes refused
 through the app; the shared areas, on while any of their tabs is; the

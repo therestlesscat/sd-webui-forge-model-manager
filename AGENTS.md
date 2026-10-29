@@ -76,6 +76,12 @@ the code (2026-10-16).
   situations, each new or a guard. `file:line` stays only where it helps
   look something up. The #195 plan, in chat, read as if steps were missing;
   #200's doc, rewritten so, became the rule (2026-10-08).
+- **A plan that adds a window says what it shows and what each control
+  does.** #241's review window was named in passing; the owner: "you
+  mentioned review window passing by, never explained how it will look, what
+  its going to contain, what user interactions user going to get out of it."
+  Its next round added a mock-up, what each row holds, what each control
+  does, and what the window shows while it works and after (2026-10-29).
 - **A suggestion argues both sides, and says how big a change it is.**
   Every suggestion in a doc - an option recommended, an idea for scope, a
   question's recommendation - gets a table of its own: the points for it in
@@ -137,6 +143,15 @@ the code (2026-10-16).
   library's LoRAs by id, one by name, as ones Civitai marks `minor`. The
   owner deleted it and it was written again without them. An edit is no
   removal: GitHub shows an issue's edits to anyone (2026-10-14).
+- **User data is deleted only where the user decides.** A fix of rows an
+  earlier version wrote wrong never runs as a migration or a startup tidy:
+  #241's plan removed 13 early copies (104 image rows) in a migration to
+  v47, and the owner: "deleting rows as migration without user intervention
+  is never a good idea even if it is the most optimal path. user data
+  deletion must be done through an interface which user gets to decide what
+  to do with data." It became a review window the user opens, removing only
+  what is ticked. A guard against bad rows marks, never deletes: "generation
+  is not just set of images, its set of metadata" (#366, 2026-10-29).
 - **Scope is the owner's.** Asked "what would the shared part be, and how
   would it be called?", show the code shape before changing anything; R29 was
   narrowed twice that way, to what is actually shared. A behaviour change
@@ -300,6 +315,8 @@ model_manager/                the extension proper
 javascript/loader.mjs         the one script the WebUI loads: the version, then the loading module
 javascript/tabs/              the four tabs' scripts, loaded only while on (shared/loading.mjs)
 javascript/shared/            what they share
+javascript/repairs/           one-off repairs' scripts, loaded only when the server names one
+                              (model_manager/repairs/, #241)
 style.css                     picked up by filename; see "The WebUI's rules"
 tests/                        see tests/README.md
 tools/train_nsfw_model.py     trains the NSFW prompt model from a library, read-only
@@ -650,6 +667,13 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   live check that does not reproduce the failure shows the change runs, not
   that it fixes: #213's uncapped run loaded 763 images of 763. Say so in
   the commit, and ask for the observation that would settle it.
+- **A live check reads that what it tests ran, and ends with the query that
+  found the bug.** #241's first "ADetailer on" press on 7880 had ADetailer
+  ticked with its detector at "None", which runs nothing: its infotext had no
+  ADetailer lines, and it was a control by accident. After the fix only the
+  new rows were read, until the owner asked "did you verify that bug not
+  happens in 7880"; the whole library's count of files held twice (0) came
+  then.
 - **A file Civitai should not know has a byte changed inside AutoV1's
   window.** AutoV1 hashes the 64 KB at 1 MB (`hashing.py`), and Civitai is
   asked with it when the SHA-256 misses. #350's live check appended a byte
