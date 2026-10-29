@@ -39,6 +39,7 @@ import fixtures                                          # noqa: E402
 import model_manager.db.database as dbmod                # noqa: E402
 import model_manager.release_notes as rn                 # noqa: E402
 from model_manager.api import setup_api                  # noqa: E402
+from model_manager.repairs import REPAIRS                # noqa: E402
 from model_manager.version import VERSION                # noqa: E402
 
 WORK = os.path.join(TESTS, 'work', 'notes')
@@ -60,7 +61,8 @@ for note in shipped:
     check(f'{where}: a kind there is', note.get('kind') in rn.KINDS)
     check(f'{where}: an audience there is', note.get('audience') in rn.AUDIENCES)
     check(f'{where}: tabs there are', set(note.get('tabs') or []) <= set(rn.TABS) and bool(note.get('tabs')))
-    check(f'{where}: a condition there is, if any', not note.get('when') or note['when'] in rn.CONDITIONS)
+    check(f'{where}: a condition there is, if any', not note.get('when') or note['when'] in rn.CONDITIONS
+          or (note['when'].startswith('repair:') and note['when'][len('repair:'):] in REPAIRS))
     check(f'{where}: important is true or absent', note.get('important', True) is True)
     check(f'{where}: replaces notes there are, older than it',
           all(old in {n['id'] for n in shipped}
@@ -69,6 +71,8 @@ for note in shipped:
     for action in (note.get('actions') or []) + ([note['action']] if note.get('action') else []):
         check(f'{where}: an action there is, with a label',
               action.get('id') in rn.ACTIONS and bool(action.get('label')))
+        check(f'{where}: a repair\'s button names a repair there is',
+              action.get('id') != 'repair' or action.get('repair') in REPAIRS)
     check(f'{where}: from this version or before - a later one would never show',
           rn.version_key(note['version']) <= rn.version_key(VERSION))
 notes_js = open(os.path.join(ROOT, 'javascript', 'shared', 'notes.mjs'), encoding='utf-8').read()

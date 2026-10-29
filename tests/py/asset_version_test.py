@@ -53,6 +53,12 @@ os.makedirs(TABS)
 io.open(os.path.join(TABS, 'queue.mjs'), 'w').write('x')
 os.utime(os.path.join(TABS, 'queue.mjs'), (1_600_000_000, 1_600_000_000))
 webui.TAB_SCRIPTS = TABS
+REPAIRS = os.path.join(TESTS, 'work', 'asset_version_repairs')
+shutil.rmtree(REPAIRS, ignore_errors=True)
+os.makedirs(REPAIRS)
+io.open(os.path.join(REPAIRS, 'recorded_twice.mjs'), 'w').write('x')
+os.utime(os.path.join(REPAIRS, 'recorded_twice.mjs'), (1_600_000_000, 1_600_000_000))
+webui.REPAIR_SCRIPTS = REPAIRS
 
 app = FastAPI()
 webui.register(app)
@@ -70,6 +76,9 @@ check('a change to one shared file alone moves it',
 os.utime(os.path.join(TABS, 'queue.mjs'), (1_700_012_345, 1_700_012_345))
 check('and so does a change to one tab\'s script alone',
       client.get('/model-manager/asset-version').json()['version'], '1700012345')
+os.utime(os.path.join(REPAIRS, 'recorded_twice.mjs'), (1_700_023_456, 1_700_023_456))
+check('and a change to one repair\'s script alone (#241)',
+      client.get('/model-manager/asset-version').json()['version'], '1700023456')
 
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

@@ -1,5 +1,22 @@
 [
     {
+        "id": "recorded-twice-0-70-5",
+        "version": "0.70.5",
+        "kind": "action",
+        "audience": "update",
+        "when": "repair:recorded_twice",
+        "tabs": [
+            "generations"
+        ],
+        "title": "Some generations were recorded twice",
+        "text": "Before this version, one press of Generate could be written here more than once, when another extension ended its run early. Each extra generation holds images that the generation recorded after it holds too. Review lists them: only the ones you tick are removed, and no image file is deleted.",
+        "action": {
+            "id": "repair",
+            "label": "Review",
+            "repair": "recorded_twice"
+        }
+    },
+    {
         "id": "shared-database-0-69-1",
         "version": "0.69.1",
         "kind": "warning",

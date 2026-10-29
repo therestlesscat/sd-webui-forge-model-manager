@@ -3261,6 +3261,100 @@ body.mm-modal-open {
     margin: 0;
 }
 
+/* Generations recorded twice (#241): the repair's review window, a row per
+   early copy - its box, a preview, what it is - in a list that scrolls, the
+   title and the buttons always in sight. Wider than a question: a row holds
+   a prompt's first words. */
+.mm-question.mm-repair {
+    width: min(calc(100% - 40px), 720px);
+}
+
+.mm-repair .mm-question-box {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.mm-repair-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 6px;
+}
+
+.mm-repair-count {
+    font-size: 0.9em;
+    color: var(--body-text-color-subdued, #6b7280);
+}
+
+.mm-repair-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: 50vh;
+    overflow: auto;
+    border-top: 1px solid var(--border-color-primary, #e5e7eb);
+    border-bottom: 1px solid var(--border-color-primary, #e5e7eb);
+}
+
+.mm-repair-row {
+    display: grid;
+    grid-template-columns: auto 56px minmax(0, 1fr);
+    align-items: center;
+    gap: 12px;
+    padding: 8px 4px;
+    cursor: pointer;
+}
+
+.mm-repair-row + .mm-repair-row {
+    border-top: 1px solid var(--border-color-primary, #e5e7eb);
+}
+
+.mm-repair-row > input[type="checkbox"] {
+    margin: 0;
+}
+
+.mm-repair-preview {
+    width: 56px;
+    height: 56px;
+    object-fit: cover;
+    border-radius: 4px;
+    background: var(--background-fill-secondary, rgba(0, 0, 0, 0.04));
+}
+
+/* An image the Generations tab would hide: its level's name in its place. */
+.mm-repair-hidden {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    color: var(--body-text-color-subdued, #6b7280);
+}
+
+.mm-repair-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    font-size: 0.9em;
+}
+
+.mm-repair-when {
+    font-weight: 600;
+}
+
+.mm-repair-prompt {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    color: var(--body-text-color-subdued, #6b7280);
+}
+
+/* The database box's place for repairs' lines: nothing while none is loaded. */
+.mm-upkeep-repairs:empty {
+    display: none;
+}
+
 /* ============================================================
    Sync dialog
    Which models to refresh, how much of each, and what it costs.

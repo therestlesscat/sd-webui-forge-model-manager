@@ -25,10 +25,12 @@ A note is:
     action    optional {"id", "label", "section"}: a button that does it - the
               ids are the page's (NOTE_ACTIONS in javascript/shared/notes.mjs);
               "settings" opens the settings window at `section`, one of its
-              sections' ids (SECTIONS in javascript/shared/settings.mjs)
+              sections' ids (SECTIONS in javascript/shared/settings.mjs);
+              "repair" opens the window of the repair `repair` names
     when      optional: a condition of this install the note is only for, of
               CONDITIONS - "custom_database", the database file set in the
-              settings, which two WebUIs sharing one database need
+              settings, which two WebUIs sharing one database need - or
+              "repair:<name>", while that repair has work here (repairs/)
     important optional true: shown first, headed [Important] - for what
               everyone should read, not only what needs doing
     replaces  optional: ids of earlier notes this one makes needless - a
@@ -52,7 +54,7 @@ NOTES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "r
 KINDS = ("feature", "action", "warning", "intro")
 AUDIENCES = ("everyone", "update", "new")
 TABS = ("model_manager", "civitai_browser", "generations", "gallery", "queue")
-ACTIONS = ("reread_headers", "settings", "sync", "sync_images", "sync_unidentified")
+ACTIONS = ("reread_headers", "repair", "settings", "sync", "sync_images", "sync_unidentified")
 
 
 def _custom_database() -> bool:
@@ -62,6 +64,17 @@ def _custom_database() -> bool:
 
 # Conditions a note can be for, by the name its "when" gives.
 CONDITIONS = {"custom_database": _custom_database}
+
+
+def _holds(when: str) -> bool:
+    """Whether this install meets a note's condition: one of CONDITIONS, or
+    "repair:<name>" - that repair has work in this library (#241)."""
+    if when.startswith("repair:"):
+        from . import repairs
+        from .db import get_models_db
+        repair = repairs.REPAIRS.get(when[len("repair:"):])
+        return bool(repair) and bool(repairs.needed(get_models_db()).get(when[len("repair:"):]))
+    return when in CONDITIONS and CONDITIONS[when]()
 
 # schema_info keys: the version that created the database (db/database.py),
 # and the notes dismissed there.
@@ -96,7 +109,7 @@ def applies(note: Dict[str, Any], created_by: Optional[str]) -> bool:
     if version_key(note["version"]) > version_key(VERSION):
         return False
     when = note.get("when")
-    if when and not (when in CONDITIONS and CONDITIONS[when]()):
+    if when and not _holds(when):
         return False
     audience = note.get("audience")
     if audience == "new":

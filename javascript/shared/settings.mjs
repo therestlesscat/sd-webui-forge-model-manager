@@ -1346,7 +1346,12 @@ function createUpkeep(container) {
         box.innerHTML = compactHtml()
             + (message ? `<div class="mm-upkeep-line" data-tone="${escapeHtml(message.tone)}" role="status">${
                 escapeHtml(message.text)}</div>` : '')
-            + backupsHtml();
+            + backupsHtml()
+            + '<div class="mm-upkeep-repairs" data-repairs-slot></div>';
+        // A place for each repair's line: its own script draws it, loaded
+        // only where the library needs it (#241). None of their code is here.
+        window.dispatchEvent(new CustomEvent('mm-upkeep-drawn',
+                                             { detail: { slot: box.querySelector('[data-repairs-slot]') } }));
     }
 
     async function post(endpoint, body) {

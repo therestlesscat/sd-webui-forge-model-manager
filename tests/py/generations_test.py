@@ -9,6 +9,7 @@ maps; only results are recorded, and a result is known by the object every
 script's postprocess_image_after_composite is handed, because the image in it
 can be replaced after ours sees it - forge-helpers' hires cap does.
 """
+import copy
 import dataclasses
 import json
 import os
@@ -35,6 +36,7 @@ import model_manager.gallery as gallery_module        # noqa: E402
 gallery_module.MIN_PAGE_SIZE = 1
 from model_manager.db.library import LIBRARY             # noqa: E402
 from model_manager import generations                    # noqa: E402
+from model_manager import console                        # noqa: E402
 from model_manager.nsfw import PG, PROMPT_LEVEL          # noqa: E402
 
 WORK = os.path.join(TESTS, 'work', 'generations')
@@ -957,6 +959,54 @@ check('deleting one whose prompts then go: as many steps with 3,000 more images 
       large[1] <= small[1] + 50, True)
 if large[0] > small[0] + 50 or large[1] > small[1] + 50:
     print('   steps, with a prompt still named and with one freed: %r before, %r after' % (small, large))
+
+# ------------------------------------- ADetailer ends a copy of the run (#241)
+def adetailer_generate(p, prompts):
+    """A generation through the hooks with ADetailer's calls on copies of the
+    run, made in its postprocess_image before ours sees the result: at a
+    batch's first image every script's end hook on a copy, so others can clean
+    up before its own pass; at its last, the start hooks on another."""
+    generations.before_process(p)
+    p.all_prompts = prompts
+    p.all_negative_prompts = ['blurry'] * len(prompts)
+    p.all_seeds = [1000 + i for i in range(len(prompts))]
+    p.all_subseeds = [5000 + i for i in range(len(prompts))]
+    generations.process(p)
+    for n in range(p.n_iter):
+        p.iteration = n
+        networks.loaded_networks = []
+        generations.process_batch(p)
+        for b in range(p.batch_size):
+            if b == 0:
+                generations.postprocess(copy.copy(p), types.SimpleNamespace(video_path=None))
+            if b == p.batch_size - 1:
+                twin = copy.copy(p)
+                generations.before_process(twin)
+                generations.process(twin)
+            index = n * p.batch_size + b
+            pp = PP(Image('sampled %d' % index), index)
+            generations.result_ready(p, pp)
+            pp.image.infotext = '%s\nSteps: 30, Seed: %d' % (prompts[index], 1000 + index)
+            save(p, pp.image, '%05d.png' % counter[0])
+            counter[0] += 1
+    return generations.postprocess(p, types.SimpleNamespace(video_path=None))
+
+
+def generation_count():
+    return db._get_connection().execute('SELECT COUNT(*) FROM generations').fetchone()[0]
+
+
+said_from = console.said()
+for n_iter, prompts in ((1, PROMPTS[:2]), (2, PROMPTS), (3, PROMPTS + PROMPTS[:2])):
+    before = generation_count()
+    made = adetailer_generate(Processing(n_iter=n_iter, batch_size=2), prompts)
+    check('ADetailer at batch count %d: one generation, its %d images once' % (n_iter, len(prompts)),
+          (generation_count() - before, db.get_generation(made)['image_count'] if made else None),
+          (1, len(prompts)))
+lines = [line['text'] for line in console.since(said_from)[0]]
+check('and a copy\'s end hook says nothing: three "Recorded generation" lines, no "not recorded"',
+      (sum(t.startswith('Recorded generation') for t in lines), sum(t.startswith('Generation not recorded') for t in lines)),
+      (3, 0))
 
 # Every way to delete images runs the step: a method that deletes them, or calls
 # one that does, also calls drop_unused_prompts.

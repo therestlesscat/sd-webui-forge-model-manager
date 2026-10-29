@@ -31,6 +31,12 @@ What the hooks can see, and when - the same in Forge Neo and the original:
                       Generate's, kept by our listener under Forge's id for
                       the run (scheduler/capture.py), or the queued task's.
 
+Any script may call these hooks itself, on a copy of p - ADetailer calls
+every script's postprocess on one at each batch's first image - and a copy
+carries the notes kept on p. So each hook acts only on the run its notes were
+made for (_notes): a copy's end once wrote the press early, and again at the
+real end (#241).
+
 Nothing is recorded when the setting is off, when Forge saved nothing ("Always
 save all generated images" off), or for a video - Forge Neo's Wan writes one
 file per iteration and says only where the last went.
@@ -93,7 +99,10 @@ _lock = threading.Lock()
 class _Generation(object):
     """What the hooks gather for one generation, kept on p."""
 
-    def __init__(self):
+    def __init__(self, run):
+        # The run these notes are for, by identity: holding p itself would
+        # tie the two in a loop. A copy of p shares the notes and is not it.
+        self.run = id(run)
         self.created_at = datetime.now().isoformat(timespec="seconds")
         self.job: Optional[str] = None               # Forge's id for the run
         self.typed: Dict[str, Any] = {}
@@ -110,7 +119,7 @@ def before_process(p) -> None:
     """Start a generation, and keep the prompts as they were typed."""
     if not _recording():
         return
-    generation = _Generation()
+    generation = _Generation(p)
     generation.job = current_job()
     generation.typed = {
         "prompt": _text(getattr(p, "prompt", None)),
@@ -122,9 +131,15 @@ def before_process(p) -> None:
     setattr(p, _ATTR, generation)
 
 
+def _notes(p) -> Optional[_Generation]:
+    """The notes kept on p, if they were made for p and not for the run it is a copy of."""
+    generation = getattr(p, _ATTR, None)
+    return generation if generation is not None and generation.run == id(p) else None
+
+
 def process(p) -> None:
     """The files the generation loaded, now that per-call settings apply."""
-    generation = getattr(p, _ATTR, None)
+    generation = _notes(p)
     if generation is None:
         return
     try:
@@ -135,7 +150,7 @@ def process(p) -> None:
 
 def process_batch(p) -> None:
     """The LoRAs this iteration loaded, and those its hires pass names."""
-    generation = getattr(p, _ATTR, None)
+    generation = _notes(p)
     if generation is None:
         return
     try:
@@ -146,7 +161,7 @@ def process_batch(p) -> None:
 
 def result_ready(p, pp) -> None:
     """A result, about to be saved. The object is kept; see the module's note."""
-    generation = getattr(p, _ATTR, None)
+    generation = _notes(p)
     if generation is not None:
         generation.results.append(pp)
 
@@ -193,7 +208,7 @@ def _newer_database() -> bool:
 
 def postprocess(p, processed) -> Optional[int]:
     """Write the generation to the database. Returns its id, if one was written."""
-    generation = getattr(p, _ATTR, None)
+    generation = _notes(p)
     if generation is None:
         return None
     try:

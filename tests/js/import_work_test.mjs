@@ -75,7 +75,7 @@ const STARTED = {
     // The tabs' switches are the loading module's (#183): it follows them.
     'ui_options.mjs': ['fetch /model-manager/ui-options', 'onAfterUiUpdate'],
     'jobs.mjs': ['document listener: visibilitychange'],
-    'notes.mjs': ['document listener: click', 'onAfterUiUpdate'],
+    'notes.mjs': ['document listener: click', 'onAfterUiUpdate', 'window listener: mm-repairs-changed'],
     'settings.mjs': ['document listener: click', 'fetch /model-manager/settings/nsfw-levels',
                      'provide settings.open'],
     'update_notice.mjs': ['fetch /model-manager/update', 'onAfterUiUpdate', 'setInterval 3600000',

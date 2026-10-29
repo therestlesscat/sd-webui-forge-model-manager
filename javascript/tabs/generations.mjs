@@ -1339,13 +1339,21 @@ function setSearch(value) {
  * before is still the one remembered.
  */
 async function showTask(taskId) {
+    return showSearch(`task:${Number(taskId)}`);
+}
+
+/**
+ * The tab showing what a search finds, ungrouped, the search in its box: a
+ * repair's review shows the generations it lists (#241), as the Queue shows
+ * a task's.
+ */
+async function showSearch(text) {
     await showTab('generations');
     groupBy = '';
     showGroupChoice();
-    const text = `task:${Number(taskId)}`;
     const box = byId('gen_search');
     if (box) box.value = text;
-    // Asked again for the same task, it is drawn again.
+    // Asked again for the same search, it is drawn again.
     search = '';
     return setSearch(text);
 }
@@ -1776,7 +1784,7 @@ async function pickUpSync() {
 }
 // What the other tabs may open this one at, through the loading module
 // (open, #184): the Queue's Show images, a task's images, here.
-export const entries = { showTask, syncImages: () => openSyncDialog() };
+export const entries = { showSearch, showTask, syncImages: () => openSyncDialog() };
 
 /**
  * Started by the loading module once Gradio has drawn the tab (#183) - which

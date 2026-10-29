@@ -349,7 +349,7 @@ def _scope(group: str = "", in_group: str = "", generation: Optional[int] = None
     chain = grouping_chain(group)
     terms = search_terms(search)
     return Scope(generation=generation, words=terms.words, task=terms.task, images=terms.images,
-                 versions=terms.versions, models=terms.models,
+                 versions=terms.versions, models=terms.models, named_generations=terms.generations,
                  opened=[(k, g) for k, g in zip(chain, (in_group, in_subgroup)) if g])
 
 

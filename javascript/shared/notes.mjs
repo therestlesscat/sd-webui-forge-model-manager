@@ -18,17 +18,21 @@ const { available, open } = await shared('loading.mjs');
 // the settings section it is about - and what has to be there for it: a
 // button is drawn only while it is. The sync's dialog is the Model
 // Manager's, opened through the loading module (#184): the notes, in every
-// tab, do not import it (#182).
+// tab, do not import it (#182). A repair's window is offered by its own
+// script, loaded only where the library needs it (#241): its name is the
+// action's `repair`.
 const NOTE_ACTIONS = {
+    repair: { needs: (action) => `repairs.${action.repair}`, run: (action) => call(`repairs.${action.repair}`) },
     reread_headers: { tab: 'modelManager', run: () => open('modelManager', 'showSyncDialog', { rereadHeaders: true }) },
     settings: { needs: 'settings.open', run: (action) => call('settings.open', { section: action.section || null }) },
     sync: { tab: 'modelManager', run: () => open('modelManager', 'showSyncDialog') },
     sync_unidentified: { tab: 'modelManager', run: () => open('modelManager', 'showSyncDialog', { force: 'unidentified' }) },
     sync_images: { tab: 'generations', run: () => open('generations', 'syncImages') },
 };
-const noteAction = (id) => {
-    const action = NOTE_ACTIONS[id];
-    return action && (action.tab ? available(action.tab) : ready(action.needs)) ? action : null;
+const noteAction = (spec) => {
+    const action = NOTE_ACTIONS[spec.id];
+    const needs = typeof action?.needs === 'function' ? action.needs(spec) : action?.needs;
+    return action && (action.tab ? available(action.tab) : ready(needs)) ? action : null;
 };
 const NOTE_ICONS = { feature: 'i', action: '!', warning: '!', intro: 'i' };
 // On top: a tab's introduction, for someone new; then the important ones,
@@ -101,9 +105,10 @@ function drawNotes(tab, attempt = 0) {
 function noteHtml(note, { at = 0, of = 0, tab = '' } = {}) {
     const kind = NOTE_ICONS[note.kind] ? note.kind : 'feature';
     const actions = (note.actions || (note.action ? [note.action] : []))
-        .filter((action) => action && noteAction(action.id))
+        .filter((action) => action && noteAction(action))
         .map((action) => `<button type="button" class="mm-btn primary mm-btn-small" data-note-action="${escapeHtml(action.id)}"
-                   data-note-section="${escapeHtml(action.section || '')}">${escapeHtml(action.label || 'Do it')}</button>`)
+                   data-note-section="${escapeHtml(action.section || '')}" data-note-repair="${escapeHtml(action.repair || '')}"
+                   >${escapeHtml(action.label || 'Do it')}</button>`)
         .join('');
     // The arrows are always there - "1 of 1" on the last note, and their room
     // kept empty in the spread rows - and both they and Dismiss a set width
@@ -147,6 +152,8 @@ export function start(scope) {
     }));
     if (typeof window === 'undefined') return;
     const redrawAll = () => Object.keys(noteTabs).forEach((tab) => drawNotes(tab));
+    // A repair's script starts after the tabs: its note's button is drawn once it is there.
+    scope.listen(window, 'mm-repairs-changed', redrawAll);
     scope.listen(document, 'click', (event) => {
         const target = event.target;
         const pileTab = target.closest?.('[data-note-pile]')?.dataset.notePile;
@@ -165,7 +172,9 @@ export function start(scope) {
         if (!note) return;
         const button = target.closest('[data-note-action]');
         if (button) {
-            noteAction(button.dataset.noteAction)?.run({ section: button.dataset.noteSection });
+            const spec = { id: button.dataset.noteAction, section: button.dataset.noteSection,
+                           repair: button.dataset.noteRepair };
+            noteAction(spec)?.run(spec);
             return;
         }
         if (!target.closest('[data-note-dismiss]')) return;

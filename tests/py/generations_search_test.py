@@ -33,6 +33,7 @@ except ImportError:
 import fixtures                                          # noqa: E402
 import model_manager.db.database as dbmod                # noqa: E402
 from model_manager.api import generations as api         # noqa: E402
+from model_manager.api import levels as levels_module    # noqa: E402
 from model_manager.db.generations_ops import Scope       # noqa: E402
 from model_manager.install import INSTALL_KEY            # noqa: E402
 from model_manager.nsfw import PG                        # noqa: E402
@@ -102,8 +103,19 @@ check('a key without whole ids is a word', terms('image:abc version:1,,2 model: 
       (['image:abc', 'version:1,,2', 'model:'], None, [5]))
 check('task: takes one id: a list is a word', terms('task:1,2')[:2], (['task:1,2'], None))
 
+# generation: (#241): the review of generations recorded twice shows its early
+# copies and the generations kept beside them with it.
+check('generation: takes a list, in the Generations tab',
+      getattr(api.search_terms('generation:4,9 Generation:12'), 'generations', None), [4, 9, 12])
+check('and is a word in the Civitai Images tab, as task: is',
+      levels_module.search_terms('generation:4', tasks=False).words, ['generation:4'])
+
 # ------------------------------------------------------------ searching
 check('no search shows every image', found(''), everything)
+check('generation: shows those generations whole',
+      found(f'generation:{fox},{cat}'), sorted(images_of(fox) + images_of(cat)))
+check('narrowed by the words beside it', found(f'generation:{fox},{cat} sleeping'), images_of(cat))
+check('generation:abc is searched for as typed: no prompt holds it', found('generation:abc'), [])
 check('a word in the prompt as generated', found('storm'), images_of(lighthouse)[1:])
 check('ignoring case', found('golden HOUR'), images_of(lighthouse)[:1])
 check('or as typed: a dynamic prompt\'s words', found('{red|white}'), images_of(fox))

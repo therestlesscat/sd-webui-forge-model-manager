@@ -244,6 +244,9 @@ class Scope:
     images: List[int] = field(default_factory=list)
     versions: List[int] = field(default_factory=list)
     models: List[int] = field(default_factory=list)
+    # generation: in a search (#241), apart from `generations`: one JSON
+    # value, as a list a person names can pass the older SQLite's 999.
+    named_generations: List[int] = field(default_factory=list)
 
 
 def _unit_columns(unit: str, section: Optional[str]) -> List[str]:
@@ -767,6 +770,9 @@ class GenerationsOps:
         if scope.images:
             where.append("gi.id IN (SELECT value FROM json_each(?))")
             args_where.append(json.dumps(scope.images))
+        if scope.named_generations:
+            where.append("gi.generation_id IN (SELECT value FROM json_each(?))")
+            args_where.append(json.dumps(scope.named_generations))
         # Any resource the image used whose library file is of one of the
         # versions - or of the models: `generation_resources` holds the
         # library's spelling of a path, as `scope.files` reads it.

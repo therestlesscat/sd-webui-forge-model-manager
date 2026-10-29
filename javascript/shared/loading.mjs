@@ -369,7 +369,53 @@ export function stopTab(name) {
     now.started = false;
     now.stopped = true;
     leaveServices(name);
+    stopRepairs(name);
     changed(name);
+}
+
+// ---------------------------------------------------------------- repairs
+// One-off fixes of rows an earlier version wrote wrong, each a script of its
+// own in javascript/repairs/ (#241): asked for once the tabs have started,
+// imported only when the server says this library needs it, and stopped with
+// the tab whose switch it follows. Not in ui-options, which every tab waits
+// for: the server reads the database to answer, and a slow one would hold them.
+
+const repairs = new Map();       // name -> { scope, tab }
+
+/** Start each repair the server names, once its tab runs; tell the page if any did. */
+async function startRepairs() {
+    let answer = null;
+    try {
+        answer = await apiCall({ endpoint: '/model-manager/repairs' });
+    } catch (error) {
+        console.warn('[ModelManager] Could not ask which repairs this library needs:', error);
+        return;
+    }
+    let started = false;
+    for (const [name, repair] of Object.entries(answer?.repairs || {})) {
+        const tab = Object.keys(TABS).find((key) => TABS[key].server === repair?.tab);
+        if (!/^[a-z_]+$/.test(name) || repairs.has(name) || !tab || !available(tab)) continue;
+        const scope = createScope(`repair ${name}`);
+        repairs.set(name, { scope, tab });
+        try {
+            const module = await import(new URL(`../repairs/${name}.mjs${new URL(import.meta.url).search}`,
+                                                import.meta.url).href);
+            await module.start(scope, { count: repair.count });
+            started = true;
+        } catch (error) {
+            console.error(`[ModelManager] Starting the ${name} repair:`, error);
+        }
+    }
+    if (started) window.dispatchEvent(new CustomEvent('mm-repairs-changed'));
+}
+
+/** Stop the repairs that follow this tab's switch. */
+function stopRepairs(tab) {
+    for (const [name, repair] of [...repairs]) {
+        if (repair.tab !== tab) continue;
+        repair.scope.stop();
+        repairs.delete(name);
+    }
 }
 
 /** Show or hide an element - writing only what differs: this runs after every update. */
@@ -755,14 +801,17 @@ export const boot = once(() => {
         if (newerDatabase) await offerDatabaseActions();
         migrating = newerDatabase ? null : data?.database_migrating || null;
         if (migrating && !migrating.error) followMigration();
+        const starting = [];
         for (const [name, tab] of Object.entries(TABS)) {
             // Unsaid - ui-options not answering - a tab is as its switch is by default.
             const said = data?.tabs?.[tab.server];
             state[name].on = said ? said.on !== false : tab.unsaid !== false;
             state[name].built = said ? said.built !== false : tab.unsaid !== false;
             apply(name);
-            if (state[name].on && state[name].built && !blocked()) startTab(name);
+            if (state[name].on && state[name].built && !blocked()) starting.push(startTab(name));
         }
+        // With no tab running, no repair could start: nothing is asked.
+        if (starting.length && !blocked()) Promise.all(starting).then(startRepairs);
         drawDatabaseNotices();
         window.addEventListener('mm-settings-saved', (event) => {
             takeSwitches((setting) => event.detail?.settings?.[setting]?.value);

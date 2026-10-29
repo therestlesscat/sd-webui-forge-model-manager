@@ -27,12 +27,15 @@ NOT_RESTARTABLE = ("This WebUI was not started by webui.bat or webui.sh: "
 _SCRIPTS = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "javascript")
 SHARED_SCRIPTS = os.path.join(_SCRIPTS, "shared")
 TAB_SCRIPTS = os.path.join(_SCRIPTS, "tabs")
+# One-off repairs' scripts (#241), imported by the loading module as the tabs are.
+REPAIR_SCRIPTS = os.path.join(_SCRIPTS, "repairs")
 
 
 def shared_version() -> str:
     """
-    The newest modification time among javascript/shared/ and
-    javascript/tabs/, as the version the loader asks for both with.
+    The newest modification time among javascript/shared/,
+    javascript/tabs/ and javascript/repairs/, as the version the loader asks
+    for all three with.
 
     The WebUI stamps only the scripts it lists, javascript/*.mjs - the loader
     alone, since the tabs' scripts moved to javascript/tabs/ (#183) - each with
@@ -42,7 +45,7 @@ def shared_version() -> str:
     held. One version for all also loads each module once.
     """
     newest = 0.0
-    for folder in (SHARED_SCRIPTS, TAB_SCRIPTS):
+    for folder in (SHARED_SCRIPTS, TAB_SCRIPTS, REPAIR_SCRIPTS):
         for root, _, files in os.walk(folder):
             for name in files:
                 if name.endswith((".mjs", ".js")):

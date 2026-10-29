@@ -204,8 +204,12 @@ SPEC = {
     ('POST', '/model-manager/restart'): 'always',
     ('GET', '/model-manager/ui-options'): 'always',
     ('GET', '/model-manager/database/migration'): 'always',
+    # The repairs this library needs (#241): asked by the loading module once a tab runs.
+    ('GET', '/model-manager/repairs'): 'always',
+    ('GET', '/model-manager/repairs/recorded-twice'): 'generations',
+    ('POST', '/model-manager/repairs/recorded-twice/remove'): 'generations',
 }
-check('the spec holds 93 routes', len(SPEC), 93)
+check('the spec holds 96 routes', len(SPEC), 96)
 
 app = FastAPI()
 api.setup_api(app)

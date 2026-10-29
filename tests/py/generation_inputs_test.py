@@ -14,6 +14,7 @@ names. A queued task's generation keeps its own copies.
 
 Each check runs on its own: on code without these, it fails by name.
 """
+import copy
 import dataclasses
 import os
 import shutil
@@ -191,9 +192,11 @@ class PP(object):
 counter = [0]
 
 
-def run(job, saved=True):
+def run(job, saved=True, adetailer=False):
     """One run of a press through the recorder's hooks, as processing.py
-    calls them; its result saved unless not."""
+    calls them; its result saved unless not. With adetailer, ADetailer's
+    calls on copies of the run come before the result, as its
+    postprocess_image makes them at a batch's first and last image (#241)."""
     progress.current_task = job
     p = Processing()
     generations.before_process(p)
@@ -203,6 +206,11 @@ def run(job, saved=True):
     generations.process_batch(p)
     result = Image.new('RGB', (64, 48), (1, 2, 3))
     pp = PP(result, 0)
+    if adetailer:
+        generations.postprocess(copy.copy(p), types.SimpleNamespace(video_path=None))
+        twin = copy.copy(p)
+        generations.before_process(twin)
+        generations.process(twin)
     generations.result_ready(p, pp)
     if saved:
         os.makedirs(OUT, exist_ok=True)
@@ -365,6 +373,12 @@ queued_files = list(kept_rows(queued_id).values())
 client.post('/model-manager/queue/delete', data={'ids': str(task_two), 'with_data': 'true'})
 check('a task deleted with its data takes its generation\'s kept files',
       [os.path.isfile(p) for p in queued_files], [False, False])
+
+# ====================== 16. ADetailer ends a copy of the run first (#241)
+attempt(lambda: record(*press_values('task(adetailer)', 0, init_img=picture((30, 60, 90, 255)))))
+adetailer_id = attempt(lambda: run('task(adetailer)', adetailer=True))
+check('a press ADetailer ran in keeps its picture: its end hook on a copy of the run takes nothing',
+      attempt(lambda: sorted(kept_rows(adetailer_id))), ['init_img'])
 
 # =========================================== 9. the switch, and the folder
 opts.model_manager_generations_keep_inputs = False

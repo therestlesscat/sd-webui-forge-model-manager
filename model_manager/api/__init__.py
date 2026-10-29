@@ -25,8 +25,8 @@ import threading
 
 from fastapi import FastAPI
 
-from . import civitai, gallery, generations, images, jobs, models, notes, scheduler, settings, webui
-from .. import prompt_levels, update_check
+from . import civitai, common, gallery, generations, images, jobs, models, notes, scheduler, settings, webui
+from .. import prompt_levels, repairs, update_check
 from ..scheduler import runner
 from ..db import database_behind, database_state, get_models_db
 from ..console import say, say_failure
@@ -44,6 +44,7 @@ def setup_api(app: FastAPI):
     settings.register(app)
     notes.register(app)
     scheduler.register(app)
+    repairs.register(app, common)
     say("API endpoints registered")
 
 
