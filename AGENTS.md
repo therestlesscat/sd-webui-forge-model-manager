@@ -559,6 +559,14 @@ the stats off on most cards that had it. The owner's screenshot found it.
 - **A stop needs a way back.** A dialog that blocks an action offers that
   action again once its cause is fixed: the Resources dialog's Send works once
   the server says the checkpoint is there (0.47.3).
+- **A window opening reads no disk and scans nothing whole.** Sync images
+  walked every result folder and asked each image's size before it showed a
+  count or let Start be pressed: 78,611 images on a hard disk took 346.6 s
+  cold and 1.3 s warm, and a user reported 15 minutes or more (#365). Moving
+  those figures into a scan of the whole database was sent back too: "it
+  seems like this also awfully close to that" (2026-10-29). A figure that only
+  previews a job is dropped, and the job says it as it finds it. #368 and #369
+  are the same kind.
 - **Text that tells the user what another part does is read against that
   part's code.** The restart popup said downloads "pause, and resume after";
   `restore()` brought them back paused, and forgot one never started (#187).
@@ -695,6 +703,11 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   was 1.3 s because one step ranked 100,651 images to pick 20 previews - found
   by timing each part of the query, not by reading it. And check what a timed
   call returned, not only how long it took.
+- **A disk cost is measured cold.** Warm, Windows holds the folder listings:
+  Sync images' count over 78,611 images took 1.3 s warm and 346.6 s cold, the
+  same walk (#365). Sysinternals RAMMap empties the cache without a restart,
+  from an admin prompt: `-Ew`, `-Es`, `-Et`. A second run straight after shows
+  whether the first was cold.
 - **A prototype times the whole answer.** #231's prototype timed the query
   that picks a part, 7 to 82 ms - the plan said the tiles came on top. They
   were most of it: a group's tile reads every image of the group for its
