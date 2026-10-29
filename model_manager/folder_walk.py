@@ -10,8 +10,14 @@ the folders already walked. So a folder whose real path was walked already,
 on any route and from any folder of the same walk, is not entered again:
 one route per folder, and the same one every walk, subfolders being taken in
 name order.
+
+A folder's real path is asked of the file system only where the walk starts
+and where the listing marks an entry as leading elsewhere: asking opens the
+folder, and on a hard disk, cold, 4,395 of them took 40 to 86 s of one walk
+(#365). Any other subfolder's real path is its parent's and its name.
 """
 import os
+import stat
 from typing import Dict, Iterable, Iterator, List, Optional, Set, Tuple
 
 
@@ -20,15 +26,29 @@ def real_folder(path: str) -> str:
     return os.path.normcase(os.path.realpath(path))
 
 
-def walk(folders: Iterable[str], walked: Optional[Set[str]] = None
-         ) -> Iterator[Tuple[str, List[str], List[str]]]:
+def _leads_elsewhere(entry: os.DirEntry) -> bool:
+    """Whether a listing's folder entry is a link of any kind. A junction is
+    not a symbolic link to `is_symlink()`, but both are reparse points, which
+    the listing says without another look at the disk on Windows."""
+    if entry.is_symlink():
+        return True
+    try:
+        attributes = getattr(entry.stat(follow_symlinks=False), "st_file_attributes", 0)
+    except OSError:
+        return True
+    return bool(attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+
+
+def walk_entries(folders: Iterable[str], walked: Optional[Set[str]] = None
+                 ) -> Iterator[Tuple[str, List[str], List[os.DirEntry]]]:
     """
-    os.walk() over each folder in turn, following links, each real folder
-    once - by the first route to it. Yields (folder, subfolders, files) as
-    os.walk does: a caller that takes subfolders out of the list keeps the
-    walk out of them. `walked` is the record of real folders walked; one
-    shared by several walks makes them one. A folder that is not there gives
-    nothing.
+    Each folder in turn, top down, following links, each real folder once -
+    by the first route to it. Yields (folder, subfolder names, file entries):
+    a caller that takes names out of the list keeps the walk out of them, as
+    with os.walk. An entry carries its file's size and time from the listing
+    (`entry.stat()`), with no look at the file on Windows. `walked` is the
+    record of real folders walked; one shared by several walks makes them
+    one. A folder that is not there, or cannot be listed, gives nothing.
     """
     walked = set() if walked is None else walked
     for top in folders:
@@ -38,17 +58,49 @@ def walk(folders: Iterable[str], walked: Optional[Set[str]] = None
         if real in walked:
             continue
         walked.add(real)
-        for folder, subfolders, files in os.walk(top, followlinks=True):
-            yield folder, subfolders, files
+        ahead = [(top, real)]
+        while ahead:
+            folder, real = ahead.pop()
+            try:
+                with os.scandir(folder) as listing:
+                    entries = list(listing)
+            except OSError:
+                continue
+            subfolders, files = {}, []
+            for entry in entries:
+                try:
+                    is_folder = entry.is_dir()
+                except OSError:
+                    is_folder = False
+                if is_folder:
+                    subfolders[entry.name] = entry
+                else:
+                    files.append(entry)
+            names = list(subfolders)
+            yield folder, names, files
             # After the caller's own cut, so a folder it left out is not
-            # marked walked.
-            ahead = []
-            for name in sorted(subfolders):
-                real = real_folder(os.path.join(folder, name))
-                if real not in walked:
-                    walked.add(real)
-                    ahead.append(name)
-            subfolders[:] = ahead
+            # marked walked; in name order, the first in name order walked
+            # first.
+            below = []
+            for name in sorted(names):
+                path = os.path.join(folder, name)
+                entry = subfolders.get(name)
+                key = (real_folder(path) if entry is None or _leads_elsewhere(entry)
+                       else os.path.join(real, os.path.normcase(name)))
+                if key not in walked:
+                    walked.add(key)
+                    below.append((path, key))
+            ahead.extend(reversed(below))
+
+
+def walk(folders: Iterable[str], walked: Optional[Set[str]] = None
+         ) -> Iterator[Tuple[str, List[str], List[str]]]:
+    """
+    walk_entries(), with each file's name in place of its entry: (folder,
+    subfolders, files) as os.walk yields them.
+    """
+    for folder, subfolders, files in walk_entries(folders, walked):
+        yield folder, subfolders, [entry.name for entry in files]
 
 
 class SameFiles(object):

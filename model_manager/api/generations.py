@@ -549,7 +549,7 @@ def _register_sync(app: FastAPI):
     """Sync images (#233): the folders, what is new in them, and the long job."""
     from ..forge_host import store_settings
     from ..image_sync import (FOLDERS_OFF_SETTING, GROUP_SETTING, KIND, LEVEL_SETTING, ImageSync, add_folder,
-                              counts, level_of, remove_folder, unticked)
+                              level_of, remove_folder, unticked)
     from ..image_sync import folders as image_folders
     from ..jobs import jobs
     from ..nsfw import LEVEL_TO_NAME, UNKNOWN, USER_LEVELS
@@ -588,20 +588,6 @@ def _register_sync(app: FastAPI):
                 "thumbnails_folder": str(setting(thumbnails.FOLDER_SETTING) or ""),
                 "thumbnails_default_folder": thumbnails.default_folder(),
             })
-        except Exception as e:
-            return failed(e)
-
-    @app.get("/model-manager/generations/sync/estimate")
-    @gate("generations")
-    def sync_estimate():
-        """How many new images each folder holds, and how many synced ones a
-        Force sync would read again, by path: a walk, nothing read. And how
-        many of the library's images have no thumbnail yet (#5)."""
-        try:
-            db = get_models_db()
-            new, again = counts(db, image_folders())
-            return JSONResponse({"success": True, "counts": new, "again": again,
-                                 "thumbnails": thumbnails.missing_count(db)})
         except Exception as e:
             return failed(e)
 

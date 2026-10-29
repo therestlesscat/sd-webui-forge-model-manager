@@ -175,6 +175,40 @@ run([HELD])
 check('an image already held, spelt in another case, is not added twice',
       rows("SELECT COUNT(*) FROM generation_images WHERE path = ? COLLATE NOCASE", (held,))[0][0], 1)
 
+# ------------------------------------------- what the walk finds, as it finds it
+# Cold on a hard disk the walk took minutes (#365), so the page says how many
+# new images it has found so far. Each image's size and time come from its
+# folder's listing: a stat of each took 46.6 s of one cold walk of 78,611.
+FOUND = os.path.join(OUT, 'found')
+for n in range(3):
+    save(FOUND, '%05d-new.png' % (40 + n), infotext('found %d' % n, 40 + n), at=n)
+for n in range(2):
+    kept = save(FOUND, '%05d-kept.png' % (50 + n), infotext('kept %d' % n, 50 + n), at=10 + n)
+    db.record_generation({'created_at': '2026-01-01T00:00:00', 'mode': 'txt2img', 'image_count': 1},
+                         [{'position': 0, 'path': kept, 'infotext': 'x'}], [[]])
+on_disk = sorted((os.path.join(FOUND, name), os.stat(os.path.join(FOUND, name)).st_size,
+                  os.stat(os.path.join(FOUND, name)).st_mtime_ns) for name in os.listdir(FOUND))
+stats = []
+real_stat = os.stat
+
+
+def counted_stat(path, *args, **kwargs):
+    if str(path).lower().endswith('.png'):
+        stats.append(path)
+    return real_stat(path, *args, **kwargs)
+
+
+os.stat = counted_stat
+try:
+    walked = sorted(image_sync.walk(FOUND))
+finally:
+    os.stat = real_stat
+check('the walk asks no stat of an image, and gives each the size and time a stat would',
+      (len(stats), walked), (0, on_disk))
+found_progress = run([FOUND])
+check('the sync counts the new images as its walk finds them, a held one not, and says it walked one folder',
+      (getattr(found_progress, 'found', None), getattr(found_progress, 'folders', None)), (3, 1))
+
 # ------------------------------------------------------- one press, two presses
 PRESS = os.path.join(OUT, 'press')
 # A wildcard picks a prompt, and with it LoRAs, image by image.
@@ -606,8 +640,6 @@ forge_host.installed_modules = lambda: {'spaced .safetensors': SPACED}
 run([FORCE], level=UNKNOWN)
 check('a plain sync leaves a held image as it was written: no module',
       [r[2] for r in resources(lost) if r[0] == 'module'], [])
-new_counts, again_counts = image_sync.counts(db, [{'path': FORCE}])
-check('the estimate counts what a Force sync would read again', (new_counts[FORCE], again_counts[FORCE]), (0, 4))
 forced = image_sync.ImageSync([{'path': FORCE}], UNKNOWN, True, force=True)
 forced.run()
 check('Force sync reads the synced images again, and says how many',
@@ -730,9 +762,6 @@ try:
     NEST = os.path.join(LINKED, 'nest')
     save(NEST, '03010-outer.png', infotext('nest outer', 71000))
     save(os.path.join(NEST, 'inner'), '03011-inner.png', infotext('nest inner', 71001))
-    new_counts, _ = image_sync.counts(db, [{'path': NEST}, {'path': os.path.join(NEST, 'inner')}])
-    check("the window counts a folder inside another under each, as before",
-          new_counts, {NEST: 2, os.path.join(NEST, 'inner'): 1})
     run([os.path.join(NEST, 'inner'), NEST])
     check("a folder inside another ticked folder: each image once, under the first listed",
           [(os.path.relpath(p, LINKED), rows("SELECT path FROM generation_sources WHERE id = "
@@ -758,8 +787,6 @@ try:
     run([again_route, ONCE])
     check('a held image found by another route is not added: its first record stays',
           (paths_at(ONCE), paths_at(again_route)), ([os.path.join('once', '03003-once.png')], []))
-    check("and the window does not count it new, as the sync does not add it",
-          image_sync.counts(db, [{'path': again_route}])[0], {again_route: 0})
 
     # A removed image found by another route stays removed.
     remember_kept(db, db.delete_generation_image(id_of(first_copy))[0])

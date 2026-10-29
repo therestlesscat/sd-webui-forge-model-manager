@@ -2,9 +2,10 @@
 //
 // A sync already running when the page loads is followed at once. The
 // button opens a dialog: the folders - Forge's, read from its settings, and
-// added ones - each ticked or not and counted, the level for images with no
-// text, whether to group them, and what the ticked folders hold. Start
-// waits for something new to add. Started, a panel follows the job - what it
+// added ones - each ticked or not, the level for images with no text, and
+// whether to group them. It reads no disk and counts nothing before Start
+// (#365): Start works at once, and the sync counts the new images as its walk
+// finds them. Started, a panel follows the job - what it has found, what it
 // is reading, how far, what could not be read - with Cancel while it runs and
 // Close once it ends, and the tab reloads to show what came in. A folder is
 // added by its path, and an added one removed - asked first, in its line,
@@ -21,6 +22,7 @@ const ADDED = 'D:/old pictures';
 let progress = { state: 'running', stage: 'reading', folder: FORGE, total: 10, read: 4, generations: 0, images: 0,
                  errors: [], error_count: 0, cancelling: false, is_complete: false };
 const posted = [];
+const asked = [];
 let browses = 0;
 let folders = [{ path: FORGE, key: 'outdir_txt2img_samples', forge: true, ticked: true, synced: 0 },
                { path: IMG2IMG, key: 'outdir_img2img_samples', forge: true, ticked: false, synced: 0 },
@@ -43,6 +45,7 @@ globalThis.fetch = async (url, init = {}) => {
         }
         return reply({ success: true });
     }
+    asked.push(href);
     if (href.includes('/model-manager/ui-options')) {
         return reply({ success: true, samplers: [], schedulers: [], generations_hide_nsfw: false, generations_enabled: true });
     }
@@ -50,10 +53,9 @@ globalThis.fetch = async (url, init = {}) => {
         return reply({ success: true, level: 'Unknown', group: true, levels: ['PG', 'PG-13', 'R', 'X', 'XXX', 'Unknown'],
                        folders });
     }
-    if (href.includes('/generations/sync/estimate')) {
-        return reply({ success: true, counts: { [FORGE]: 1200, [IMG2IMG]: 30, [ADDED]: 0 },
-                       again: { [FORGE]: 0, [IMG2IMG]: 0, [ADDED]: 40, 'E:/more': 0 } });
-    }
+    // The count walked every folder before Start could be pressed (#365):
+    // asked, it never answers.
+    if (href.includes('/generations/sync/estimate')) return new Promise(() => {});
     if (href.includes('/generations/sync/progress')) return reply({ success: true, progress });
     if (href.includes('/model-manager/generations/browse')) {
         browses += 1;
@@ -65,6 +67,11 @@ globalThis.fetch = async (url, init = {}) => {
 
 const panel = () => document.getElementById('gen_sync_panel');
 const text = (id) => (document.getElementById(id)?.textContent || '').trim();
+const countAsked = () => asked.some((href) => href.includes('/generations/sync/estimate'));
+// Opened again, the window still shows the last list until the new one is
+// drawn: a wait for rows alone would tick the old list.
+const firstRow = () => document.querySelector('#gen_sync_folders .mm-dialog-option');
+const FIRST = "The sync first looks through the ticked folders and counts the new images as it goes, then reads each one's text.";
 
 await startTab('generations');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
@@ -90,21 +97,19 @@ check('Close hides the panel', panel().hidden, true);
 // ----------------------------------------------------------------- the dialog
 const dialog = document.getElementById('gen_sync_dialog');
 act('generations.syncImages');
-await waitFor('the counts', () => text('gen_sync_estimate').includes('new images'));
 const rows = () => Array.from(dialog.querySelectorAll('#gen_sync_folders .mm-dialog-option')).map((row) =>
-    [row.querySelector('input').checked, row.querySelector('span').textContent, row.querySelector('.mm-dialog-count').textContent]);
-check('the dialog lists Forge\'s folders, then the added one, each ticked as kept and counted', rows(),
-      [[true, FORGE, '1,200 new'], [false, IMG2IMG, '30 new'], [true, ADDED, '0 new']]);
-check('it says what the ticked folders hold', text('gen_sync_estimate'),
-      '1,200 new images. Reading their text takes under a minute; writing them comes after.');
+    [row.querySelector('input').checked, row.querySelector('span').textContent]);
+await waitFor('the folders', () => rows().length === 3 && text('gen_sync_estimate'));
+check('the dialog lists Forge\'s folders, then the added one, each ticked as kept', rows(),
+      [[true, FORGE], [false, IMG2IMG], [true, ADDED]]);
+check('opening it asks for no count, and no line holds one',
+      [countAsked(), dialog.querySelectorAll('#gen_sync_folders .mm-dialog-count').length], [false, 0]);
+check('it says what the sync will do first', text('gen_sync_estimate'), FIRST);
 check('the level and the grouping start from the settings',
       [document.getElementById('gen_sync_level').value, document.getElementById('gen_sync_group').checked], ['Unknown', true]);
-check('Start is offered', document.getElementById('gen_sync_start').disabled, false);
+check('Start is offered at once', document.getElementById('gen_sync_start').disabled, false);
 
 tick('generations.syncTick', false, { path: FORGE });
-check('with only folders holding nothing new ticked, Start would do nothing, and says so',
-      [document.getElementById('gen_sync_start').disabled, text('gen_sync_estimate')],
-      [true, 'No new images in the ticked folders.']);
 tick('generations.syncTick', false, { path: ADDED });
 check('with none ticked, it asks for one', text('gen_sync_estimate'), 'Tick a folder to sync.');
 tick('generations.syncTick', true, { path: FORGE });
@@ -121,6 +126,10 @@ check('Start sends the ticked folders, the level and the grouping',
       ['/model-manager/generations/sync', [FORGE, IMG2IMG], 'PG', 'false']);
 await waitFor('the dialog closed and the panel shown', () => !dialog.open && !panel().hidden);
 check('the dialog closes, and the panel follows the sync', text('gen_sync_text'), `Looking for new images in ${FORGE}...`);
+progress = { ...progress, found: 12345 };
+await waitFor('the walk\'s count', () => text('gen_sync_text').includes('found'));
+check('while it walks, it says how many new images it has found so far', text('gen_sync_text'),
+      `Looking for new images in ${FORGE}: 12,345 found so far`);
 
 // ------------------------------------------------- errors, cancel, how it ended
 progress = { ...progress, stage: 'reading', total: 1230, read: 615, error_count: 2,
@@ -143,8 +152,9 @@ check('a cancelled sync says what it added before it stopped', text('gen_sync_te
 
 
 // ------------------------------------------------- adding and removing folders
+let drawn = firstRow();
 act('generations.syncImages');
-await waitFor('the dialog again', () => text('gen_sync_estimate').includes('new images'));
+await waitFor('the dialog again', () => firstRow() !== drawn && rows().length === 3);
 // Missing, as before 0.58.2, they stand in empty: the checks fail, not the suite.
 const box = document.getElementById('gen_sync_add_path') || document.createElement('input');
 const add = document.getElementById('gen_sync_add') || document.createElement('button');
@@ -163,12 +173,16 @@ check('a path the server refuses says why, and keeps what was typed',
 const NEW = 'E:/more';
 box.value = NEW;
 box.dispatchEvent(new window.Event('input', { bubbles: true }));
+const listed = asked.length;
 act('generations.addSyncFolder');
-await waitFor('the new line', () => rows().length === 4 && !rows().some((r) => r[2] === 'counting...'));
-check('an added folder is sent, listed, and counted; the ticks given meanwhile are kept',
-      [posted.at(-1), rows().map((r) => [r[0], r[1]]), box.value, document.getElementById('gen_sync_add_note')?.hidden],
+await waitFor('the new line', () => rows().length === 4);
+check('an added folder is sent and listed; the ticks given meanwhile are kept',
+      [posted.at(-1), rows(), box.value, document.getElementById('gen_sync_add_note')?.hidden],
       [['/model-manager/generations/sync/folders/add', { path: NEW }],
        [[false, FORGE], [false, IMG2IMG], [true, ADDED], [true, NEW]], '', true]);
+check('and the window asks for the folders again, never a count',
+      asked.slice(listed).map((href) => new URL(href, 'http://x').pathname),
+      ['/model-manager/generations/sync/folders']);
 
 act('generations.askRemoveSyncFolder', { path: ADDED });
 const asking = () => dialog.querySelector('.gen-sync-remove');
@@ -180,7 +194,7 @@ check('Keep puts the line back, and nothing is sent',
 const shown = browses;
 act('generations.askRemoveSyncFolder', { path: ADDED });
 act('generations.removeSyncFolder', { path: ADDED });
-await waitFor('the removal', () => rows().length === 3 && !rows().some((r) => r[2] === 'counting...'));
+await waitFor('the removal', () => rows().length === 3);
 check('Remove sends the folder, and the line goes', [posted.at(-1), rows().map((r) => r[1])],
       [['/model-manager/generations/sync/folders/remove', { path: ADDED }], [FORGE, IMG2IMG, NEW]]);
 await waitFor('the tab reloaded', () => browses > shown);
@@ -192,20 +206,18 @@ check('it says what went, and the tab reloads', [text('gen_sync_add_note'), brow
 // opened anew starts with it off.
 folders = [...folders, { path: ADDED, key: null, forge: false, ticked: true, synced: 7 }];
 act('generations.closeSyncDialog');
+drawn = firstRow();
 act('generations.syncImages');
-await waitFor('the dialog once more', () => text('gen_sync_estimate').includes('new'));
+await waitFor('the dialog once more', () => firstRow() !== drawn && rows().length === 4);
 const force = document.getElementById('gen_sync_force') || document.createElement('input');
 tick('generations.syncTick', false, { path: FORGE });
 tick('generations.syncTick', false, { path: IMG2IMG });
-check('the box starts off, and a folder with nothing new leaves Start waiting',
-      [force.checked, document.getElementById('gen_sync_start').disabled], [false, true]);
+check('the box starts off', force.checked, false);
 force.checked = true;
 act('generations.syncForce');
-const added = () => rows().find((r) => r[1] === ADDED);
-check('ticked, the estimate and the folder\'s line count what is read again, and Start is offered',
-      [text('gen_sync_estimate').startsWith('0 new, 40 to read again.'), added()?.[2],
-       document.getElementById('gen_sync_start').disabled],
-      [true, '0 new · 40 again', false]);
+check('ticked, the line says the synced images are read again too, and counts none of them',
+      [text('gen_sync_estimate'), document.getElementById('gen_sync_start').disabled, countAsked()],
+      [`${FIRST} Every image synced from them before is read again too.`, false, false]);
 const sent = posted.length;
 act('generations.startSync');
 await waitFor('the forced start', () => posted.length > sent);
@@ -220,5 +232,14 @@ act('generations.closeSyncPanel');
 act('generations.syncImages');
 await waitFor('the dialog reopened', () => text('gen_sync_estimate').length > 0);
 check('opened again, the box is off', document.getElementById('gen_sync_force')?.checked, false);
+const ended = posted.length;
+// As the server ends one: its thumbnails stage leaves no folder, and says
+// how many folders were walked.
+progress = { state: 'done', stage: 'thumbnails', folder: null, folders: 3, total: 0, read: 0, generations: 0, images: 0,
+             again: 0, found: 0, errors: [], error_count: 0, cancelling: false, is_complete: true };
+act('generations.startSync');
+await waitFor('the last start', () => posted.length > ended);
+await waitFor('the empty end', () => text('gen_sync_text').startsWith('No'));
+check('a sync that finds nothing says so', text('gen_sync_text'), 'No new images in the ticked folders.');
 
 done();

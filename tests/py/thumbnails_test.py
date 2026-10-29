@@ -360,8 +360,9 @@ check('the dialog is told the box, the place, the folder named and the default',
 G = os.path.join(OUT, 'g')
 waiting = save(G, '00013-waiting.png')
 record([waiting])
-answer = client.get('/model-manager/generations/sync/estimate').json()
-check('the estimate counts the images without a thumbnail', answer['thumbnails'], 1)
+# The count walked every folder before the window could start (#365): the
+# sync's thumbnails stage counts what it makes.
+check('the window has no count to ask for', client.get('/model-manager/generations/sync/estimate').status_code, 404)
 
 OWN = os.path.join(WORK, 'own thumbnails')
 opts.model_manager_thumbnails_place = thumbnails.BESIDE

@@ -130,7 +130,6 @@ def create_generations_ui():
                             <label class="mm-dialog-option" title="After the sync, a small copy of every image without one, 450 pixels tall: tiles load it instead of the full file. The viewer still shows the full file. Remembered for the next sync, and in the settings.">
                                 <input type="checkbox" id="gen_sync_thumbs" data-action="generations.syncThumbs">
                                 <span>Make thumbnails</span>
-                                <span class="mm-dialog-count" id="gen_sync_thumbs_count"></span>
                             </label>
                             <div id="gen_sync_thumbs_where" class="mm-dialog-sub" hidden>
                                 <label class="mm-dialog-option" title="All in one folder. Empty: a thumbnails folder beside the database.">

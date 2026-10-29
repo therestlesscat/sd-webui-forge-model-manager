@@ -174,27 +174,28 @@ def walk(folder: str, walked: Optional[set] = None) -> Iterator[Tuple[str, int, 
 
     Through symbolic links, and each folder once (folder_walk, #348); a
     record of walked folders (`walked`) shared by several folders' walks
-    reads a folder two of them reach once, under the first.
+    reads a folder two of them reach once, under the first. Each image's
+    size and time are its folder listing's: a stat of each took 46.6 s of
+    one cold walk of 78,611 on a hard disk (#365).
     """
     maps = _maps_folder().lower()
     kept = thumbnails.folder()
-    for dirpath, dirnames, filenames in folder_walk.walk([folder], walked):
+    for dirpath, dirnames, entries in folder_walk.walk_entries([folder], walked):
         dirnames[:] = [d for d in dirnames if d.lower() != maps
                        and not thumbnails.is_thumbnail_folder(os.path.join(dirpath, d), kept)]
-        pngs = {os.path.splitext(n)[0].lower() for n in filenames if n.lower().endswith(".png")}
-        for name in filenames:
-            stem, ext = os.path.splitext(name)
+        pngs = {os.path.splitext(e.name)[0].lower() for e in entries if e.name.lower().endswith(".png")}
+        for entry in entries:
+            stem, ext = os.path.splitext(entry.name)
             ext = ext.lower()
             if ext not in IMAGE_EXTENSIONS or _GRID.match(stem) or _COPY.search(stem):
                 continue
             if ext in (".jpg", ".jpeg") and stem.lower() in pngs:
                 continue
-            path = os.path.join(dirpath, name)
             try:
-                stat = os.stat(path)
+                stat = entry.stat()
             except OSError:
                 continue
-            yield path, stat.st_size, stat.st_mtime_ns
+            yield os.path.join(dirpath, entry.name), stat.st_size, stat.st_mtime_ns
 
 
 def is_new(path: str, size: int, mtime_ns: int, held: set,
@@ -259,25 +260,6 @@ def drop_copies(db) -> Tuple[int, List[str]]:
     return len(copies), (db.drop_synced_copies(copies) if copies else [])
 
 
-def counts(db, entries: Iterable[Dict[str, Any]]) -> Tuple[Dict[str, int], Dict[str, int]]:
-    """
-    How many new images each folder holds, and how many synced ones a Force
-    sync would read again, each by path: a walk, nothing read.
-    """
-    held, removed, synced = db.held_image_paths(), db.removed_images(), db.synced_image_paths()
-    # The sync's own test: a path to a file kept by another is not new (#348).
-    elsewhere = Elsewhere(db, removed)
-    new, again = {}, {}
-    for entry in entries:
-        new[entry["path"]] = again[entry["path"]] = 0
-        for path, size, mtime in walk(entry["path"]):
-            if path.lower() in synced:
-                again[entry["path"]] += 1
-            elif is_new(path, size, mtime, held, removed) and not elsewhere.holds(path, size, mtime):
-                new[entry["path"]] += 1
-    return new, again
-
-
 # ----------------------------------------------------------------- progress
 
 @dataclass
@@ -290,7 +272,14 @@ class ImageSyncProgress:
     state: str = "running"
     stage: str = "walking"
     folder: Optional[str] = None
+    # How many folders the sync walks: none when it only makes thumbnails.
+    # The thumbnails stage leaves `folder` empty, so the page tells a walk
+    # that found nothing from no walk by this.
+    folders: int = 0
     total: int = 0
+    # The images the walk has taken so far, new or to read again: the page's
+    # only number while the walk runs, which took minutes cold (#365).
+    found: int = 0
     read: int = 0
     generations: int = 0
     images: int = 0
@@ -327,8 +316,8 @@ class ImageSyncProgress:
         return self.state != "running"
 
     def to_dict(self) -> Dict[str, Any]:
-        return {"state": self.state, "stage": self.stage, "folder": self.folder,
-                "total": self.total, "read": self.read, "generations": self.generations,
+        return {"state": self.state, "stage": self.stage, "folder": self.folder, "folders": self.folders,
+                "total": self.total, "found": self.found, "read": self.read, "generations": self.generations,
                 "images": self.images, "again": self.again, "errors": list(self.errors),
                 "thumbs_total": self.thumbs_total, "thumbs_done": self.thumbs_done,
                 "thumbs_made": self.thumbs_made,
@@ -564,6 +553,7 @@ class ImageSync(object):
         from .db import get_models_db
         db = get_models_db()
         progress = self.progress
+        progress.folders = len(self.entries)
         say(f"Sync images: {len(self.entries)} folder(s)")
 
         held, removed = db.held_image_paths(), db.removed_images()
@@ -597,6 +587,7 @@ class ImageSync(object):
                     held.add(path.lower())
                     synced.discard(path.lower())
                     progress.again += int(again)
+                    progress.found += 1
                     number = _NUMBER.match(os.path.basename(path))
                     images.append(_Image(path, entry["path"], source, mode, size, mtime,
                                          int(number.group(1)) if number else None))

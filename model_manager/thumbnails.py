@@ -181,12 +181,6 @@ def pending(db) -> List[Tuple[str, int, int]]:
     return todo
 
 
-def missing_count(db) -> int:
-    """How many of the library's images have no thumbnail row yet - for the
-    dialog's estimate: no disk is read, so a changed image is not counted."""
-    return sum(1 for _, _, size, _ in db.thumbnail_candidates() if size is None)
-
-
 def make_many(db, todo: List[Tuple[str, int, int]], stop: Callable[[], bool],
               done: Callable[[str], None], failed: Callable[[str, Exception], None]) -> None:
     """

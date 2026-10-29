@@ -1416,20 +1416,13 @@ work.provide('generations.closeSyncPanel', () => { const panel = byId('gen_sync_
 // folders Forge saves results into and folders added, a long job on the
 // server (model_manager/image_sync.py), followed here until it ends.
 const SYNC = '/model-manager/generations/sync';
-// Reading one file's text took 0.7 ms in one library: 53 s for 76,148 files.
-const SYNC_READ_SECONDS = 0.0007;
-let syncFolders = [];           // as the server listed them, each with its tick and its count
-let syncThumbsMissing = null;   // the library's images with no thumbnail yet (#5), once counted
+// Nothing is counted before Start: counting walked every folder, and cold on
+// a hard disk that took minutes (#365). The sync's walk counts as it goes.
+let syncFolders = [];           // as the server listed them, each with its tick
 let syncFollowing = null;       // the interval following a sync
 
 function syncCount(n) {
     return Number(n || 0).toLocaleString();
-}
-
-function syncDuration(seconds) {
-    if (seconds < 45) return 'under a minute';
-    const minutes = Math.round(seconds / 60);
-    return minutes === 1 ? 'about a minute' : `about ${minutes} minutes`;
 }
 
 async function syncPost(path, fields) {
@@ -1467,9 +1460,9 @@ async function openSyncDialog() {
 }
 
 /**
- * List the folders and count what is new in each. After an Add or a Remove
- * the ticks given meanwhile are kept (`ticks`, by path); the level and the
- * grouping box are left as they are.
+ * List the folders, from the settings and the database: no disk is read.
+ * After an Add or a Remove the ticks given meanwhile are kept (`ticks`, by
+ * path); the level and the grouping box are left as they are.
  */
 async function loadSyncFolders(ticks) {
     byId('gen_sync_start').disabled = true;
@@ -1480,7 +1473,7 @@ async function loadSyncFolders(ticks) {
         return;
     }
     syncFolders = data.folders.map((folder) => ({
-        ...folder, count: null, asking: false,
+        ...folder, asking: false,
         ticked: ticks?.has(folder.path.toLowerCase()) ? ticks.get(folder.path.toLowerCase()) : folder.ticked }));
     if (!ticks) {
         byId('gen_sync_level').innerHTML = data.levels.map((name) =>
@@ -1488,19 +1481,6 @@ async function loadSyncFolders(ticks) {
         byId('gen_sync_group').checked = Boolean(data.group);
         showThumbnailChoices(data);
     }
-    syncThumbsMissing = null;
-    drawSyncFolders();
-    showSyncEstimate();
-    const counted = await apiCall({ endpoint: `${SYNC}/estimate` }).catch((e) => ({ success: false, error: e.message }));
-    if (!counted.success) {
-        setText(byId('gen_sync_estimate'), `Could not count the new images: ${counted.error}`);
-        return;
-    }
-    syncFolders.forEach((folder) => {
-        folder.count = counted.counts[folder.path] ?? 0;
-        folder.again = counted.again?.[folder.path] ?? 0;
-    });
-    syncThumbsMissing = counted.thumbnails ?? 0;
     drawSyncFolders();
     showSyncEstimate();
 }
@@ -1526,12 +1506,9 @@ function drawSyncFolders() {
                     </div>`;
         }
         const title = folder.forge ? `Forge saves results here (its setting ${folder.key})` : 'A folder you added';
-        const count = folder.count === null ? 'counting...'
-            : `${syncCount(folder.count)} new` + (forcing() && folder.again ? ` · ${syncCount(folder.again)} again` : '');
         const line = `<label class="mm-dialog-option" title="${escapeHtml(title)}">
                     <input type="checkbox" data-action="generations.syncTick" data-path="${path}"${folder.ticked ? ' checked' : ''}>
                     <span>${escapeHtml(shownPath(folder.path))}</span>
-                    <span class="mm-dialog-count">${escapeHtml(count)}</span>
                 </label>`;
         // Forge's own folders are unticked, never removed: Forge saves there.
         if (folder.forge) return line;
@@ -1590,33 +1567,25 @@ function showThumbnailPlace() {
     // The folder only for thumbnails kept in one, as the settings window has it.
     const row = byId('gen_sync_thumbs_folder_row');
     if (row) row.hidden = thumbnailPlace() !== 'In a folder';
-    const count = byId('gen_sync_thumbs_count');
-    if (count) setText(count, syncThumbsMissing === null ? '' : `${syncCount(syncThumbsMissing)} without`);
 }
 
 function showSyncEstimate() {
-    const ticked = syncFolders.filter((f) => f.ticked);
-    const counting = ticked.some((f) => f.count === null) || (makingThumbnails() && syncThumbsMissing === null);
-    const fresh = ticked.reduce((sum, f) => sum + (f.count || 0), 0);
-    const again = forcing() ? ticked.reduce((sum, f) => sum + (f.again || 0), 0) : 0;
-    const total = fresh + again;
-    // Images that will need a thumbnail: those without one, and the new ones.
-    const thumbs = makingThumbnails() ? (syncThumbsMissing || 0) + fresh : 0;
+    const ticked = syncFolders.some((f) => f.ticked);
+    const thumbs = makingThumbnails();
     let text;
-    if (!ticked.length && !makingThumbnails()) text = 'Tick a folder to sync.';
-    else if (counting) text = 'Counting the new images...';
-    else if (!total && !thumbs) text = forcing() ? 'No images in the ticked folders.' : 'No new images in the ticked folders.';
+    if (!ticked && !thumbs) text = 'Tick a folder to sync.';
+    else if (!ticked) text = 'The sync makes a thumbnail of every image without one.';
     else {
-        text = !total ? 'No new images in the ticked folders.'
-            : (again ? `${syncCount(fresh)} new, ${syncCount(again)} to read again.` : `${syncCount(total)} new images.`)
-              + ` Reading their text takes ${syncDuration(total * SYNC_READ_SECONDS)}; writing them comes after.`;
-        if (thumbs) text += ` Then about ${syncCount(thumbs)} thumbnail${thumbs === 1 ? '' : 's'} to make: several at once, minutes for tens of thousands.`;
+        text = "The sync first looks through the ticked folders and counts the new images as it goes, then reads each one's text.";
+        if (forcing()) text += ' Every image synced from them before is read again too.';
+        if (thumbs) text += ' Then it makes a thumbnail of every image without one.';
     }
     setText(byId('gen_sync_estimate'), text);
     showThumbnailPlace();
-    // Start would do nothing until there is something to add, read again or make.
+    // What there is to add is found by the sync's own walk: Start only needs
+    // something to look through or make.
     const start = byId('gen_sync_start');
-    if (start) start.disabled = counting || (!total && !thumbs);
+    if (start) start.disabled = !ticked && !thumbs;
 }
 
 function showAddNote(text) {
@@ -1726,6 +1695,12 @@ function syncStatus(p) {
     const where = p.folder ? ` in ${shownPath(p.folder)}` : '';
     const thumbs = p.thumbs_made ? ` Made ${syncCount(p.thumbs_made)} thumbnail${p.thumbs_made === 1 ? '' : 's'}.` : '';
     if (p.state === 'done') {
+        // Nothing was counted before Start (#365): a walk that found nothing
+        // says so. With no folder ticked, thumbnails alone, nothing was walked.
+        if (!p.images && !p.generations) {
+            if (p.folders) return `No new images in the ticked folders.${thumbs}`;
+            return thumbs.trim() || 'Every image has a thumbnail already.';
+        }
         return `Added ${syncCount(p.images)} images as ${syncCount(p.generations)} generations`
             + (p.again ? `, ${syncCount(p.again)} of them read again.` : '.') + thumbs;
     }
@@ -1735,7 +1710,9 @@ function syncStatus(p) {
     }
     if (p.state === 'failed') return `Sync images failed: ${p.error}`;
     if (p.cancelling) return 'Cancelling: finishing the step under way...';
-    if (p.stage === 'walking') return `Looking for new images${where}...`;
+    if (p.stage === 'walking') {
+        return p.found ? `Looking for new images${where}: ${syncCount(p.found)} found so far` : `Looking for new images${where}...`;
+    }
     if (p.stage === 'reading') return `Reading ${syncCount(p.read)} of ${syncCount(p.total)} images${where}`;
     if (p.stage === 'thumbnails') {
         return p.thumbs_total ? `Making thumbnails: ${syncCount(p.thumbs_done)} of ${syncCount(p.thumbs_total)}`

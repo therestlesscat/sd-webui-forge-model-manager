@@ -278,6 +278,27 @@ try:
     check('a junction in Lora to Lora itself: each file once, not once a level deep',
           find_model_files([lora]), [own])
     check('and the same paths at the next walk', find_model_files([lora]), find_model_files([lora]))
+
+    # Asking a folder's real path opens it, a seek on a hard disk: 4,395 of
+    # them took 40 to 86 s of one cold walk (#365). A folder the listing does
+    # not mark as leading elsewhere is its parent's real path and its name.
+    from model_manager import folder_walk                 # noqa: E402
+    asked = []
+    real_folder = folder_walk.real_folder
+    folder_walk.real_folder = lambda path: asked.append(os.path.normcase(path)) or real_folder(path)
+    try:
+        plain = os.path.join(LINKS, 'plain')
+        os.makedirs(os.path.join(plain, 'a', 'b'))
+        deep = model(os.path.join(plain, 'a', 'b'), 'deep.safetensors')
+        found = find_model_files([plain])
+        check('a walk over plain subfolders asks no real path but its top folder\'s',
+              (found, asked), ([deep], [os.path.normcase(plain)]))
+        del asked[:]
+        find_model_files([lora])
+        check('and asks it of a junction, which the walk then enters once',
+              os.path.normcase(loop) in asked, True)
+    finally:
+        folder_walk.real_folder = real_folder
     folder_links.remove(loop)
 
     # library_dirs() drops a folder named twice by its spelling, not by where
