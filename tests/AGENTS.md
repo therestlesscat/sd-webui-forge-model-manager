@@ -141,7 +141,11 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   ADetailer's detector dropdowns among Generate's inputs, where the first
   build looked, and passed; the WebUI has them only among the paste's
   fields, and the build did nothing live. Read the extension's own `ui()`
-  before standing in for it.
+  before standing in for it. And it answers as the server does at each
+  stage: #365's suites ended a sync with `folder` still set; the server's
+  thumbnails stage empties it, and the page drew an empty end line, seen live
+  on 7880. Read the job's real `/progress` answer at its end before writing
+  the stand-in's.
 
 ### The code
 

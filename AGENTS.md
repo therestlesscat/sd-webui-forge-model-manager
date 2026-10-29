@@ -255,7 +255,11 @@ the code (2026-10-16).
   could already search several types, read from its route's comma split; the
   client joined them with commas, which Civitai refuses (a `ZodError`), and
   answers two base models with no model at all. A request to Civitai settled
-  it.
+  it. So is what a reporter wrote: #364 said opening "that screen triggers a
+  count of all images and that takes 15 minutes or more" and "I haven't
+  tried syncing images". It was relayed as their Sync images being unusable
+  and kept closed, until the owner asked "where does user said they had to
+  wait 15mins?" (2026-10-29). Quote it.
 - **An approved check is never weakened in code.** v37's plan said the
   files each image used must come out of the migration the same set as
   `generation_files`; it was written as a subset - every old row found,
@@ -403,6 +407,10 @@ Where they differ, and what the extension does about it - on the server in
   feature is checked against the older: `WITH ... AS MATERIALIZED` needs 3.35;
   `json_each` and `json_extract` run there (#218, checked with that install's
   Python).
+- **PIL 9.5.0 in the original Forge**, 12.3.0 in Neo's venv. Under 9.5, a
+  value set in `Image.Exif().get_ifd(0x8769)` is not written out by
+  `tobytes()`: `image_sync_test`'s JPEG fixture comes out with no text there
+  (#370). Forge's own `piexif` way reads back under both.
 - The other differences sit beside their code: `model_manager/AGENTS.md`, "Two
   WebUIs: everything has to work in both" - no `blake3`, the detector's helpers
   moved, the other WebUI's files; and `javascript/shared/AGENTS.md`, "Two
@@ -898,7 +906,10 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   `issues.json` and gave 83 open issues for 65 - `cp` asks before overwriting
   (see `tests/AGENTS.md`, "Make sure the old code is what ran") and `rm`
   before deleting - a chained `rm` waited for an answer that never came,
-  until the task was stopped: write `command rm -f` - and `echo`
+  until the task was stopped: write `command rm -f`, though not inside
+  `find -exec`, where `command` is zsh's own and no program ("-exec command:
+  No such file or directory"): #365's clearing of cached bytecode did
+  nothing; write `-exec /bin/rm -rf {} +` - and `echo`
   turns a Windows
   path's backslashes into escapes - keep a path in a variable, or use
   `printf`. A word starting with `=` is looked up as a command: `echo ======`
