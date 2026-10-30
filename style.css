@@ -4072,6 +4072,18 @@ button.mm-banner-link {
     color: var(--body-text-color, #f3f4f6) !important;
 }
 
+/* Their Refresh, beside the name (#368). Inline: a display of the heading's
+   own would outweigh its [hidden]. */
+.mm-settings-link.mm-settings-presets-refresh {
+    margin-left: 8px !important;
+}
+
+.mm-settings-link.mm-settings-presets-refresh:disabled {
+    cursor: default;
+    opacity: 0.6;
+    text-decoration: none;
+}
+
 .mm-settings-fields > .mm-settings-intro {
     margin: 0;
     padding: 0 0 12px;

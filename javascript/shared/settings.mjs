@@ -24,6 +24,11 @@ const { TIMING, escapeHtml, formatBytes, setText } = await shared('core.mjs');
 const { ready, call } = await shared('calls.mjs');
 // The upkeep panel's own `ask` polls the server: the question is askUser here.
 const { ask: askUser, openDialog } = await shared('dialog.mjs');
+const { refreshWebUiModelList } = await shared('forge.mjs');
+
+// Forge's refresh, pressed from the presets' Refresh, waits on the watcher of
+// Forge's calls, which it starts.
+export const STARTS = ['forge.mjs'];
 
 // The settings this window draws a control of its own for, or acts on. Every
 // setting's name, group, tab heading, tags, badges and the setting it sits
@@ -49,6 +54,8 @@ const MODULES_PREFIX = 'model_manager_modules_';
 const MODULES_HEADING = 'Text encoders and VAE';
 const MODULES_INTRO = 'Automatic is what Send picks by itself. Choose a file to use that one instead. A file '
     + 'chosen for one model is filled in for the others that use it, where nothing is chosen yet.';
+const MODULES_WAITING = 'Reading your text encoder and VAE files...';
+const isModuleKey = (key) => key.startsWith(MODULES_PREFIX);
 // The Tabs group's switches are named by their tabs; nothing in it is put
 // under a tab's heading.
 const TABS_GROUP = 'tabs';
@@ -114,6 +121,13 @@ function createSettings() {
     // of each preset this WebUI has, with the window's edits. null when the
     // server could not describe them, and the settings show as text instead.
     let modules = null;
+    // The table reads every module file's header the first time after a
+    // start: the window is drawn without it, a line in its place (#368).
+    let modulesPending = false;
+    let modulesRefreshing = false;   // the presets' Refresh, under way
+    let presetsError = '';           // why the last Refresh drew nothing new
+    let openings = 0;                // an answer for an earlier opening is dropped
+    let focusOnPresets = false;      // a link's preset, marked once the table is in
     const previewOpen = new Set();   // card size settings showing their preview
     const previewTimers = {};
     const previewAsked = {};
@@ -252,10 +266,8 @@ function createSettings() {
                 <div class="mm-settings-fields">
                     ${headed(section).map(([heading, keys]) => (heading
         ? `<div class="mm-settings-subheading">${escapeHtml(heading)}</div>` : '')
-        + keys.map((key) => (modules?.[key] && key === keys.find((k) => modules?.[k])
-            ? `<div class="mm-settings-subheading mm-settings-presets-head">${escapeHtml(MODULES_HEADING)}</div>
-               <div class="mm-settings-help mm-settings-intro">${escapeHtml(MODULES_INTRO)}</div>` : '')
-            + renderField(key)).join('')).join('')}
+        + keys.map((key) => (!isModuleKey(key) ? renderField(key)
+            : key === keys.find(isModuleKey) ? presetsHtml(keys.filter(isModuleKey)) : '')).join('')).join('')}
                 </div>
             </section>`).join('')
             + '<div class="mm-settings-empty" id="mm_settings_empty" hidden>'
@@ -267,15 +279,110 @@ function createSettings() {
         loadWhatsNew();
         upkeep.start();
         if (openedFor.section) body.querySelector(`[data-section="${openedFor.section}"]`)?.scrollIntoView?.({ block: 'start' });
-        if (openedFor.focus) {
-            const field = body.querySelector(`.mm-settings-field[data-key="${openedFor.focus}"]`);
-            field?.scrollIntoView?.({ block: 'center' });
-            // Marked for a moment, so the eye finds it - a link's setting (#320).
-            field?.classList.add('mm-settings-marked');
-            setTimeout(() => field?.classList.remove('mm-settings-marked'), MARKED_MS);
-            field?.querySelector(['input', 'textarea', 'select']
-                .map((tag) => `${tag}[data-key="${openedFor.focus}"]`).join(', '))?.focus?.();
+        focusOnPresets = Boolean(openedFor.focus && modulesPending && isModuleKey(openedFor.focus));
+        if (focusOnPresets) body.querySelector('.mm-settings-presets-wait')?.scrollIntoView?.({ block: 'center' });
+        else if (openedFor.focus) markField(openedFor.focus);
+    }
+
+    /** A setting scrolled to, marked for a moment so the eye finds it, and focused - a link's (#320). */
+    function markField(key) {
+        const field = root.querySelector(`.mm-settings-field[data-key="${key}"]`);
+        field?.scrollIntoView?.({ block: 'center' });
+        field?.classList.add('mm-settings-marked');
+        setTimeout(() => field?.classList.remove('mm-settings-marked'), MARKED_MS);
+        field?.querySelector(['input', 'textarea', 'select']
+            .map((tag) => `${tag}[data-key="${key}"]`).join(', '))?.focus?.();
+    }
+
+    /**
+     * Send's presets: under their heading and explanation, with Refresh, once
+     * the table is in; a line in their place while it is on its way, which a
+     * search for the presets finds; each a text box when the server could not
+     * describe them.
+     */
+    function presetsHtml(keys) {
+        if (!keys.length) return '';
+        if (!modulesPending && !modules) return keys.map(renderField).join('');
+        const busy = modulesPending || modulesRefreshing;
+        const head = `
+            <div class="mm-settings-subheading mm-settings-presets-head" data-presets-part>
+                <span class="mm-settings-presets-title">${escapeHtml(MODULES_HEADING)}</span>
+                <button type="button" class="mm-settings-link mm-settings-presets-refresh" data-act="modules-refresh"
+                        title="Read the text encoder and VAE folders again, for a file put there by hand"${
+                        busy ? ' disabled' : ''}>${modulesRefreshing ? 'Refreshing...' : 'Refresh'}</button>
+            </div>
+            <div class="mm-settings-help mm-settings-intro" data-presets-part>${escapeHtml(MODULES_INTRO)}</div>${
+            presetsError ? `
+            <div class="mm-settings-error mm-settings-presets-error" data-presets-part>${escapeHtml(presetsError)}</div>` : ''}`;
+        if (!modulesPending) return head + keys.map(renderField).join('');
+        const words = [MODULES_HEADING, ...keys.flatMap((k) => [meta.settings[k].name, meta.settings[k].label])]
+            .join(' ').toLowerCase();
+        return `${head}
+            <div class="mm-settings-field mm-settings-presets-wait" data-key="${escapeHtml(keys[0])}"
+                 data-search="${escapeHtml(words)}">
+                <div class="mm-settings-help">${escapeHtml(MODULES_WAITING)}</div>
+                <div class="mm-settings-error" data-error="${escapeHtml(keys[0])}"></div>
+            </div>`;
+    }
+
+    /** The presets drawn again in their place, every other field as it is: the table came, or came again. */
+    function drawPresets() {
+        const parts = [...root.querySelectorAll(
+            `[data-presets-part], .mm-settings-field[data-key^="${MODULES_PREFIX}"]`)];
+        if (!parts.length) return;
+        const section = sectionsWithKeys().find((s) => s.keys.some(isModuleKey));
+        parts[0].insertAdjacentHTML('beforebegin', presetsHtml(section ? section.keys.filter(isModuleKey) : []));
+        parts.forEach((part) => part.remove());
+        refresh();
+        if (focusOnPresets) {
+            focusOnPresets = false;
+            markField(openedFor.focus);
         }
+    }
+
+    /**
+     * Refresh (#368): Forge's own refresh first, so its VAE / Text Encoder
+     * control learns of a file put in a folder by hand as its list does - the
+     * table lists what Forge offers - then the table again, a preset changed
+     * and not saved asked with its text, as Edit as text does.
+     */
+    async function refreshModules() {
+        if (!modules || modulesPending || modulesRefreshing) return;
+        const opening = openings;
+        modulesRefreshing = true;
+        presetsError = '';
+        drawPresets();
+        const answered = await refreshWebUiModelList();
+        let presets = null;
+        if (answered) {
+            const drafts = {};
+            Object.entries(modules).forEach(([key, m]) => {
+                if (!same(draft[key], meta.settings[key].value)) drafts[m.preset] = draft[key];
+            });
+            const query = Object.keys(drafts).length ? `?drafts=${encodeURIComponent(JSON.stringify(drafts))}` : '';
+            try {
+                const answer = await (await fetch(`/model-manager/settings/modules${query}`, { cache: 'no-store' })).json();
+                if (answer.success) presets = answer.presets;
+            } catch (e) { /* said below */ }
+        }
+        modulesRefreshing = false;
+        if (opening !== openings || !shown) return;
+        if (presets) {
+            const before = modules;
+            modules = takeModules(presets);
+            // What the window started from stays what was saved, and a preset
+            // being edited as text stays so.
+            Object.entries(modules).forEach(([key, m]) => {
+                if (!before[key]) return;
+                m.initial = before[key].initial;
+                m.text = before[key].text;
+            });
+        } else {
+            presetsError = answered
+                ? 'The text encoder and VAE files could not be read again. Try again, or reload the page.'
+                : 'Forge did not answer the refresh. Try again, or reload the page.';
+        }
+        drawPresets();
     }
 
     /**
@@ -993,6 +1100,8 @@ function createSettings() {
                 m.message = '';
             }
             redrawField(key);
+        } else if (act === 'modules-refresh') {
+            refreshModules();
         } else if (t.dataset?.modulesText) {
             const key = t.dataset.modulesText;
             if (modules[key].text) {
@@ -1084,8 +1193,14 @@ function createSettings() {
         nav.innerHTML = '';
         nav.dataset.drawn = '';
         root.querySelector('#mm_settings_search').value = '';
-        // The table reads file headers, the first time; the settings do not
-        // wait for it, but the window draws once both have answered.
+        // The table reads every module file's header the first time after a
+        // start, which on a slow disk takes a while: the window is drawn from
+        // the settings alone, and the presets once it comes (#368).
+        const opening = ++openings;
+        modules = null;
+        modulesPending = true;
+        modulesRefreshing = false;
+        presetsError = '';
         const table = fetch('/model-manager/settings/modules', { cache: 'no-store' })
             .then((r) => r.json())
             .then((answer) => (answer.success ? takeModules(answer.presets) : null))
@@ -1095,13 +1210,20 @@ function createSettings() {
             const answer = await response.json();
             if (!answer.success) throw new Error(answer.error || 'the server did not say why');
             take(answer);
-            modules = await table;
             renderBody();
         } catch (e) {
             meta = null;
+            modulesPending = false;
             body.innerHTML = `<div class="mm-settings-error">Could not read the settings: ${escapeHtml(e.message)}</div>`;
             root.querySelector('#mm_settings_save').disabled = true;
+            return;
         }
+        const taken = await table;
+        // For a window closed, or opened again, since it was asked.
+        if (opening !== openings || !shown) return;
+        modules = taken;
+        modulesPending = false;
+        drawPresets();
     }
 
     /** Its × and Cancel: closed, after the question if anything is unsaved. */

@@ -190,11 +190,12 @@ async function refreshExtraNetworks() {
 /**
  * Tell Forge its checkpoint list changed: its own refresh, which hands back
  * only new choices, so the current selection is left alone - in line, after
- * any refresh asked before. Resolves once Forge has answered, or the press
- * is given up.
+ * any refresh asked before. Its VAE / text encoder list is read again with
+ * it. Resolves true once Forge has answered, false when the press is given
+ * up.
  */
 export function refreshWebUiModelList() {
-    return inLine(async () => { await refreshCheckpoints(); });
+    return inLine(() => refreshCheckpoints());
 }
 
 /**

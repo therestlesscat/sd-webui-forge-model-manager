@@ -2,12 +2,14 @@
 // applies, saving only what changed - and telling the Settings page, whose
 // Apply button would otherwise send back the values it loaded with.
 import { readFileSync } from 'fs';
-import { ROOT, answerQuestions, call, checker, mountTab, sharedModule, startTab, tabMarkup } from './harness.mjs';
+import { ROOT, answerQuestions, call, checker, forgeRefreshButtons, mountTab, sharedModule, startTab, tabMarkup }
+    from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 // The page's waits, shortened (TIMING): the preview's, the restamp's poll, a redraw's.
 // The restamp's poll stays slower than waitFor's look (50 ms), which reads each state it passes through.
-window.mmTiming = { previewWait: 30, restampPoll: 120, drawRetry: 25 };
+// Forge's refresh, given up on in 0.3 s rather than 30 (#368).
+window.mmTiming = { previewWait: 30, restampPoll: 120, drawRetry: 25, refreshMax: 300 };
 // The Settings page's result line is watched for; linkedom has the observer,
 // the harness does not make it global.
 globalThis.MutationObserver = window.MutationObserver;
@@ -66,7 +68,8 @@ function describe(drafts = {}) {
     return [
         build('flux', 'Flux.1 / Chroma', [
             fileRow('clip_l', 'CLIP-L', [cand('clip_l.safetensors')], 'clip_l.safetensors', null, ['Flux.1']),
-            fileRow('t5xxl', 'T5-XXL', [cand('t5xxl_fp16.safetensors'), cand('t5xxl_fp8.safetensors', 'fp8')],
+            fileRow('t5xxl', 'T5-XXL', [cand('t5xxl_fp16.safetensors'), cand('t5xxl_fp8.safetensors', 'fp8'),
+                                        ...(newT5 ? [cand('t5xxl_new.safetensors')] : [])],
                 't5xxl_fp16.safetensors', null, ['Flux.1', 'Chroma']),
             fileRow('ae', 'Flux VAE (ae)', AE, 'ae.safetensors', null, ['Flux.1', 'Chroma']),
         ], ['Flux.1', 'Chroma']),
@@ -83,6 +86,12 @@ function describe(drafts = {}) {
     ];
 }
 const tableAsked = [];
+// The table held back until a check lets it through, or failing; and a T5
+// put in its folder by hand, which Forge lists once refreshed (#368).
+let tableHeld = Promise.resolve();
+let releaseTable = () => {};
+let tableFails = false;
+let newT5 = false;
 const keyTested = [];
 // What the server says of judging stored images again, one answer per ask;
 // the last is repeated. Nothing is running when the page loads.
@@ -123,6 +132,8 @@ globalThis.fetch = async (url, init = {}) => {
     if (href.includes('/model-manager/settings/modules')) {
         const drafts = new URL(href, 'http://webui').searchParams.get('drafts');
         tableAsked.push(drafts);
+        await tableHeld;
+        if (tableFails) return { ok: true, json: async () => ({ success: false, error: 'no headers' }) };
         return { ok: true, json: async () => ({ success: true, presets: describe(drafts ? JSON.parse(drafts) : {}) }) };
     }
     if (href.includes('/model-manager/settings/folder-example')) {
@@ -175,6 +186,7 @@ window.addEventListener('mm-settings-saved', (e) => saved.push(e.detail.changed)
 
 await startTab('modelManager');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
+const refreshed = forgeRefreshButtons(document, window);
 
 // -------------------------------------------------------------- the gear
 // The tab as drawn, not the template: the template's placeholder once
@@ -542,7 +554,8 @@ const sendHeading = () => $('[data-section="send"] .mm-settings-subheading');
 const sendIntro = () => $('[data-section="send"] .mm-settings-intro');
 const sendRows = () => Array.from($('[data-section="send"] .mm-settings-fields')?.children || []);
 check('Send\'s presets under their heading, the explanation under it, after Clip skip',
-      [sendHeading()?.textContent, sendHeading()?.nextElementSibling === sendIntro(), sendHeading()?.hidden,
+      [sendHeading()?.querySelector('.mm-settings-presets-title')?.textContent, sendHeading()?.nextElementSibling === sendIntro(),
+       sendHeading()?.hidden,
        sendIntro()?.hidden, sendRows().indexOf(field('model_manager_send_clip_skip_max')) < sendRows().indexOf(sendHeading())],
       ['Text encoders and VAE', true, false, false, true]);
 type($('#mm_settings_search'), 'highest clip skip');
@@ -957,5 +970,130 @@ check('the window names the section and its first setting "Generations"',
       [sectionTitle?.startsWith('Generations'), recordLabel?.startsWith('Generations')], [true, true]);
 check('no label on the Settings page says "Your generations"',
       forgeLabels.filter((label) => label.startsWith('Your generations')), []);
+
+// ------------------------------------------------ the table on its way (#368)
+// The table reads every module file's header the first time after a start: the
+// window is drawn from the settings alone, and the presets once it comes.
+const waiting = () => $('.mm-settings-presets-wait');
+const refreshButton = () => $('[data-act="modules-refresh"]');
+const hashThreads = () => field('model_manager_hash_threads')?.querySelector('input[type="number"]');
+const typeIn = (el, value) => el && type(el, value);
+const letTableThrough = () => {
+    tableHeld = Promise.resolve();
+    releaseTable();
+};
+// Opened with the table held back; the opening is awaited only once it is let
+// through - kept here, as an async function returning it would wait for it.
+let opening = null;
+async function openHeld(options) {
+    tableHeld = new Promise((resolve) => { releaseTable = resolve; });
+    confirmAnswer = true;
+    $('[data-act="cancel"]').click();
+    opening = call('settings.open', options);
+    await waitFor('the window drawn while its table is on its way', () => Boolean(waiting()), 20);
+}
+
+await openHeld();
+check('drawn before the table: every group, the presets a line saying what comes, Refresh not yet',
+      [Boolean($('#mm_settings_body .mm-settings-loading')), Boolean($('#mm_settings_nav [data-group="send"]')),
+       waiting()?.textContent.trim(), Boolean(choice('flux', 'ae')), refreshButton()?.disabled],
+      [false, true, 'Reading your text encoder and VAE files...', false, true]);
+typeIn(hashThreads(), '5');
+letTableThrough();
+await opening;
+await waitFor('the presets', () => Boolean(choice('flux', 'ae')), 20);
+check('the table in: the presets in the line\'s place, Refresh ready, a change made meanwhile kept',
+      [Boolean(waiting()), Boolean(choice('flux', 'ae')), refreshButton()?.disabled, hashThreads()?.value,
+       field('model_manager_hash_threads')?.classList.contains('mm-settings-changed')],
+      [false, true, false, '5', true]);
+
+await openHeld();
+typeIn(hashThreads(), '6');
+const savesBefore = saved.length;
+$('#mm_settings_save').click();
+await waitFor('a save while the table is on its way', () => saved.length === savesBefore + 1, 20);
+check('saved while it waits: the change made elsewhere, and no preset',
+      [Object.keys(posted.at(-1) || {}), $('#mm_settings').open], [['model_manager_hash_threads'], false]);
+letTableThrough();
+await opening;
+check('the table that comes after the window closed draws nothing', Boolean(choice('flux', 'ae')), false);
+
+await openHeld();
+$('[data-act="cancel"]').click();
+letTableThrough();
+await opening;
+check('closed while it waits, by Cancel: the late table draws nothing',
+      [$('#mm_settings').open, Boolean(choice('flux', 'ae'))], [false, false]);
+
+await openHeld();
+type($('#mm_settings_search'), 'vae');
+const byVae = waiting()?.hidden;
+type($('#mm_settings_search'), 'flux');
+const byPreset = waiting()?.hidden;
+type($('#mm_settings_search'), 'zzzz nothing');
+const byNothing = waiting()?.hidden;
+type($('#mm_settings_search'), '');
+check('a search finds the presets while they are on their way, by their names',
+      [byVae, byPreset, byNothing], [false, false, true]);
+letTableThrough();
+await opening;
+
+scrolled.length = 0;
+await openHeld({ focus: 'model_manager_modules_lumina' });
+const scrolledAtOnce = [...scrolled];
+letTableThrough();
+await opening;
+await waitFor('the preset marked', () => Boolean(field('model_manager_modules_lumina')?.classList
+    .contains('mm-settings-marked')), 20);
+check('opened at a preset while it waits: at the line at once, at the preset, marked, once drawn',
+      [scrolledAtOnce, scrolled.at(-1), field('model_manager_modules_lumina')?.classList.contains('mm-settings-marked')],
+      [['model_manager_modules_flux'], 'model_manager_modules_lumina', true]);
+
+tableFails = true;
+await openHeld();
+letTableThrough();
+await opening;
+check('the table failing: each preset a text box, in the line\'s place',
+      [Boolean(waiting()), Boolean(field('model_manager_modules_flux')?.querySelector('input[type="text"]'))],
+      [false, true]);
+tableFails = false;
+
+// Refresh: Forge's own refresh first, then the table again.
+confirmAnswer = true;
+$('[data-act="cancel"]').click();
+await call('settings.open');
+const askedAtPress = [];
+$('#forge_refresh_checkpoint')?.addEventListener('click', () => askedAtPress.push(tableAsked.length));
+newT5 = true;
+const asked = tableAsked.length;
+refreshButton()?.click();
+check('Refresh pressed: it says so, and cannot be pressed again', [refreshButton()?.textContent.trim(),
+      refreshButton()?.disabled], ['Refreshing...', true]);
+await waitFor('the table again', () => tableAsked.length > asked && refreshButton()?.textContent.trim() === 'Refresh', 20);
+check('Forge\'s refresh pressed first, then the table asked again, and the file put there by hand offered',
+      [refreshed, askedAtPress, tableAsked.length, Array.from(choice('flux', 't5xxl')?.options || [])
+          .some((o) => o.value === 't5xxl_new.safetensors')],
+      [['checkpoints'], [asked], asked + 1, true]);
+
+choose('flux', 'ae', 'ae.safetensors');
+refreshButton()?.click();
+await waitFor('the table again', () => tableAsked.length > asked + 1 && refreshButton()?.textContent.trim() === 'Refresh', 20);
+check('a preset changed and not saved keeps its choice: the table is asked with its text',
+      [Object.keys(JSON.parse(tableAsked.at(-1) || '{}')), choice('flux', 'ae')?.value,
+       block('flux')?.classList.contains('mm-settings-changed')], [['flux'], 'ae.safetensors', true]);
+
+$('#forge_refresh_checkpoint')?.remove();
+$('#txt2img_lora_extra_refresh_internal')?.remove();
+forgeRefreshButtons(document, window, { answer: false });
+const askedBefore = tableAsked.length;
+refreshButton()?.click();
+await waitFor('the refresh given up', () => Boolean($('.mm-settings-presets-error')), 20);
+check('Forge not answering: the tables as they were, said so, Refresh ready again',
+      [$('.mm-settings-presets-error')?.textContent.trim(), tableAsked.length, choice('flux', 'ae')?.value,
+       refreshButton()?.disabled],
+      ['Forge did not answer the refresh. Try again, or reload the page.', askedBefore, 'ae.safetensors', false]);
+newT5 = false;
+confirmAnswer = true;
+$('[data-act="cancel"]').click();
 
 done();
