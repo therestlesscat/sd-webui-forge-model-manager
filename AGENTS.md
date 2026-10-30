@@ -216,6 +216,11 @@ the code (2026-10-16).
 
 ### Getting it right
 
+- **A plan that removes something - a route, a function, a setting -
+  searches the AGENTS.md files and the memory notes for it too.** #369's
+  plan removed `/model-manager/sync/new-files`, which the root's 7880 rule
+  called before every live sync; it was found while building, and went back
+  as a question (2026-10-30).
 - **A log line is not a version.** "4534 of 4496" was read as 7870 still
   running the code before a fix; the new code printed it too - a second
   bug - and the owner had restarted (#229). Before saying what code a WebUI

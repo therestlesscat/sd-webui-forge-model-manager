@@ -70,7 +70,11 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   `done()`, so a break that leaves an awaited promise pending ends the suite
   silently, every failure hidden - two of #292's did, awaiting a close that
   waited on a check never answered. Await nothing a break could leave
-  pending, and answer every question asked.
+  pending, and answer every question asked. And a helper that holds an
+  answer back returns nothing it awaits: #368's `openHeld` was async and
+  returned the window's opening, an async function hands a returned promise
+  on unresolved, and `await openHeld()` waited for the very answer it held.
+  The suite hung, three `node.exe` copies running on until stopped by hand.
 - **A break that fails nothing is a finding.** Of 0.58.3's breaks, two failed
   nothing: one removed a line that turned out redundant - the line went -
   and one hit a guard a second layer covers (the walk never hands a recorded

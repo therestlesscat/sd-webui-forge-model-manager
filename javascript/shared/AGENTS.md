@@ -66,6 +66,12 @@ tab it was opened from.** Opened from the Model Manager, the Civitai
 Browser's page-size field was hidden and a Playwright fill timed out; another
 section's setting is saved through `POST /model-manager/settings` (#230).
 
+**Every row the settings window draws as `.mm-settings-field` carries a
+`.mm-settings-error`.** `refreshModified` writes into each one's, and a row
+without it threw inside `open`: the window said only "Could not read the
+settings: Cannot set properties of null", which named no row. #368's waiting
+line did, until it got an empty one.
+
 **One downloads list for both tabs.** `downloads()` in
 `javascript/shared/downloads.mjs` polls once and draws into each tab's panel -
 started by the Model Manager and the Civitai Browser, null before. It
@@ -184,8 +190,12 @@ showed:
 - **The checkpoint list.** Both WebUIs refresh it at every page load
   (`Context.root_block.load(...)` in `modules_forge/main_entry.py`: Neo line
   65, the original Forge line 96), so a checkpoint Forge does not list is one
-  added after the page loaded. Send presses Forge's refresh for it and asks
-  again (`whenListed`, #323). A live check of that case adds the file while
+  added after the page loaded. Its VAE / Text Encoder list is filled by the
+  same call (`refresh_models`), so a module put in a folder by hand is listed
+  only after a page load or that refresh: closing and opening the settings
+  window lists nothing new, and its Refresh presses Forge's first (#368).
+  Send presses Forge's refresh for a checkpoint not listed and asks again
+  (`whenListed`, #323). A live check of that case adds the file while
   the page is open, and syncs from outside the page: reloaded, #323's second
   link was listed before its Send; a sync started from outside, with the page
   open, left the third unlisted.
