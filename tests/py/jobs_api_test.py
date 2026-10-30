@@ -370,13 +370,11 @@ check('with the reason', 'division by zero' in body['error'], True)
 jobs.estimate_metadata_sync = real_estimate
 
 # ------------------------------------------------- what the Files section reads
-from modules import paths                                # noqa: E402  (webui_stub's)
-paths.models_path = facts['models_dir']
+# The dialog walked every model folder for a count as it opened; the sync says
+# it now, as it finds it (#369).
 status, body = get('/model-manager/sync/new-files')
-check('the files every sync will hash are counted: here, the ones never asked about',
-      (status, body['success'], body['files']), (200, True, fixtures.LOCAL_ONLY))
-check('with their size', body['bytes'],
-      sum(os.path.getsize(path) for path in facts['local_only_paths']))
+check('no route walks the folders for the dialog', status, 404)
+from modules import paths                                # noqa: E402  (webui_stub's)
 paths.models_path = ''
 status, body = get('/model-manager/sync/misplaced')
 check('the sync dialog can list the files in another type\'s folder: none here',

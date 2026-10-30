@@ -2,7 +2,7 @@
 Which tabs are on, decided in one place (model_manager/tabs.py, #181): a tab
 switched off has its routes refuse and its startup work left out.
 
-What is checked here: every route naming its area - all 95 held to the table
+What is checked here: every route naming its area - all 94 held to the table
 below, which is the spec; with every tab off, every route but ui-options
 refusing, in the shape every failure answers; an off tab's routes refused
 through the app; the shared areas, on while any of their tabs is; the
@@ -150,7 +150,6 @@ SPEC = {
     ('POST', '/model-manager/sync'): 'model_manager',
     ('POST', '/model-manager/sync/metadata'): 'model_manager',
     ('GET', '/model-manager/sync/estimate'): 'model_manager',
-    ('GET', '/model-manager/sync/new-files'): 'model_manager',
     ('GET', '/model-manager/sync/misplaced'): 'model_manager',
     ('GET', '/model-manager/sync/progress'): 'model_manager',
     ('POST', '/model-manager/sync/cancel'): 'model_manager',
@@ -208,7 +207,7 @@ SPEC = {
     ('GET', '/model-manager/repairs/recorded-twice'): 'generations',
     ('POST', '/model-manager/repairs/recorded-twice/remove'): 'generations',
 }
-check('the spec holds 95 routes', len(SPEC), 95)
+check('the spec holds 94 routes', len(SPEC), 94)
 
 app = FastAPI()
 api.setup_api(app)

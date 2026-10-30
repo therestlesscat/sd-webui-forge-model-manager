@@ -13,8 +13,8 @@ from fastapi.responses import JSONResponse
 from ..db import GridQuery, get_models_db
 from ..jobs import jobs
 from ..model_dirs import misplaced_files
-from ..sync_estimates import (estimate_metadata_sync, files_to_hash, gallery_refresh_options,
-                              sync_window_counts, window_cutoff)
+from ..sync_estimates import (estimate_metadata_sync, gallery_refresh_options, sync_window_counts,
+                              window_cutoff)
 from ..sync_service import SyncService
 from .common import failed, gate
 from .models import filter_files, grid_filters
@@ -255,25 +255,10 @@ def register(app: FastAPI):
                 "download_windows": sync_window_counts(model_paths, basis="downloaded"),
                 # For the hashing option, which is costed in files rather than
                 # in requests. From the database, so the estimate, asked at
-                # every change, does not walk the disk: /sync/new-files does,
-                # once per opening.
+                # every change, does not walk the disk.
                 "unidentified": unidentified,
                 "force_images": force_images,
             })
-        except Exception as e:
-            return failed(e)
-
-    @app.get("/model-manager/sync/new-files")
-    @gate("model_manager")
-    def get_files_to_hash():
-        """
-        The files every sync will read in full, and their total size: new on
-        disk, or never asked about. Asked once each time the dialog opens -
-        a walk of the folders, which the estimate, asked at every change,
-        does not make.
-        """
-        try:
-            return JSONResponse({"success": True, **files_to_hash()})
         except Exception as e:
             return failed(e)
 

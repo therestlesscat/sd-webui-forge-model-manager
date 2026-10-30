@@ -31,7 +31,7 @@ import model_manager.sync_service as sync_module         # noqa: E402
 from modules import paths                                # noqa: E402  (webui_stub's)
 from model_manager.architecture import Architecture     # noqa: E402
 from model_manager.civitai import CivitaiNotFoundError, TokenBucketRateLimiter  # noqa: E402
-from model_manager.sync_estimates import files_to_hash  # noqa: E402
+from model_manager import console                        # noqa: E402
 from model_manager.sync_service import SyncService      # noqa: E402
 
 WORK = os.path.join(TESTS, 'work', 'sync_walk')
@@ -132,13 +132,6 @@ os.remove(GONE)
 CHANGED = LOCAL[0]
 io.open(CHANGED, 'wb').write(b'\0' * 4096)
 
-# --------------------------------------------------- what every sync will hash
-before = files_to_hash()
-check('the dialog is told what every sync will read in full: the new file and the never-asked ones',
-      before['files'], 1 + len(LOCAL))
-check('with their size', before['bytes'],
-      sum(os.path.getsize(p) for p in [NEW] + LOCAL))
-
 # -------------------------------------------------------- a metadata sync walks
 sync = service()
 progress = sync.sync_metadata(model_paths=[LINKED[0]])
@@ -158,7 +151,13 @@ check('the new file and the never-asked ones are hashed, whatever the scope',
 check('and looked up', progress.not_found, 1 + len(LOCAL) + 1)
 check('no identified file is hashed', set(hashed) & set(LINKED), set())
 check('and nothing went wrong', (progress.errors, progress.is_complete), (0, True))
-check('after it, nothing is left to hash', files_to_hash()['files'], 0)
+# What the Sync dialog walked the folders to count as it opened, the sync says
+# once its own walk has found them (#369).
+lines, _ = console.since(progress.log_from)
+check('the sync says how many files it reads in full, and their size',
+      [line['text'] for line in lines if line['text'].startswith('Identifying')],
+      ['Identifying %d files Civitai has not been asked about: %.2f KB to read in full.'
+       % (1 + len(LOCAL), sum(os.path.getsize(p) for p in [NEW] + LOCAL) / 1024)])
 
 # ------------------------------------------------------------ and again: quiet
 read.clear()
@@ -170,7 +169,6 @@ check('and hashes nothing: every file has been asked about', hashed, [])
 check('and adds and removes nothing', (progress.added, progress.removed), (0, 0))
 # The panel's last line: the summary is said before the sync is complete, so
 # the page's last poll, which sees it complete, reads it too.
-from model_manager import console                        # noqa: E402
 lines, _ = console.since(progress.log_from)
 check('a sync\'s log, from where it began, ends with its summary',
       bool(lines) and lines[-1]['text'].startswith('Metadata sync complete'), True)

@@ -12,7 +12,7 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { TIMING, apiCall, apiUrl, escapeHtml, formatBytes, setText } = await shared('core.mjs');
+const { TIMING, apiCall, apiUrl, escapeHtml, setText } = await shared('core.mjs');
 const { refreshWebUiModelLists } = await shared('forge.mjs');
 
 /** A sync that changed files refreshes Forge's lists in line (#321): through forge.mjs. */
@@ -255,33 +255,6 @@ let syncResultPaths = null;     // resolved lazily, for that scope's count
 let syncDepthBeforeRehash = null;   // restored when the scope leaves "force"
 let syncImagesWereOn = false;       // to tell "just switched on" from "still on"
 let syncUnidentified = null;        // {unidentified, never_asked, asked_not_found, identified}
-let syncNewFiles = null;            // {files, bytes}: what every sync hashes, asked once per opening
-
-/**
- * What every sync reads in full, whatever its scope: the files new on disk,
- * and the ones Civitai has never been asked about. Empty when there are none,
- * or the count has not come.
- */
-function describeNewFiles() {
-    if (!syncNewFiles || !syncNewFiles.files) return '';
-    const n = syncNewFiles.files;
-    return `Also ${n.toLocaleString()} new file${n === 1 ? '' : 's'} to read in full`
-        + ` (${formatBytes(syncNewFiles.bytes)}) and look up on Civitai.`;
-}
-
-/** The files every sync will hash: a walk of the folders, so asked once per opening. */
-async function askNewFiles() {
-    syncNewFiles = null;
-    try {
-        const data = await apiCall({ endpoint: '/model-manager/sync/new-files' });
-        if (data && data.success && typeof data.files === 'number') {
-            syncNewFiles = { files: data.files, bytes: data.bytes || 0 };
-        }
-    } catch (error) {
-        console.error('[ModelManager] Counting new files failed:', error);
-    }
-    refreshSyncEstimate();
-}
 
 /**
  * The hashing option's own cost, in files rather than requests.
@@ -466,15 +439,16 @@ function refreshSyncEstimate() {
 
             // A sync with no model to refresh still reads the folders: it
             // adds what is new, forgets what is gone, and identifies the new.
+            // How many that is, the sync says once its walk has found them:
+            // counted here, every opening walked every folder (#369).
             if (estimateEl) {
-                const refresh = estimate.versions
+                estimateEl.textContent = estimate.versions
                     ? `${estimate.versions.toLocaleString()} models`
                       + ` - ${totalApproximate ? '~' : ''}${requests.total.toLocaleString()}`
-                      + ' requests to Civitai'
-                    : 'No models to refresh.';
-                const hashing = describeNewFiles();
-                estimateEl.textContent = hashing ? `${refresh} ${hashing}`
-                    : estimate.versions ? refresh : `${refresh} The sync reads your model folders only.`;
+                      + ' requests to Civitai. Any file new to the library, or changed since it was read,'
+                      + ' is read in full and looked up too.'
+                    : 'No models to refresh. The sync reads your model folders, and reads in full and looks up'
+                      + ' any file new to the library or changed since it was read.';
             }
             if (startBtn) startBtn.disabled = false;
         } catch (error) {
@@ -662,7 +636,6 @@ function openSyncDialog() {
     syncDialogResultsScope();
     refreshSyncEstimate();
     showMisplaced();
-    askNewFiles();
 }
 
 /**

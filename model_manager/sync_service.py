@@ -1326,12 +1326,12 @@ class SyncService:
             return self._progress
 
         if new_files and not self._cancel_requested:
-            say(f"Identifying {len(new_files)} file(s) Civitai has not been asked about")
+            say(_reading(new_files, "Civitai has not been asked about"))
             self._sync_files(new_files, force=False, max_workers=configured_hash_threads())
         # Asked about again whatever was said of them before: they are not
         # the files that was said of.
         if changed and not self._cancel_requested:
-            say(f"Identifying {len(changed)} file(s) changed since they were read")
+            say(_reading(changed, "changed since it was read", "changed since they were read"))
             self._sync_files(changed, force=True, max_workers=configured_hash_threads())
         forget_orphans(get_models_db())
         self.look_up_listed_versions()
@@ -1702,6 +1702,31 @@ def files_to_identify(found: List[str]) -> Tuple[List[str], List[str]]:
         elif changed_since_read(checked.get(key), path):
             changed.append(path)
     return new, changed
+
+
+def _reading(paths: List[str], what: str, what_of_several: Optional[str] = None) -> str:
+    """
+    The sync's line for the files it is about to read in full: how many, and
+    their size. The Sync dialog walked every model folder to show it as it
+    opened (#369); the sync's own walk has found them by now.
+    """
+    size = 0
+    for path in paths:
+        try:
+            size += os.path.getsize(path)
+        except OSError:
+            pass
+    n = len(paths)
+    said_of = what if n == 1 else (what_of_several or what)
+    return f"Identifying {n:,} file{'' if n == 1 else 's'} {said_of}: {_size_text(size)} to read in full."
+
+
+def _size_text(size: int) -> str:
+    """A size as the page writes one (formatBytes in core.mjs)."""
+    for unit, scale in (("GB", 1 << 30), ("MB", 1 << 20), ("KB", 1 << 10)):
+        if size >= scale:
+            return f"{size / scale:.2f} {unit}"
+    return f"{size} B"
 
 
 def configured_hash_threads() -> int:

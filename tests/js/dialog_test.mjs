@@ -165,9 +165,10 @@ const MISPLACED = [
       file_type: 'TextualInversion', identified_by: '', clash: 'same' },
 ];
 
-// What every sync will read in full, as /sync/new-files counts it: none, until
-// the Files section is looked at.
-const NEW_FILES = { success: true, files: 0, bytes: 0 };
+// What /sync/new-files counted, when the dialog asked it as it opened: 12 new
+// files, which no opening should ask for now (#369).
+const NEW_FILES = { success: true, files: 12, bytes: 3 * 1073741824 };
+let newFilesAsked = 0;
 // What the walk every sync starts with did, added to the progress at its end.
 const WALKED = {};
 // Polls answered before the finished one: a sync still walking, with no total.
@@ -203,6 +204,7 @@ globalThis.fetch = async (url, init = {}) => {
         }, ...log }) };
     }
     if (href.includes('/sync/new-files')) {
+        newFilesAsked += 1;
         return { ok: true, json: async () => ({ ...NEW_FILES }) };
     }
     if (href.includes('/sync/misplaced')) {
@@ -357,11 +359,13 @@ check('force sync is a scope, not a depth option',
     [$('mm_sync_rehash'), $('mm_sync_force_row')], [null, null]);
 
 // Requests, not minutes - the count is the same on every machine, the
-// duration is not. Waited for, not settled: the estimate is asked again once
-// the count of new files has come, and a fixed wait read "Estimating..." once.
+// duration is not. Waited for, not settled: a fixed wait read "Estimating..." once.
 await waitFor('the estimate', () => $('mm_sync_estimate').textContent.includes(' - '));
-check('the estimate counts requests, approximately while it includes prompts',
-    $('mm_sync_estimate').textContent, '747 models - ~3,007 requests to Civitai');
+check('the estimate counts requests, approximately while it includes prompts, and says what a sync '
+      + 'reads besides, with no count of it',
+    $('mm_sync_estimate').textContent, '747 models - ~3,007 requests to Civitai. Any file new to the '
+      + 'library, or changed since it was read, is read in full and looked up too.');
+check('opening the dialog asks the server to walk no folder for a count', newFilesAsked, 0);
 check('and says nothing about time',
     /\bmin\b|\bhours?\b|\bs\b|req\/s/.test($('mm_sync_estimate').textContent), false);
 check('each line carries its own count, metadata with the checkpoint check in it, '
@@ -383,6 +387,19 @@ check('the download windows carry their own, different counts',
     Array.from($('mm_sync_downloaded_days').options).map((o) => o.textContent),
     ['1 day (5)', '2 days (8)', '7 days (8)', '1 month (9)', '3 months (9)', '6 months (12)']);
 check('all-models count is shown', $('mm_scope_all').textContent, '(747)');
+
+// Nothing to refresh: the sync still walks, and reads what is new.
+closeSyncDialogFromTest();
+ESTIMATE.estimate.versions = 0;
+click('mm_sync_btn');
+await waitFor('the estimate with nothing to refresh', () => $('mm_sync_estimate').textContent.startsWith('No models'));
+check('with nothing to refresh, the estimate says what the sync reads, with no count of it',
+    $('mm_sync_estimate').textContent, 'No models to refresh. The sync reads your model folders, and reads in '
+      + 'full and looks up any file new to the library or changed since it was read.');
+ESTIMATE.estimate.versions = 747;
+closeSyncDialogFromTest();
+click('mm_sync_btn');
+await waitFor('the estimate again', () => $('mm_sync_estimate').textContent.includes(' - '));
 
 // Nothing has been searched yet, so there are no results to scope to.
 const resultsRadioEarly = window.document.querySelector('input[name="mm_sync_scope"][value="results"]');
@@ -583,17 +600,12 @@ check('nor anything the walk does besides', [body.get('reread_headers'), body.ge
 // --- the Files section: what the walk every sync starts with does besides -----
 await waitFor('the metadata sync to finish', () => $('mm_sync_btn').disabled === false);
 posts.length = 0;
-NEW_FILES.files = 12;
-NEW_FILES.bytes = 3 * 1073741824;
 click('mm_sync_btn');
-await estimated('the estimate with the new files');
+await estimated('the estimate the dialog asks for');
 check('both boxes start unticked, the move one usable once its list has come',
       [$('mm_sync_reread').checked, $('mm_sync_move').checked, $('mm_sync_move').disabled], [false, false, false]);
 check('the box counts the files it can move',
       $('mm_sync_move_label').textContent, 'Move files into their type\'s folder (1)');
-check('the estimate says what every sync will read in full, whatever its scope',
-      $('mm_sync_estimate').textContent.endsWith('Also 12 new files to read in full (3.00 GB) and look up on Civitai.'),
-      true);
 $('mm_sync_reread').checked = true;
 $('mm_sync_move').checked = true;
 change($('mm_sync_move'));
@@ -631,8 +643,7 @@ check('a force sync sends them too',
       [posts[0]?.url, forceWalk.get('reread_headers'), forceWalk.get('move_misplaced')],
       ['/model-manager/sync', 'true', 'false']);
 await waitFor('the force sync to finish', () => $('mm_sync_btn').disabled === false);
-NEW_FILES.files = 0;
-NEW_FILES.bytes = 0;
+check('no opening of the dialog asked for a count of new files', newFilesAsked, 0);
 
 // --- while the walk runs ----------------------------------------------------
 // Every sync walks the library before it has a total: the bar said "0/0".
