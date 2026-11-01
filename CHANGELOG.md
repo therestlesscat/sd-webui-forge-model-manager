@@ -6,6 +6,17 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.71 - What a download fetches, said first
+
+*31 October 2026*
+
+A LoRA chip or a Resources row for a version Civitai has deleted now says so before you press, and
+names the newer version a download takes in its place; the Resources dialog's Download otherwise
+fetches the image's own version, never a newer one. A new setting, Update LoRA tags in the prompt to
+your file names, keeps the image's LoRA names in your prompt when you turn it off.
+
+- **0.71.0** (build 590) - A chip under the prompt whose LoRA version Civitai has deleted downloaded the model's newest version in its place, then stayed disabled, saying "got v3 instead", until the page was reloaded (#205). It now turns green under the newest's file name once that is in the library, and a press puts its tag in; before the press it says the image's version is deleted and which version a press downloads. The Resources dialog drew such a version like any other, and its Download fetched the newest, said only afterwards; every row's Download did the same for a version deleted after the dialog opened (#372). A deleted version's row now says so and offers "Download v3, the newest" on a button of its own, and every other row downloads the exact version. A new setting in the Send group, Update LoRA tags in the prompt to your file names, on by default: off, Send pastes the image's LoRA tags as the image names them, and a Resources dialog download leaves them as they are once it arrives. A chip's own download still renames its own tag, and a download now renames only the tag of the LoRA it brought, where it renamed every LoRA tag with a file under another name, in txt2img and img2img alike.
+
 ## 0.70 - Send catches Forge up
 
 *27 October 2026*

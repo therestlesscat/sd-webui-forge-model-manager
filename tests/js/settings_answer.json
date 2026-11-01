@@ -845,6 +845,23 @@
    "switch": null,
    "value": 6
   },
+  "model_manager_send_rename_loras": {
+   "label": "Send updates LoRA tags in the prompt to your file names",
+   "info": "When an image names a LoRA you have under another file name, the extension changes that tag in your prompt to your file's name, so Forge loads it: <lora:anime_style_v2:0.8> becomes <lora:AnimeStyle-v2.0:0.8>. A download from the Resources dialog does the same once its file arrives. When off, your prompt keeps the image's names, and a LoRA chip's press puts your file's tag in beside the image's. A download from a chip still changes that chip's tag, as you pressed it.",
+   "kind": "bool",
+   "default": true,
+   "name": "Update LoRA tags in the prompt to your file names",
+   "group": "send",
+   "heading": "Shared across tabs",
+   "tags": [
+    "send"
+   ],
+   "shown_with": [],
+   "under": null,
+   "badges": [],
+   "switch": null,
+   "value": true
+  },
   "model_manager_modules_flux": {
    "label": "Text encoders and VAE Send picks for Flux.1 / Chroma",
    "info": "Flux.1 and Flux.1 Schnell need CLIP-L, T5-XXL and Flux VAE (ae); Chroma needs T5-XXL and Flux VAE (ae). Download: clip_l, t5xxl fp16, t5xxl fp8, ae",
@@ -1427,6 +1444,7 @@
   "model_manager_civitai_on_site_marks",
   "model_manager_send_clip_skip",
   "model_manager_send_clip_skip_max",
+  "model_manager_send_rename_loras",
   "model_manager_modules_flux",
   "model_manager_modules_klein",
   "model_manager_modules_lumina",

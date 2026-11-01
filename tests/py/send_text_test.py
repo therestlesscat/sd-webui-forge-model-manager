@@ -344,6 +344,31 @@ check('no text at all: nothing to paste; no such generation: None',
 check('settings() takes a generation\'s source to it', send.settings(db, {'kind': 'generation', 'generation': 7,
                                                                          'image': 71})['scheduler'], 'Karras')
 
+# ------------------------------------------- the rename switch (#205)
+# "Send updates LoRA tags in the prompt to your file names": off, Send pastes
+# the image's own tags - a generation's renames and a Civitai image's renamed
+# prompts left out - read at each Send, from the setting as it is then.
+import model_manager.forge_host as switch_host           # noqa: E402
+switch_read = switch_host.setting
+renaming = {'on': True}
+switch_host.setting = lambda key: renaming['on'] if key == 'model_manager_send_rename_loras' else switch_read(key)
+renamed_source = {'kind': 'generation', 'generation': 7, 'image': 70, 'renames': [{'from': 'alias', 'to': 'file'}]}
+lora_image = type('Db', (), {'stored_records': lambda self, ids: [{'meta': {**IMAGE, 'prompt': 'a <lora:alias:1>'},
+                                                                   'width': 832, 'height': 1216}]})()
+civitai_source = {'kind': 'civitai', 'image': 1, 'prompt': 'a <lora:file:1>', 'negative_prompt': 'blurry'}
+try:
+    on_texts = [send.settings(db, renamed_source)['text'].split('\n')[0],
+                send.settings(lora_image, civitai_source)['text'].split('\n')[0]]
+    renaming['on'] = False
+    off_texts = [send.settings(db, renamed_source)['text'],
+                 send.settings(lora_image, civitai_source)['text'].split('\n')[0]]
+finally:
+    switch_host.setting = switch_read
+check('switch on: a generation\'s tags renamed, a Civitai image\'s prompt as the page renamed it',
+      on_texts, ['first <lora:file:1>', 'a <lora:file:1>'])
+check('switch off: the image\'s own tags, its Lora hashes still left out',
+      off_texts, ['first <lora:alias:1>\nSteps: 20', 'a <lora:alias:1>'])
+
 # ------------------------------------------------------- clip skip (#318)
 # Civitai stores it as `clipSkip` (65,773 of 107,469 images), which went
 # into the text as a field Forge ignores; it is written as Forge's own.

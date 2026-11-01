@@ -12,6 +12,7 @@ Every setting declared once (#320): model_manager/settings_registry.py.
 - the browser suites' stand-in answer (tests/js/settings_answer.json) is the
   registry's as it is now.
 """
+import html
 import os
 import sys
 import types
@@ -173,7 +174,11 @@ check('each in its group\'s section, under the category',
 check('ten sections, one per group', len({page.options[k].section for k in keys}), len(reg.GROUPS))
 check('each by its page name', [k for k in keys if page.options[k].label != reg.by_key()[k].page_name], [])
 check('with its description', [k for k in keys if not k.startswith('model_manager_modules_')
-                               and page.options[k].text != reg.by_key()[k].description], [])
+                               and page.options[k].text != html.escape(reg.by_key()[k].description, quote=False)], [])
+# Forge puts the description into the page as markup: an example tag in it
+# (#205) is escaped there, or it is read as a tag and vanishes.
+check('escaped for Forge\'s page, as markup',
+      '&lt;lora:anime_style_v2:0.8&gt;' in getattr(page.options.get('model_manager_send_rename_loras'), 'text', ''), True)
 check('a choice in words, saved by its value', page.options['model_manager_generations_grid'].component_args['choices'],
       [('Smooth: only nearby tiles', 'Fast'), ('Keep every tile', 'Classic')])
 check('the presets\' explanation heads Send\'s section', (

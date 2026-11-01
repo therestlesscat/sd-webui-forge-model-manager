@@ -14,9 +14,10 @@
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 const { apiCall, escapeHtml } = await shared('core.mjs');
 const {
-    resolveResourceHashes, knownHashes, imageResourceHashes, resourceDownload, downloadResource,
+    resolveResourceHashes, knownHashes, imageResourceHashes, resourceDownload, downloadResource, substituteOf,
 } = await shared('resources.mjs');
 const { downloads } = await shared('downloads.mjs');
+const { fetchUiOptions } = await shared('ui_options.mjs');
 
 // What Forge loads through <lora:...>, by the file's own type or Civitai's.
 const LORA_TYPES = new Set(['lora', 'locon', 'loha', 'lokr', 'dora', 'lycoris', 'lycoris full']);
@@ -129,9 +130,10 @@ export function collectResourceChips(meta, files, gallery = null, missing = null
     const chips = new Map();
     const renames = [];
 
-    const add = ({ file, type, label, weight, versionId, modelId, hash, alias, named = false }) => {
+    const add = ({ file, type, label, weight, versionId, modelId, hash, alias, imageVersion, named = false }) => {
         let notOnCivitai = false;
         let future = null;
+        let newest = null;
         if (!file && missing) {
             const byHashAnswer = missing.hashes || {};
             if (!versionId && hash && Object.prototype.hasOwnProperty.call(byHashAnswer, hash)) {
@@ -140,11 +142,16 @@ export function collectResourceChips(meta, files, gallery = null, missing = null
             }
             future = versionId ? (missing.versions || {})[String(versionId)] || null : null;
             if (future && future.gone) notOnCivitai = true;
+            // Deleted, its model there: a press downloads the model's newest,
+            // and the chip is named as that file will be, saying so (#205).
+            // A model with no version left has nothing to download.
+            newest = future && future.version_gone ? future.newest || null : null;
+            if (future && future.version_gone && !newest) notOnCivitai = true;
             modelId = modelId || (future && future.model_id) || null;
         }
         const kind = resourceKind((file && file.file_type) || type || (future && future.file_type));
         if (!kind) return;
-        const name = file ? file.file_stem : (future && future.file_stem) || label;
+        const name = file ? file.file_stem : (future && (future.file_stem || (newest && newest.file_stem))) || label;
         if (!name) return;
         let key = file ? `file:${name.toLowerCase()}`
             : versionId ? `version:${versionId}` : `name:${name.toLowerCase()}`;
@@ -165,12 +172,17 @@ export function collectResourceChips(meta, files, gallery = null, missing = null
             known.modelId = known.modelId || modelId || null;
             known.hash = known.hash || hash || null;
             known.notOnCivitai = known.notOnCivitai && notOnCivitai;
+            known.newest = known.newest ?? (newest ? newest.version_name || '' : null);
+            known.imageVersion = known.imageVersion || imageVersion || null;
+            known.substitute = known.substitute || (file && file.substitute) || null;
         } else {
             chips.set(key, { key, kind, name, weight: weight ?? null, installed: !!file,
                              aliases: new Set(), title: label || name,
                              versionId: versionId || (file && file.version_id) || null,
                              modelId: modelId || null, hash: hash || null, byName: !!file && named,
-                             notOnCivitai, architecture: (file && file.architecture) || null });
+                             notOnCivitai, architecture: (file && file.architecture) || null,
+                             newest: newest ? newest.version_name || '' : null, imageVersion: imageVersion || null,
+                             substitute: (file && file.substitute) || null });
         }
         if (file && alias && alias !== name) {
             chips.get(key).aliases.add(alias);
@@ -185,7 +197,7 @@ export function collectResourceChips(meta, files, gallery = null, missing = null
         const id = r.modelVersionId;
         add({ file: id ? byVersion[String(id)] : null, type: r.type, versionId: id, modelId: r.modelId,
               label: [r.name || r.modelName, r.modelVersionName].filter(Boolean).join(' - '),
-              weight: r.weight });
+              weight: r.weight, imageVersion: r.modelVersionName });
     }
     for (const r of (meta && meta.resources) || []) {
         const hash = String(r.hash || resourceHash(meta, r) || '').toLowerCase();
@@ -397,6 +409,14 @@ function missingChipState(chip) {
         return { busy: false, mark: CHIP_MARKS.failed, note: `download failed${short ? `: ${short}` : ''}, click to retry`,
                  title: `${chip.title}: ${why || 'the download failed'}` };
     }
+    // Its version deleted, its model there (#205): a press downloads the
+    // newest, and the chip says so before it.
+    if (chip.newest !== null && chip.newest !== undefined) {
+        const was = chip.imageVersion || 'The image\'s version';
+        const newest = chip.newest ? `${chip.newest}, the newest` : 'the newest version';
+        return { busy: false, note: `${was} is deleted from Civitai; a press downloads ${newest}`,
+                 title: `${chip.title}: ${was} is deleted from Civitai. Click to download ${newest} instead` };
+    }
     return { busy: false, quiet: true, note: `missing ${what}, click to download`,
              title: `${chip.title} is not in the library: click to download it` };
 }
@@ -464,7 +484,7 @@ async function downloadChip(chip) {
         redrawResourceChips();
         return;
     }
-    await downloadResource(chip.versionId, chip.modelId);
+    await downloadResource(chip.versionId, chip.modelId, '', { chip: true });
 }
 
 /**
@@ -572,16 +592,30 @@ export async function lookUpMissingChips(tab) {
     checkMissingChips(tab);
 }
 
-/** Look each tab's chips up again, after a download. */
-export async function refreshResourceChips() {
+/**
+ * Look each tab's chips up again, after a download lands. The prompts get the
+ * landed resource's tag renamed to its file, and no other (#205): a chip's
+ * own download always, as it was pressed; a Resources dialog's only while the
+ * switch says Send may rename; the newest in a deleted version's place never.
+ */
+export async function refreshResourceChips(landed = null) {
+    const renaming = Boolean(landed) && !landed.substituted && (landed.chip || await renameSwitchOn());
     for (const [tab, source] of Object.entries(resourceChipSources)) {
         if (!resourceChips[tab] || resourceChipsPending[tab]) continue;
         source.files = await fetchImageFiles(source.img);
         const { chips, renames } = collectResourceChips(source.img.meta, source.files, source.gallery, source.missing);
-        renameInPrompts(tab, renames);
+        // The landed resource's chip names its file: the renames to it are its tag's.
+        const own = renaming && chips.find((chip) => chip.installed && String(chip.versionId) === String(landed.versionId));
+        renameInPrompts(tab, own ? renames.filter((rename) => rename.to === own.name) : []);
         showResourceChips(tab, arrangeChips(chips, source));
         checkMissingChips(tab);
     }
+}
+
+// Whether a Resources dialog download may rename its tag: the switch, asked
+// afresh at the landing, as it is then. No answer, no rename.
+async function renameSwitchOn() {
+    return (await fetchUiOptions())?.rename_loras === true;
 }
 
 /**
@@ -603,6 +637,10 @@ function renameInPrompts(tab, renames) {
 export async function fetchImageFiles(img) {
     const none = { versions: {}, hashes: {} };
     const ids = ((img.meta || {}).civitaiResources || []).map((r) => r.modelVersionId).filter(Boolean);
+    // A deleted version whose newest a chip or the Resources dialog fetched in
+    // this page: the newest's file is the image's version's (#205).
+    const substitutes = ids.map((id) => [id, substituteOf(id)]).filter(([, sub]) => sub);
+    const asked = ids.concat(substitutes.map(([, sub]) => sub.versionId).filter((id) => !ids.includes(id)));
     const named = resourceNames(img.meta);
     // The resources' own hashes, and those the image keeps apart from them.
     const hashes = [...new Set([...imageResourceHashes(img),
@@ -612,9 +650,14 @@ export async function fetchImageFiles(img) {
     if (!ids.length && !hashes.length && !named.length && !meta.prompt && !meta.negativePrompt) return none;
     try {
         const data = await apiCall({ endpoint: '/model-manager/image-resources',
-                                     params: { version_ids: ids.join(','), hashes: hashes.join(','),
+                                     params: { version_ids: asked.join(','), hashes: hashes.join(','),
                                                names: named.length ? JSON.stringify(named) : '' } });
-        return data && data.success ? data : none;
+        if (!data || !data.success) return none;
+        for (const [id, sub] of substitutes) {
+            const file = (data.versions || {})[String(sub.versionId)];
+            if (file && !data.versions[String(id)]) data.versions[String(id)] = { ...file, substitute: sub.versionName };
+        }
+        return data;
     } catch (error) {
         console.warn('[ModelManager] Could not look up the image\'s resources:', error);
         return none;
@@ -654,7 +697,8 @@ export function showResourceChips(tab, chips) {
         const notes = [chip.kind === 'lora' ? `weight ${chip.weight}` : 'embedding',
                        chip.where === 'negative' ? 'negative prompt' : ''].filter(Boolean);
         const missing = stateOf(chip);
-        const title = missing ? missing.title : `${chip.title} (${notes.join(', ')})`;
+        const title = missing ? missing.title : `${chip.title} (${notes.join(', ')})`
+            + (chip.substitute ? `: ${chip.substitute}, the newest, as the image's version is deleted from Civitai` : '');
         // Whether it can be used is said by colour and a mark; whether a
         // prompt holds it, by filled or outlined (updateResourceChipStates).
         // One the library has that the model skips still goes in and out of
@@ -765,7 +809,7 @@ export function start(scope) {
     scope.afterUpdate(keepResourceChips);
     if (typeof window === 'undefined') return;
     scope.listen(window, 'mm-resource-downloads', (event) => {
-        if (event.detail?.installed) refreshResourceChips();
+        if (event.detail?.installed) refreshResourceChips(event.detail.landed);
         else redrawResourceChips();
     });
 }

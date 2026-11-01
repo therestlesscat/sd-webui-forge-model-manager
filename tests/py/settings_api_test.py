@@ -14,6 +14,7 @@ to a file. What is checked:
 """
 import json
 import os
+import re
 import sys
 import types
 
@@ -224,7 +225,10 @@ check('a box is a number with no maximum',
       {'kind': 'number', 'minimum': 1, 'maximum': None, 'step': 1, 'value': 64})
 check('the help text is the Settings page\'s, without its markup',
       s['model_manager_hash_threads']['info'].startswith('How many model files a sync hashes at the same time'), True)
-check('and no help text keeps a tag', any('<' in e['info'] for e in s.values()), False)
+check('and no help text keeps a tag', any(re.search(r'</?[a-z]+[\s>/]', e['info']) for e in s.values()), False)
+# An example tag in the text itself is the text (#205): escaped for Forge's page, read back whole.
+check('an example <lora:...> tag in a description is shown as written',
+      '<lora:anime_style_v2:0.8> becomes <lora:AnimeStyle-v2.0:0.8>' in s.get('model_manager_send_rename_loras', {}).get('info', ''), True)
 check('the database in use is named', answer.get('database_in_use'), db.db_path)
 check('and how many words ship with the extension', isinstance(answer.get('bundled_nsfw_words'), int)
       and answer['bundled_nsfw_words'] > 0, True)

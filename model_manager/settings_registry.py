@@ -344,6 +344,13 @@ SETTINGS: Tuple[Setting, ...] = (
             "When an image's clip skip is above this number, Send leaves it out of Override settings, your own Clip "
             "Skip applies, and Send's notice says so. Most models are made for 1 or 2.",
             (SEND,), under=("model_manager_send_clip_skip", True), args={"minimum": 1, "maximum": 12, "step": 1}),
+    Setting("model_manager_send_rename_loras", "send", "checkbox", "Update LoRA tags in the prompt to your file names",
+            "Send updates LoRA tags in the prompt to your file names",
+            "When an image names a LoRA you have under another file name, the extension changes that tag in your "
+            "prompt to your file's name, so Forge loads it: <lora:anime_style_v2:0.8> becomes "
+            "<lora:AnimeStyle-v2.0:0.8>. A download from the Resources dialog does the same once its file arrives. "
+            "When off, your prompt keeps the image's names, and a LoRA chip's press puts your file's tag in beside "
+            "the image's. A download from a chip still changes that chip's tag, as you pressed it.", (SEND,)),
 
     # ------------------------------------------------------- Generations
     Setting("model_manager_generations_delete_files", "your_generations", "checkbox",

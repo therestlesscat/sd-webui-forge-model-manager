@@ -689,8 +689,8 @@ def _loader(tab: str, kept: List[int], extras: List[Any] = (), names: List[Optio
             # fix off, in the same event. A generation's kept press (#7) is
             # replayed instead, and a replay that fails is pasted.
             if request.get("source") is not None:
-                from ..send import match_detectors, renamed, settings
-                source = request["source"]
+                from ..send import match_detectors, renamed, settings, without_renames
+                source = without_renames(request["source"])
                 generation_id = int(source["generation"]) if source.get("kind") == "generation" else None
                 found = settings(get_models_db(), source, bool(into))
                 if found is None:

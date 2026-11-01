@@ -14,6 +14,12 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.71 - What a download fetches, said first.** A LoRA chip or a Resources row for a version
+Civitai has deleted says so before you press, and names the newer version a download takes in its
+place; the Resources dialog's Download otherwise fetches the image's own version. A new setting,
+Update LoRA tags in the prompt to your file names, keeps the image's LoRA names in your prompt when
+you turn it off.
+
 **0.70 - Send catches Forge up.** A checkpoint your library has but Forge has not listed yet -
 one added since the page was loaded - no longer stops Send: Send refreshes Forge's checkpoint
 list and carries on. A checkpoint's own gallery now loads its checkpoint from any folder Forge
@@ -300,10 +306,13 @@ Browse and organize the models already on disk.
   many ways the image names it. A click puts one in at the
   image's weight (0.5 when it gives none) or takes it out at any weight; an embedding
   goes to the prompt the image used it in. A LoRA the prompt names differently from
-  your file is renamed to it. **Clear** removes the chips and leaves the prompts alone
+  your file is renamed to it, unless *Update LoRA tags in the prompt to your file names*
+  is off. **Clear** removes the chips and leaves the prompts alone
 - **Missing resources** can be downloaded from their chip or from the image's
-  **Resources** dialog: the version the image used, or the model's newest if Civitai no
-  longer has it. Resources Civitai does not know are shown as such, with nothing to click
+  **Resources** dialog: the version the image used. Where Civitai has deleted that
+  version, the chip says so and a press downloads the model's newest; the dialog says so
+  and offers the newest by name, on a button of its own. Resources Civitai does not know
+  are shown as such, with nothing to click
 - **Bookmarks**, per-model force re-sync, and model deletion (removes the model plus its
   sidecar metadata and preview files)
 - **Sync** finds new model files on disk, and fetches their Civitai metadata by file hash
@@ -492,6 +501,7 @@ first under **Settings -> Model Manager** too.
 |---------|---------|--------------|
 | Use the image's Clip skip | on | When on, and an image was made with a clip skip other than your Clip Skip setting, Send adds the image's value to the tab's Override settings and says so, so the image can be made again as it was. It applies to the images you generate while it is there; your own setting does not change, and the next Send replaces it. Flux images are left alone, because clip skip changes nothing there. When off, clip skip is left to Forge's own paste, which Forge Neo ignores. |
 | Highest Clip skip | 6 | When an image's clip skip is above this number, Send leaves it out of Override settings, your own Clip Skip applies, and Send's notice says so. Most models are made for 1 or 2. |
+| Update LoRA tags in the prompt to your file names | on | When an image names a LoRA you have under another file name, the extension changes that tag in your prompt to your file's name, so Forge loads it: `<lora:anime_style_v2:0.8>` becomes `<lora:AnimeStyle-v2.0:0.8>`. A download from the Resources dialog does the same once its file arrives. When off, your prompt keeps the image's names, and a LoRA chip's press puts your file's tag in beside the image's. A download from a chip still changes that chip's tag, as you pressed it. |
 | *Preset* text encoders and VAE | empty | One per Forge Neo preset: Flux.1 / Chroma, Flux.2 Klein, Lumina Image 2.0, Z-Image, Anima, Wan, Qwen-Image, Krea 2, ERNIE-Image, PiD. File names to select for that preset's models, comma-separated. Empty picks the highest-precision file installed; name an fp8 or GGUF file to use a smaller one. Each setting says what the model needs and links to the files |
 
 **Generations**

@@ -859,7 +859,10 @@ _Missing.models = {
     700: {'id': 700, 'name': 'A Very Different Title', 'type': 'LORA', 'modelVersions': [
         {'id': 7001, 'name': 'v1', 'files': _files('big_fp32.safetensors', 'sharp_eyes.safetensors',
                                                    primary='sharp_eyes.safetensors')}]},
-    701: {'id': 701, 'name': 'Moved On', 'type': 'LORA', 'modelVersions': [{'id': 7012, 'name': 'v2', 'files': []}]},
+    701: {'id': 701, 'name': 'Moved On', 'type': 'LORA', 'modelVersions': [
+        {'id': 7012, 'name': 'v2', 'files': _files('moved_on_fp32.safetensors', 'moved_on_v2.safetensors',
+                                                   primary='moved_on_v2.safetensors')},
+        {'id': 7010, 'name': 'v0', 'files': _files('moved_on_v0.safetensors')}]},
 }
 _Missing.versions = {7020: {'id': 7020, 'modelId': 702, 'name': 'v1', 'model': {'name': 'No Id Given', 'type': 'TextualInversion'},
                             'files': _files('bad_hands.pt')}}
@@ -880,6 +883,11 @@ try:
                             'name': 'A Very Different Title', 'version_name': 'v1'})
     check('a version its model no longer lists is said so, the model named',
           (got.get('7011') or {}).get('version_gone'), True)
+    # What a Download fetches in its place, said before the press (#205, #372):
+    # Civitai's first version, and the file a download of it picks.
+    check('with the newest version a Download takes instead, and the file it picks',
+          (got.get('7011') or {}).get('newest'),
+          {'version_id': 7012, 'version_name': 'v2', 'file_stem': 'moved_on_v2'})
     check('and a model Civitai no longer has, so', got.get('7099'), {'gone': True})
     check('one with no model id is asked for alone',
           (got.get('7020') or {}).get('file_stem'), 'bad_hands')

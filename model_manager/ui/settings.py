@@ -7,6 +7,7 @@ belong to the tabs, not here - these are preferences, not a query. What each
 setting is called, says and belongs to is the registry's
 (`settings_registry.py`, #320); this registers it with Forge.
 """
+import html
 import os
 
 import gradio as gr
@@ -61,7 +62,10 @@ def on_ui_settings():
             _add_modules_explanation(section(s))
         args = {"type": "password"} if s.control == "password" else {
             k: list(v) if k == "choices" else v for k, v in s.args.items()}
-        text = s.description
+        # Forge puts the description into the page as markup (OptionInfo.info):
+        # a <lora:...> example would be read as a tag and vanish, here and in
+        # the settings window, which reads this text back.
+        text = html.escape(s.description, quote=False)
         if s.key in presets:
             preset = s.key[len(SETTING_PREFIX):]
             args, text = {"placeholder": _module_example(preset)}, _module_help(preset, presets[s.key])

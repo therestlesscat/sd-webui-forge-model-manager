@@ -139,6 +139,7 @@ def register(app: FastAPI):
         from ..generations import GENERATIONS_DELETE_FILES, GENERATIONS_HIDE_NSFW, generations_enabled
         from ..grids import GALLERY_GRID, GENERATIONS_GRID, grid
         from ..scheduler import queue_enabled
+        from ..send import RENAME_LORAS_SETTING
         from ..tabs import TABS, built, on
         has_api_key = api_key_from_settings() is not None
         # How the Civitai Browser's gallery opens, asked each time a model is;
@@ -155,6 +156,9 @@ def register(app: FastAPI):
         civitai_on_site_marks = bool(setting('model_manager_civitai_on_site_marks'))
         # Whether the Type filter shows every kind of LoRA as one entry (#341).
         combine_lora_kinds = bool(setting('model_manager_combine_lora_kinds'))
+        # Whether a Resources dialog download, landing, may rename LoRA tags in
+        # the prompt (#205): the page asks afresh at each landing.
+        rename_loras = bool(setting(RENAME_LORAS_SETTING))
         # How many of Civitai's images a page loads at once (#213): a whole
         # number of at least 1, else the default.
         try:
@@ -206,6 +210,7 @@ def register(app: FastAPI):
                 "card_originals": card_originals, "card_videos_play": card_videos_play,
                 "civitai_on_site_marks": civitai_on_site_marks,
                 "combine_lora_kinds": combine_lora_kinds,
+                "rename_loras": rename_loras,
                 "images_at_once": images_at_once,
                 "generations_hide_nsfw": generations_hide_nsfw,
                 "generations_delete_files": generations_delete_files,
@@ -239,6 +244,7 @@ def register(app: FastAPI):
                  "card_videos_play": card_videos_play,
                  "civitai_on_site_marks": civitai_on_site_marks,
                  "combine_lora_kinds": combine_lora_kinds,
+                 "rename_loras": rename_loras,
                  "images_at_once": images_at_once,
                  "generations_hide_nsfw": generations_hide_nsfw,
                  "generations_delete_files": generations_delete_files,

@@ -914,7 +914,10 @@ globalThis.fetch = withGalleryPages(async (url, ...rest) => {
             lookupFails -= 1;
             return { ok: false, status: 500, json: async () => ({ success: false, error: 'server busy' }) };
         }
-        return { ok: true, json: async () => ({ success: true, ...structuredClone(library) }) };
+        // As the server answers (resources.image_files): the versions asked for, no others.
+        const askedIds = new Set((resourcesAsked.at(-1).get('version_ids') || '').split(',').filter(Boolean));
+        const versions = Object.fromEntries(Object.entries(library.versions).filter(([id]) => askedIds.has(id)));
+        return { ok: true, json: async () => ({ success: true, ...structuredClone({ ...library, versions }) }) };
     }
     const href = String(url);
     // The downloads list asks after every download at once; a chip's follows it there.
@@ -927,8 +930,9 @@ globalThis.fetch = withGalleryPages(async (url, ...rest) => {
         const form = body instanceof FormData ? body : new URLSearchParams(String(body || ''));
         chipDownloads.push(Object.fromEntries(form));
         const id = Number(form.get('version_id'));
-        return { ok: true, json: async () => ({ success: true, version_id: id, version_name: 'v1',
-            substituted: false, progress: { version_id: id, percent: 0, status: 'pending' } }) };
+        // A version's own answer where one is set: the newest in a deleted one's place (#205).
+        return { ok: true, json: async () => (structuredClone(chipAnswers[id]) || { success: true, version_id: id,
+            version_name: 'v1', substituted: false, progress: { version_id: id, percent: 0, status: 'pending' } }) };
     }
     if (href.includes('/model-manager/resolve-hashes')) {
         return { ok: true, json: async () => ({ success: true, deferred: [],
@@ -939,6 +943,7 @@ globalThis.fetch = withGalleryPages(async (url, ...rest) => {
 });
 const chipDownloads = [];
 const chipProgress = {};
+const chipAnswers = {};
 
 plan = { success: true, preset: 'flux', manage_modules: false, select: [], missing: [] };
 IMAGE.meta = {
@@ -1164,7 +1169,8 @@ IMAGE.meta = {
     civitaiResources: [{ type: 'lora', modelVersionId: 11, name: 'Detail Tweaker', weight: 0.8 },
                        { type: 'lora', modelVersionId: 77, modelId: 76, name: 'A Very Different Civitai Title' }],
     resources: [{ type: 'lora', name: 'uploader_name', hash: 'eeee', weight: 0.7 },
-                { type: 'lora', name: 'unknown_lora', hash: 'ffff' }],
+                { type: 'lora', name: 'unknown_lora', hash: 'ffff' },
+                { type: 'lora', name: 'UploaderName_v2', hash: 'AAAA', weight: 0.8 }],
 };
 missingGate = new Promise((resolve) => { releaseMissing = resolve; });
 await send();
@@ -1188,14 +1194,54 @@ library.versions[77] = { version_id: 77, file_stem: 'future_file', file_type: 'L
 library.hashes.eeee = library.versions[77];
 const promptLine = () => positiveBox.value.split('\n')[0];
 check('before, the prompt names it as the image did', promptLine(), 'a cat, <lora:uploader_name:0.7>');
+// Typed back after the Send: the image's name for a LoRA the library has as
+// add_detail. A landing renames only its own resource's tag (#205).
+positiveBox.value = `${positiveBox.value}, <lora:UploaderName_v2:0.5>`;
+positiveBox.dispatchEvent(new window.Event('input', { bubbles: true }));
 click(chip('future_file'));
 await waitFor('the download to land', () => chip('future_file') && !chip('future_file').classList.contains('missing'), 200);
 check('once downloaded, the chip keeps its name and its place', names(), ['flux', 'add_detail', 'future_file', 'unknown_lora']);
 // Send renames a LoRA it finds to its file; one found after, the same - or
 // the prompt and its chip name one LoRA two ways.
-check('and the prompt\'s tag for it is renamed to the file, weight kept, as Send would have',
-      promptLine(), 'a cat, <lora:future_file:0.7>');
+check('and the prompt\'s tag for it is renamed to the file, weight kept, as Send would have - and no other tag (#205)',
+      promptLine(), 'a cat, <lora:future_file:0.7>, <lora:UploaderName_v2:0.5>');
 check('so its chip is lit', chip('future_file').classList.contains('active'), true);
+
+// A download from the Resources dialog lands (#205): its tag is renamed only
+// while the switch says Send may rename - asked afresh at the landing - and
+// only its own; the newest in a deleted version's place, never.
+let renameSwitch = false;
+const switchAsked = [];
+const fetchLanding = globalThis.fetch;
+globalThis.fetch = async (url, ...rest) => {
+    if (!String(url).includes('/model-manager/ui-options')) return fetchLanding(url, ...rest);
+    switchAsked.push(renameSwitch);
+    return { ok: true, json: async () => ({ success: true, rename_loras: renameSwitch }) };
+};
+const landFromDialog = async (landed) => {
+    const lookups = resourcesAsked.length;
+    positiveBox.value = 'a cat, <lora:uploader_name:0.7>, <lora:UploaderName_v2:0.5>';
+    positiveBox.dispatchEvent(new window.Event('input', { bubbles: true }));
+    window.dispatchEvent(new window.CustomEvent('mm-resource-downloads', { detail: { installed: true, landed } }));
+    await waitFor('the chips looked up again', () => resourcesAsked.length > lookups, 200);
+    await pause(50);
+    return promptLine();
+};
+const offLanding = await landFromDialog({ versionId: 77, chip: false, substituted: false });
+check('a dialog download, the switch off: the switch asked, nothing renamed',
+      [switchAsked, offLanding], [[false], 'a cat, <lora:uploader_name:0.7>, <lora:UploaderName_v2:0.5>']);
+renameSwitch = true;
+check('the switch on: its own tag renamed, no other',
+      await landFromDialog({ versionId: 77, chip: false, substituted: false }),
+      'a cat, <lora:future_file:0.7>, <lora:UploaderName_v2:0.5>');
+check('the newest in a deleted version\'s place: nothing renamed, the switch not even asked',
+      [await landFromDialog({ versionId: 77, chip: false, substituted: true }), switchAsked.length],
+      ['a cat, <lora:uploader_name:0.7>, <lora:UploaderName_v2:0.5>', 2]);
+renameSwitch = false;
+check('a chip\'s own download: its tag renamed whatever the switch says, unasked',
+      [await landFromDialog({ versionId: 77, chip: true, substituted: false }), switchAsked.length],
+      ['a cat, <lora:future_file:0.7>, <lora:UploaderName_v2:0.5>', 2]);
+globalThis.fetch = fetchLanding;
 delete library.versions[77];
 delete library.hashes.eeee;
 
@@ -1208,6 +1254,61 @@ click(row().querySelector('[data-chips-clear]'));
 releaseMissing();
 await new Promise((resolve) => setTimeout(resolve, 50));
 check('an answer after Clear draws nothing', row(), null);
+
+// ------------------------------------------------ a deleted version (#205)
+// A version Civitai deleted, its model there: its chip is named as the
+// newest's file will be, and says before the press that a press fetches the
+// newest. Once that is in the library the chip is green under its file and
+// takes a click - it stayed busy, "got v3 instead", until a reload.
+missingGate = null;
+missingAnswer.versions[81] = { version_gone: true, model_id: 80, name: 'Style', file_type: 'LORA',
+                               newest: { version_id: 83, version_name: 'v3', file_stem: 'style_v3' } };
+missingAnswer.versions[91] = { version_gone: true, model_id: 90, name: 'Held', file_type: 'LORA',
+                               newest: { version_id: 93, version_name: 'v2', file_stem: 'held_v2' } };
+chipAnswers[81] = { success: true, version_id: 83, version_name: 'v3', substituted: true,
+                    progress: { version_id: 83, percent: 0, status: 'pending' } };
+chipAnswers[91] = { success: true, already_installed: true, version_id: 93, version_name: 'v2', substituted: true };
+IMAGE.meta = {
+    prompt: 'a cat, <lora:style_v1:0.8>', steps: 20, Model: 'a_checkpoint',
+    civitaiResources: [{ type: 'lora', modelVersionId: 81, modelId: 80, name: 'Style', modelVersionName: 'v1', weight: 0.8 },
+                       { type: 'lora', modelVersionId: 91, modelId: 90, name: 'Held', modelVersionName: 'v1', weight: 0.6 }],
+};
+await send();
+await waitFor('the deleted versions\' chips', () => !!chip('style_v3') && !!chip('held_v2'), 200);
+check('a deleted version\'s chip is named as the newest\'s file, and says before the press what a press fetches',
+      [look('style_v3').slice(0, 2), note('style_v3'), chip('style_v3')?.disabled],
+      [['download', '↓'], 'v1 is deleted from Civitai; a press downloads v3, the newest', false]);
+// The chip as the old code names it, where the new one's is not there.
+const styleChip = () => chip('style_v3') || chip('Style - v1');
+const heldChip = () => chip('held_v2') || chip('Held - v1');
+click(styleChip());
+await waitFor('the download', () => chipDownloads.at(-1)?.version_id === '81', 200);
+check('pressed, it asks for the newest in its place', chipDownloads.at(-1)?.newer_if_gone, 'true');
+library.versions[83] = { version_id: 83, file_stem: 'style_v3', file_type: 'LORA' };
+chipProgress[83] = { version_id: 83, percent: 100, status: 'complete', synced: true };
+await waitFor('the newest in the library', () => chip('style_v3') && !chip('style_v3').classList.contains('missing'), 300);
+await pause(50);
+check('once the newest is in the library: a green chip under its file, taking a click, not busy for good',
+      [look('style_v3').slice(0, 2), chip('style_v3')?.disabled, note('style_v3') ?? null], [['have', '✓'], false, null]);
+check('the library is asked for the newest beside the image\'s own version',
+      resourcesAsked.at(-1)?.get('version_ids'), '81,91,83');
+check('its tooltip says it is the newest in the image\'s version\'s place',
+      /v3, the newest, as the image's version is deleted from Civitai/.test(chip('style_v3')?.title || ''), true);
+click(styleChip());
+check('a press puts its tag in at the image\'s weight; the image\'s own tag is left alone',
+      promptLine(), 'a cat, <lora:style_v1:0.8>, <lora:style_v3:0.8>');
+// The newest held already: nothing downloaded, green at once.
+library.versions[93] = { version_id: 93, file_stem: 'held_v2', file_type: 'LORA' };
+const heldDownloads = chipDownloads.length;
+click(heldChip());
+await waitFor('the held newest found', () => chip('held_v2') && !chip('held_v2').classList.contains('missing'), 300);
+check('the newest held already: green and taking a click, with nothing downloaded',
+      [look('held_v2').slice(0, 2), chip('held_v2')?.disabled, chipDownloads.length - heldDownloads, chipProgress[93] ?? null],
+      [['have', '✓'], false, 1, null]);
+delete library.versions[83];
+delete library.versions[93];
+delete chipProgress[83];
+click(row().querySelector('[data-chips-clear]'));
 globalThis.fetch = fetchChips;
 
 IMAGE.meta = { prompt: 'a lighthouse', steps: 20 };

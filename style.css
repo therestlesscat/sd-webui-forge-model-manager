@@ -2276,8 +2276,9 @@ body.mm-modal-open {
     font-size: 0.85em;
 }
 
-/* The file of the version the library holds, where the image used another (#233). */
-.mm-res-held {
+/* The file of the version the library holds, where the image used another (#233);
+   and a version Civitai deleted, its model still there (#372). */
+.mm-res-held, .mm-res-gone {
     color: var(--body-text-color-subdued, #9ca3af);
     font-size: 0.85em;
 }

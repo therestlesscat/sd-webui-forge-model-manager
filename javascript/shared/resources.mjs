@@ -108,8 +108,20 @@ function announceHashes() {
     window.dispatchEvent(new Event('mm-resource-hashes'));
 }
 
-function announceDownloads({ installed = false } = {}) {
-    window.dispatchEvent(new CustomEvent('mm-resource-downloads', { detail: { installed } }));
+function announceDownloads({ installed = false, landed = null } = {}) {
+    window.dispatchEvent(new CustomEvent('mm-resource-downloads', { detail: { installed, landed } }));
+}
+
+/**
+ * The version a download record fetched in place of `versionId` - the
+ * model's newest, the image's being gone from Civitai - with its name: the
+ * chips look its file up as the image's (#205). Null where the image's own
+ * version came, or nothing was asked in this page.
+ */
+export function substituteOf(versionId) {
+    const job = resourceDownloads[versionId];
+    return job && job.substituted && !job.refused && job.target
+        ? { versionId: job.target, versionName: job.versionName || '' } : null;
 }
 
 /**
@@ -574,7 +586,9 @@ function askCivitaiModels(resources) {
             if (data && data.success) {
                 for (const [id, answer] of Object.entries(data.versions || {})) {
                     civitaiModels.set(Number(id), answer.gone ? { gone: true }
-                                                              : { modelId: safeId(answer.model_id), sameFile: answer.same_file || null });
+                                                              : { modelId: safeId(answer.model_id), sameFile: answer.same_file || null,
+                                                                  versionGone: Boolean(answer.version_gone),
+                                                                  newest: answer.newest || null });
                 }
                 offerSameFile(resources);
             }
@@ -583,8 +597,14 @@ function askCivitaiModels(resources) {
         }
         for (const { version_id: id } of versions) {
             askingVersions.delete(id);
-            redrawView(id, resources.find((r) => r.versionId === id));
-            if (civitaiModels.get(id)?.gone) redrawResourceDownload(id, resources.find((r) => r.versionId === id));
+            const resource = resources.find((r) => r.versionId === id);
+            redrawView(id, resource);
+            if (civitaiModels.get(id)?.gone) redrawResourceDownload(id, resource);
+            if (civitaiModels.get(id)?.versionGone) {
+                const cell = document.querySelector(`.mm-resources-modal [data-res-name="${safeId(id)}"]`);
+                if (cell && resource) cell.innerHTML = resourceNameHtml(resource);
+                redrawResourceDownload(id, resource);
+            }
         }
     })();
     modelsAsked = Promise.all([modelsAsked, asking]);
@@ -681,7 +701,9 @@ function resourceNameHtml(resource) {
     const madeLabel = made ? fileLabel(made, made.size_kb ? made.size_kb * 1024 : 0) : '';
     const version = [resource.versionName, madeLabel].filter(Boolean).join(' · ');
     return `${escapeHtml(resource.name)}${version ? ` <span class="mm-res-version">${escapeHtml(version)}</span>` : ''}`
-        + (held ? `<div class="mm-res-held">you have its ${escapeHtml(fileLabel(held, held.file_size) || held.name)} file</div>` : '');
+        + (held ? `<div class="mm-res-held">you have its ${escapeHtml(fileLabel(held, held.file_size) || held.name)} file</div>` : '')
+        + (civitaiModels.get(resource.versionId)?.versionGone
+            ? '<div class="mm-res-gone">this version is deleted from Civitai</div>' : '');
 }
 
 // What a row says while its download is on its way: the words a Download
@@ -709,6 +731,18 @@ function resourceDownloadCell(resource) {
     }
     // Deleted from Civitai: nothing to download, and the row says so (#260).
     if (!job && civitaiModels.get(id)?.gone) return '';
+    // The version deleted, its model there: the newest instead, named before
+    // the press, and only from its own button (#372). A model with no
+    // version left has nothing to offer.
+    const civitai = civitaiModels.get(id);
+    if (civitai?.versionGone && (!job || job.status === 'unavailable')) {
+        if (!civitai.newest) return '';
+        const modelId = resource.modelId || civitai.modelId;
+        return `<button type="button" class="mm-btn primary mm-btn-small" data-action="resources.download"`
+            + `${dataAttributes({ versionId: safeId(id), modelId: modelId ? safeId(modelId) : null, newest: 1 })}`
+            + ` title="Civitai deleted the image's version: this downloads the model's newest">`
+            + `Download ${escapeHtml(civitai.newest.version_name || 'the newest')}, the newest</button>`;
+    }
     if (job && job.status === 'complete') {
         const which = job.substituted ? ` ${escapeHtml(job.versionName || '')} (the image's is gone)` : '';
         return `<span class="mm-res-state installed">Downloaded${which}</span>`;
@@ -869,20 +903,26 @@ function redrawSendBar() {
     box.outerHTML = bar;
 }
 
-/** Download a resource into the library: the version the image names, or its model's newest if it is gone. */
-export async function downloadResource(versionId, modelId, hash = '') {
+/**
+ * Download a resource into the library: the version the image names. Its
+ * model's newest if that is gone, only for a chip's press - a chip says so
+ * before it (#205) - or the Resources dialog's own button for it (#372):
+ * the dialog's Download is the exact version. `chip` is kept on the record:
+ * a chip's own download renames its tag whatever the switch says.
+ */
+export async function downloadResource(versionId, modelId, hash = '', { chip = false, newest = false } = {}) {
     if (!downloads()) return;
     if (onItsWay(versionId)) {
         // Coming already - started in the Civitai Browser, say: followed as
         // it is, not asked for again. It was refused, marked failed and never
         // followed, and stayed failed once it had landed (#119).
-        resourceDownloads[versionId] = { modelId, hash, target: versionId };
+        resourceDownloads[versionId] = { modelId, hash, target: versionId, chip };
         followResourceDownloads();
         redrawResourceDownload(versionId, { versionId, modelId });
         announceDownloads();
         return;
     }
-    resourceDownloads[versionId] = { modelId, hash, asking: true };
+    resourceDownloads[versionId] = { modelId, hash, asking: true, chip };
     redrawResourceDownload(versionId, { versionId, modelId, hash });
     announceDownloads();
     // As every other download is: the downloads list asks for it and follows
@@ -900,10 +940,12 @@ export async function downloadResource(versionId, modelId, hash = '') {
             listed = found?.file;
         }
         // No file Civitai lists by the hash - the version deleted, say - is
-        // downloaded as before: the version's primary, or the model's newest.
-        // One found is queued at once, its name and size the row's (#223).
+        // downloaded as before: the version's primary, or, for a chip or the
+        // newest's own button, the model's newest. One found is queued at
+        // once, its name and size the row's (#223).
         data = await downloads().start(modelId, versionId, fileId,
-                                       { newerIfGone: !fileId, fileName: listed?.name, sizeKb: listed?.size_kb });
+                                       { newerIfGone: !fileId && (chip || newest), fileName: listed?.name,
+                                         sizeKb: listed?.size_kb });
     } catch (error) {
         data = { success: false, error: String(error.message || error) };
     }
@@ -931,10 +973,14 @@ export async function downloadResource(versionId, modelId, hash = '') {
 
 // In the library: the chips look it up, and a stopped send asks again.
 function finishResourceDownload(versionId) {
-    resourceDownloads[versionId].announced = true;
+    const job = resourceDownloads[versionId];
+    job.announced = true;
     installedResourceVersions.add(versionId);
-    if (resourceDownloads[versionId].hash) installedResourceHashes.add(resourceDownloads[versionId].hash);
-    announceDownloads({ installed: true });
+    if (job.hash) installedResourceHashes.add(job.hash);
+    // Which resource landed, whether a chip asked for it, and whether it is
+    // the newest in its place: the chips rename by it (#205).
+    announceDownloads({ installed: true,
+                        landed: { versionId, chip: Boolean(job.chip), substituted: Boolean(job.substituted) } });
     recheckSend();
 }
 
@@ -968,8 +1014,9 @@ export function start(scope) {
     scope.provide('resources.sendAgain', () => sendAgain());
     scope.provide('resources.checkAgain', () => recheckSend());
     scope.provide('resources.view', ({ versionId, modelId }) => viewResource(safeId(versionId), safeId(modelId)));
-    scope.provide('resources.download', ({ versionId, modelId, hash }) =>
-        downloadResource(safeId(versionId), safeId(modelId), String(hash || '').toLowerCase()));
+    scope.provide('resources.download', ({ versionId, modelId, hash, newest }) =>
+        downloadResource(safeId(versionId), safeId(modelId), String(hash || '').toLowerCase(),
+                         { newest: Boolean(newest) }));
     scope.provide('resources.chooseVersion', (data, select) => {
         if (!resourcesSend) return;
         resourcesSend.chosen = Number(select?.value) || null;

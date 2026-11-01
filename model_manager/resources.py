@@ -353,7 +353,8 @@ def missing_files(db, wanted: List[Dict[str, Any]], hash_list: List[str],
     """
     What the resources an image names, and the library lacks, will be called
     once downloaded: {versions: version id -> {file_stem, file_type, model_id,
-    name, version_name}, or {gone: true}, or {version_gone: true, ...};
+    name, version_name}, or {gone: true}, or {version_gone: true, ..., newest:
+    {version_id, version_name, file_stem} or null};
     hashes: hash -> version id, or None when Civitai does not know it}.
 
     A version's name is its file's, as a download names it: the file
@@ -418,8 +419,17 @@ def missing_files(db, wanted: List[Dict[str, Any]], hash_list: List[str],
             model_type = (version.get("model") or {}).get("type")
             model_name = (version.get("model") or {}).get("name")
         if version is None:
+            # What a Download fetches in its place - the model's newest,
+            # Civitai's first - said before the press (#205, #372), from the
+            # payload in hand.
+            newest = None
+            for listed in (model.get("modelVersions") or [])[:1]:
+                listed_files = listed.get("files") or []
+                picked = listed_files[pick_file_index(listed_files)] if listed_files else {}
+                newest = {"version_id": listed.get("id"), "version_name": listed.get("name"),
+                          "file_stem": os.path.splitext(picked.get("name") or "")[0] or None}
             _MISSING_FILES[version_id] = {"version_gone": True, "model_id": model_id,
-                                          "name": model_name, "file_type": model_type}
+                                          "name": model_name, "file_type": model_type, "newest": newest}
             continue
         files = version.get("files") or []
         chosen = files[pick_file_index(files)] if files else {}

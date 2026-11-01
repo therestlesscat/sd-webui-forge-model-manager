@@ -1188,6 +1188,23 @@ def renamed(text: Any, renames: Any) -> Any:
     return text
 
 
+RENAME_LORAS_SETTING = "model_manager_send_rename_loras"
+
+
+def without_renames(source: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    A source as Send applies it (#205): with the switch off, its LoRA tag
+    renames left out - a Civitai image's renamed `prompt` and
+    `negative_prompt`, a generation's `renames` - and the image's own text
+    pasted. Read at each Send, so a change on either settings page counts at
+    the next one.
+    """
+    from .forge_host import setting
+    if setting(RENAME_LORAS_SETTING):
+        return source
+    return {k: v for k, v in source.items() if k not in ("prompt", "negative_prompt", "renames")}
+
+
 def replays(generation: Dict[str, Any], into: bool) -> bool:
     """Whether a generation's Send sets its kept press back (#7) rather than
     pasting its infotext: it kept one, and goes back to its own tab - into
@@ -1230,6 +1247,7 @@ def generation_settings(db, source: Dict[str, Any], into: bool = False) -> Optio
 
 def settings(db, source: Dict[str, Any], into: bool = False) -> Optional[Dict[str, Any]]:
     """The loader's settings for a source: a Civitai image's or a generation's."""
+    source = without_renames(source)
     if source.get("kind") == "generation":
         return generation_settings(db, source, into)
     return civitai_settings(db, source)

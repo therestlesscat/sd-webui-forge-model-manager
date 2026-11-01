@@ -134,6 +134,9 @@ DEFAULTS = {
     # none above this, where the picture comes out unusable (#339).
     "model_manager_send_clip_skip": True,
     "model_manager_send_clip_skip_max": 6,
+    # Send, and a Resources dialog download, rename LoRA tags in the prompt
+    # to the library's files (#205): on unless turned off.
+    "model_manager_send_rename_loras": True,
 }
 
 

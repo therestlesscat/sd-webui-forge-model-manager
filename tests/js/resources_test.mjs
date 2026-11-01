@@ -284,11 +284,16 @@ check('the older lookup does not paint over the panel opened after it',
 // Download was a link to Civitai's download URL: the right version, saved
 // wherever the browser saves things and unknown to the library. It now
 // downloads as the Civitai Browser does - into the library - the version the
-// image names, or the model's newest if that version is gone.
+// image names: that version alone (#372). A version Civitai deleted says so,
+// and its own button names the model's newest before the press.
 const downloadsAsked = [];
 const progressAsked = [];            // a version's own progress, asked for by version
 let listAsked = 0;                   // the downloads list's, every download at once
-const server = { download: {}, progress: {} };
+// What Civitai says of each row's model (resources.missing_files): 7001, the
+// VAE named by hash, is a version Civitai deleted, its model's newest v3.
+const server = { download: {}, progress: {}, missing: {
+    7001: { version_gone: true, model_id: 4701, name: 'VAE ft MSE', file_type: 'VAE',
+            newest: { version_id: 7009, version_name: 'v3', file_stem: 'vae_ft_mse_v3' } } } };
 const fetchBefore = globalThis.fetch;
 globalThis.fetch = withGalleryPages(async (url, init = {}) => {
     const href = String(url);
@@ -296,6 +301,12 @@ globalThis.fetch = withGalleryPages(async (url, init = {}) => {
     if (href.includes('/model-manager/image-resources')) {
         return reply({ success: true, versions: { 6002: { version_id: 6002, file_stem: 'space' } },
                        hashes: {} });
+    }
+    if (href.includes('/model-manager/missing-resources')) {
+        const versions = JSON.parse(new URLSearchParams(String(init.body || '')).get('versions') || '[]');
+        const answered = {};
+        for (const { version_id: id } of versions) if (server.missing[id]) answered[id] = server.missing[id];
+        return reply({ success: true, versions: answered, hashes: {} });
     }
     if (href.includes('/model-manager/civitai/download/progress')) {
         const asked = new URL(href, 'http://webui').searchParams.get('version_id');
@@ -331,8 +342,8 @@ server.download[6001] = { success: true, version_id: 6001, version_name: 'v1', s
 server.progress[6001] = { version_id: 6001, percent: 40.2, status: 'downloading', synced: false };
 download(6001);
 await waitFor('the download to be asked for', () => downloadsAsked.length === 1);
-check('it asks the server for that very version, a newer one only if it is gone',
-      [downloadsAsked[0].version_id, downloadsAsked[0].newer_if_gone], ['6001', 'true']);
+check('it asks the server for that very version, never a newer one (#372)',
+      [downloadsAsked[0].version_id, 'newer_if_gone' in downloadsAsked[0]], ['6001', false]);
 await waitFor('progress', () => cell(6001)?.textContent.includes('40%'));
 check('and shows how far it has got', cell(6001).textContent.trim(), '40%');
 server.progress[6001] = { version_id: 6001, percent: 100, status: 'complete', synced: true };
@@ -340,11 +351,23 @@ await waitFor('the finish', () => cell(6001)?.textContent.includes('Downloaded')
 // The Download button's word, from the same downloads list (#111).
 check('in the library, it says Downloaded, as a Download button does', cell(6001).textContent.trim(), 'Downloaded');
 
+// A version Civitai deleted, its model there (#372): drawn apart, and the
+// newest offered by name, before the press, from its own button.
+await waitFor('the deleted version said', () => cell(7001)?.textContent.includes('the newest'));
+check('a version Civitai deleted says so under its name, and its button names the newest',
+      [panel().querySelector('[data-res-name="7001"] .mm-res-gone')?.textContent,
+       cell(7001).textContent.replace(/\s+/g, ' ').trim()],
+      ['this version is deleted from Civitai', 'Download v3, the newest']);
+check('a version Civitai still lists says nothing of the kind',
+      [!!panel().querySelector('[data-res-name="6001"] .mm-res-gone'), !!panel().querySelector('[data-res-name="6002"] .mm-res-gone')],
+      [false, false]);
 server.download[7001] = { success: true, version_id: 7009, version_name: 'v3', substituted: true,
                           progress: { version_id: 7009, percent: 0, status: 'pending' } };
 server.progress[7009] = { version_id: 7009, percent: 100, status: 'complete', synced: true };
 download(7001);
 await waitFor('the newer version', () => cell(7001)?.textContent.includes('Downloaded'), 200);
+check('that button asks for the newest, the version being gone',
+      [downloadsAsked.at(-1).version_id, downloadsAsked.at(-1).newer_if_gone], ['7001', 'true']);
 check('and the row says which it got, and why',
       cell(7001).textContent.replace(/\s+/g, ' ').trim(), "Downloaded v3 (the image's is gone)");
 
