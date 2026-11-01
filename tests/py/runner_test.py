@@ -63,6 +63,11 @@ check('the harness is no suite', 'harness.mjs' in [name for _, _, name in run.di
 check('code no suite was seen using runs everything that could use it',
       pick('model_manager/new_module.py')[0], ['dialog_test.mjs', 'gallery_test.mjs', 'hash_test.py', 'sync_test.py'])
 check('a file no suite uses and that is not code runs none', pick('README.md')[0], [])
+# A code folder holds its notes for agents since #249, Markdown read by no
+# suite: taken for new code, a change to one ran every suite (#376).
+NOTES = ['model_manager/' + 'AGENTS' + '.md', 'javascript/shared/' + 'CLAUDE' + '.md']
+check('a folder\'s notes for agents are not code: they run none', [pick(f)[0] for f in NOTES], [[], []])
+check('and the static checks still run for them', 'check_js_references.mjs' in pick(NOTES[0])[2], True)
 check('the static checks always run', 'check_js_references.mjs' in pick('README.md')[2], True)
 check('a suite the map does not know yet runs', pick('README.md', known={'hash_test.py': []})[0],
       ['dialog_test.mjs', 'gallery_test.mjs', 'sync_test.py'])

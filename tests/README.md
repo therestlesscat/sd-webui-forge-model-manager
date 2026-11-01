@@ -28,7 +28,9 @@ Which files a suite uses is recorded by every `--all` run in
 (`trace_run.py`), the scripts whose functions a browser suite ran (Node's
 coverage), and the files either read - the tab markup, the stylesheet, the
 changelog. Importing is not using: nearly every suite imports the whole
-package. Code no recorded run used runs every suite that could use it, and a
+package. Code no recorded run used runs every suite that could use it - a
+Markdown file, such as a folder's notes for agents, is not code, and runs
+none (#376) - and a
 change to `harness.mjs`, `fixtures.py` or `webui_stub.py` runs every suite of
 that kind. Another helper beside the suites - `shared_script.cjs` - runs the
 suites the map has using it.

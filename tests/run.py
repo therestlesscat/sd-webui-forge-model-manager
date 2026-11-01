@@ -200,9 +200,12 @@ def choose(suites, known):
         else:
             key = relative(os.path.join(ROOT, f))
             users = [name for name, used in known.items() if key in used]
-            if not users and f.startswith(CODE):
+            if not users and f.startswith(CODE) and not f.endswith('.md'):
                 # Code no recorded run used: new, or reached only in a way
                 # the trace does not see. Everything that could use it runs.
+                # A folder's notes for agents, Markdown, sit among the code
+                # since #249, and no suite reads them: taken for code, each
+                # change to one ran every suite (#376).
                 for kind, _, name in suites:
                     if kind != 'check' and name not in TOOLS:
                         chosen.setdefault(name, 'no suite recorded as using %s' % f)
