@@ -149,7 +149,10 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   stage: #365's suites ended a sync with `folder` still set; the server's
   thumbnails stage empties it, and the page drew an empty end line, seen live
   on 7880. Read the job's real `/progress` answer at its end before writing
-  the stand-in's.
+  the stand-in's. And it answers only what it is asked: `forge_preset_test`'s
+  library stand-in returned every version whatever the page asked, so #205's
+  break - the substitute left out of the lookup - failed 1 check; answering
+  the ids asked, it failed 7.
 
 ### The code
 

@@ -73,3 +73,9 @@ because that would mean the assumption no longer holds.
   the same shape scaled (a Hires fix), 472 another shape, 495 unreadable
   (read-only, 2026-10-18). They are the metadata's size, not noise; a rule
   for the size reads both (#302).
+- **Whether the lookup by hash answers a deleted version's file is not
+  known.** #205 needed it to tie an image's `<lora:>` tag to a version
+  Civitai deleted; one library had no fair case (root `AGENTS.md`, "A sample
+  drawn through a lookup"). The 2 deleted files that were Civitai's own
+  bytes - their record beside them lists their SHA-256 - belong to models
+  deleted whole, and their hash lookups answered 404 (2026-10-31).

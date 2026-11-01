@@ -572,6 +572,14 @@ the stats off on most cards that had it. The owner's screenshot found it.
 - **A stop needs a way back.** A dialog that blocks an action offers that
   action again once its cause is fixed: the Resources dialog's Send works once
   the server says the checkpoint is there (0.47.3).
+- **The prompt is the user's.** The extension changes it only where the
+  person pressed for that; any other change sits behind a switch, named for
+  what it does to the prompt. #205's first name, "Rename LoRA tags to your
+  files", drew "this is about changing their prompt. So, it should be clear
+  on name", and became "Update LoRA tags in the prompt to your file names".
+  **A substitute is shown, and named, before the press:** the Resources
+  dialog fetched a model's newest version in a deleted version's place and
+  said so only after - "these should not be shown same way" (#372).
 - **A window opening reads no disk and scans nothing whole.** Sync images
   walked every result folder and asked each image's size before it showed a
   count or let Start be pressed: 78,611 images on a hard disk took 346.6 s
@@ -844,7 +852,13 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
 - **A sample drawn through a lookup cannot measure what the lookup
   misses.** #262's 100 random models entered only if a batch returned them,
   so a model every batch leaves out could never enter, and 99 of 100
-  overstated it. A side agent caught it.
+  overstated it. A side agent caught it. Nor a sample picked by a failure:
+  #205's "10 of 10" deleted versions whose files Civitai's lookup by hash
+  never answers were the 10 files picked because that lookup had already
+  failed, so it could not have come out otherwise. It reached the plan, an
+  issue draft and an answer of the owner's before a side agent caught it.
+  Looked for fairly, one library had no case: 0 of 1,517 linked files and 0
+  of 400 cached hash answers named a deleted version.
 - **A live check says what it did not press.** #263's clicked the tab's
   button, not Send, which writes; the owner then hit a Send crash and asked
   "did you test this". It was old (#266), but the report had not said Send
