@@ -83,7 +83,7 @@ globalThis.fetch = async (url) => {
     if (href.includes('/civitai/download/progress')) return answer({ success: true, downloads: progress });
     if (href.includes('/civitai/download')) {
         if (downloadAnswer) return answer(downloadAnswer);
-        return answer({ success: true, progress: { version_id: 10, file_name: 'a_fp16.safetensors',
+        return answer({ success: true, progress: { version_id: 10, file_id: 11, file_name: 'a_fp16.safetensors',
                                                    status: 'downloading', percent: 10, synced: false } });
     }
     if (href.includes('/versions/') || href.includes('/images')) return answer(browserGalleryAnswer(href, []));
@@ -176,14 +176,14 @@ check('the tab shown again: a model deleted meanwhile is no longer Owned, and ca
       [badges(), alreadyOwned(), Boolean(downloadButton()), showInManager()], [0, false, true, false]);
 
 // ------------------------------------- asked again (#190): a download done
-progress = [{ version_id: 10, file_name: 'a_fp16.safetensors', status: 'downloading', percent: 10, synced: false }];
+progress = [{ version_id: 10, file_id: 11, file_name: 'a_fp16.safetensors', status: 'downloading', percent: 10, synced: false }];
 asked.length = 0;
 if (downloadButton()) {
     press(downloadButton());
     await waitFor('the download to be followed', () => asked.some((u) => u.includes('/download/progress')));
 }
 owned = { success: true, models: { 1: { owned: true, listed: true } }, versions: { 10: { owned: true, files: [11] } } };
-progress = [{ version_id: 10, file_name: 'a_fp16.safetensors', status: 'complete', percent: 100, synced: true }];
+progress = [{ version_id: 10, file_id: 11, file_name: 'a_fp16.safetensors', status: 'complete', percent: 100, synced: true }];
 await waitFor('the page to ask again once it is in the library', () => ownedAsks().length > 0);
 await waitFor('the answer to be drawn', () => alreadyOwned());
 check('a download done: the server says what is held, and the page shows it',

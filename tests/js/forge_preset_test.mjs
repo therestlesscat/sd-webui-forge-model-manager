@@ -931,8 +931,10 @@ globalThis.fetch = withGalleryPages(async (url, ...rest) => {
         chipDownloads.push(Object.fromEntries(form));
         const id = Number(form.get('version_id'));
         // A version's own answer where one is set: the newest in a deleted one's place (#205).
+        // Found by its file (#374): file id * 10 + 1 of version id, named by the server.
         return { ok: true, json: async () => (structuredClone(chipAnswers[id]) || { success: true, version_id: id,
-            version_name: 'v1', substituted: false, progress: { version_id: id, percent: 0, status: 'pending' } }) };
+            file_id: id * 10 + 1, version_name: 'v1', substituted: false,
+            progress: { version_id: id, file_id: id * 10 + 1, percent: 0, status: 'pending' } }) };
     }
     if (href.includes('/model-manager/resolve-hashes')) {
         return { ok: true, json: async () => ({ success: true, deferred: [],
@@ -1045,7 +1047,7 @@ check('the chips follow the prompt as it is typed',
 // A missing chip downloads its resource when clicked - the version the image
 // names, as the Resources dialog does - and adds nothing to the prompt.
 const before = positiveBox.value;
-chipProgress[99] = { version_id: 99, percent: 40.6, status: 'downloading', synced: false };
+chipProgress[99] = { version_id: 99, file_id: 991, percent: 40.6, status: 'downloading', synced: false };
 click(chip('Not Here'));
 await waitFor('the download', () => chipDownloads.length === 1);
 check('a click on a missing chip downloads the version the image names',
@@ -1058,9 +1060,9 @@ check('the chip fills as it goes, keeping its mark, its name and nothing else',
       ['--mm-chip-progress: 40%', '↓', true]);
 
 // The chip reads the downloads list as a Download button does (#111): a
-// Download button for the same version, drawn by the list, says the same.
+// Download button for the same file, drawn by the list, says the same (#374).
 const button99 = document.createElement('button');
-button99.setAttribute('data-download-version', '99');
+button99.setAttribute('data-download-file', '991');
 document.body.append(button99);
 await waitFor('the button to be drawn', () => button99.textContent !== '', 200);
 check('downloading: the chip and a Download button say the same',
@@ -1068,11 +1070,11 @@ check('downloading: the chip and a Download button say the same',
 // Started, before its first percent: the button says Downloading..., and the
 // chip said "queued", the word for one waiting its turn - seen live, beside
 // the Resources dialog's Downloading....
-chipProgress[99] = { version_id: 99, percent: 0, status: 'downloading', synced: false };
+chipProgress[99] = { version_id: 99, file_id: 991, percent: 0, status: 'downloading', synced: false };
 await waitFor('no percent yet', () => note('Not Here') === 'downloading' || note('Not Here') === 'queued', 200);
 check('downloading, no percent yet: the chip and the button say the same',
       [note('Not Here'), button99.textContent], ['downloading', 'Downloading...']);
-chipProgress[99] = { version_id: 99, percent: 100, status: 'finishing', synced: false };
+chipProgress[99] = { version_id: 99, file_id: 991, percent: 100, status: 'finishing', synced: false };
 await waitFor('finishing', () => note('Not Here') === 'adding to library...', 200);
 check('adding to the library: the chip and the button say the same',
       [note('Not Here'), chip('Not Here').disabled, button99.textContent],
@@ -1085,7 +1087,7 @@ check('adding to the library: the chip and the button say the same',
 lookupHold = new Promise((resolve) => { releaseLookup = resolve; });
 const lookupsBefore = resourcesAsked.length;
 library.versions[99] = { version_id: 99, file_stem: 'not_here', file_type: 'LORA' };
-chipProgress[99] = { version_id: 99, percent: 100, status: 'complete', synced: true };
+chipProgress[99] = { version_id: 99, file_id: 991, percent: 100, status: 'complete', synced: true };
 await waitFor('the library to be asked', () => resourcesAsked.length > lookupsBefore, 200);
 await pause(400);
 check('in the library, the library not yet answering: the chip says downloaded, busy, as the button',
@@ -1122,7 +1124,7 @@ check('a chip that knows only a hash is looked up first, then downloaded by vers
 const warned = [];
 const warn = console.warn;
 console.warn = (...args) => warned.push(args.join(' '));
-chipProgress[98] = { version_id: 98, status: 'error', file_name: 'hash_only.safetensors',
+chipProgress[98] = { version_id: 98, file_id: 981, status: 'error', file_name: 'hash_only.safetensors',
                      error: 'File already exists: hash_only.safetensors, and Civitai lists no SHA-256 to compare it with' };
 await waitFor('the failure', () => note('hash_only')?.includes('download failed'), 60);
 console.warn = warn;
@@ -1188,7 +1190,7 @@ check('and a hash Civitai does not know is said so, at once',
       [note('unknown_lora'), look_('unknown_lora')], ['not on Civitai', '⊘']);
 
 // Downloaded: the same name, the same place.
-chipProgress[77] = { version_id: 77, percent: 100, status: 'complete', synced: true };
+chipProgress[77] = { version_id: 77, file_id: 771, percent: 100, status: 'complete', synced: true };
 library.versions[77] = { version_id: 77, file_stem: 'future_file', file_type: 'LORA' };
 // The sync after a download stores the file's hashes: the image's finds it.
 library.hashes.eeee = library.versions[77];
@@ -1265,8 +1267,8 @@ missingAnswer.versions[81] = { version_gone: true, model_id: 80, name: 'Style', 
                                newest: { version_id: 83, version_name: 'v3', file_stem: 'style_v3' } };
 missingAnswer.versions[91] = { version_gone: true, model_id: 90, name: 'Held', file_type: 'LORA',
                                newest: { version_id: 93, version_name: 'v2', file_stem: 'held_v2' } };
-chipAnswers[81] = { success: true, version_id: 83, version_name: 'v3', substituted: true,
-                    progress: { version_id: 83, percent: 0, status: 'pending' } };
+chipAnswers[81] = { success: true, version_id: 83, version_name: 'v3', substituted: true, file_id: 831,
+                    progress: { version_id: 83, file_id: 831, percent: 0, status: 'pending' } };
 chipAnswers[91] = { success: true, already_installed: true, version_id: 93, version_name: 'v2', substituted: true };
 IMAGE.meta = {
     prompt: 'a cat, <lora:style_v1:0.8>', steps: 20, Model: 'a_checkpoint',
@@ -1285,7 +1287,7 @@ click(styleChip());
 await waitFor('the download', () => chipDownloads.at(-1)?.version_id === '81', 200);
 check('pressed, it asks for the newest in its place', chipDownloads.at(-1)?.newer_if_gone, 'true');
 library.versions[83] = { version_id: 83, file_stem: 'style_v3', file_type: 'LORA' };
-chipProgress[83] = { version_id: 83, percent: 100, status: 'complete', synced: true };
+chipProgress[83] = { version_id: 83, file_id: 831, percent: 100, status: 'complete', synced: true };
 await waitFor('the newest in the library', () => chip('style_v3') && !chip('style_v3').classList.contains('missing'), 300);
 await pause(50);
 check('once the newest is in the library: a green chip under its file, taking a click, not busy for good',

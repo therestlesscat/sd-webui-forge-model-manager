@@ -7,7 +7,7 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { TIMING, apiCall, escapeHtml, dataAttributes, safeId, formatBytes, formatDay } = await shared('core.mjs');
+const { TIMING, apiCall, escapeHtml, dataAttributes, safeId, setText, formatBytes, formatDay } = await shared('core.mjs');
 const { apiKeyIsMissing, ignoredTag } = await shared('ui_options.mjs');
 const { refreshWebUiModelLists } = await shared('forge.mjs');
 
@@ -83,26 +83,38 @@ export function describeFile(file) {
     return size ? `${parts.join(' ')} - ${size}` : parts.join(' ');
 }
 
-// What a Download button says while its version is on its way, and is
+// What a Download button says while its file is on its way, and is
 // disabled for: one click, one download.
 const DOWNLOAD_BUTTON_BUSY = {
     starting: 'Starting...', pending: 'Queued', downloading: 'Downloading...',
     finishing: 'Adding to library...', complete: 'Downloaded', paused: 'Paused',
 };
 
-// A version asked for and not yet over is not asked for again: the server
-// answers the download it has (#119). A finished one can be - its file may
-// have been deleted since - though its Download button, saying Downloaded,
-// takes no click until the list forgets it.
+// A file asked for and not yet over is not asked for again: the server
+// answers the download it has (#119). A finished one can be - it may have
+// been deleted since - though its Download button, saying Downloaded,
+// takes no click until the list forgets it. A download is one file, found by
+// its Civitai file id (#374): another file of the same version is a download
+// of its own.
 export const ON_ITS_WAY = new Set(['starting', 'pending', 'downloading', 'finishing', 'paused']);
 
-/** Whether a version's download is on its way: asked for, queued, coming, being added, or paused. */
-export function onItsWay(versionId) {
-    return ON_ITS_WAY.has(downloads()?.status(versionId));
+/**
+ * What a download is found by, as the server sends it: a Civitai file id, or
+ * a stand-in below 0 for one whose file its turn has not named yet - which
+ * safeId would turn away, and a row's Cancel would then cancel every one.
+ */
+export function downloadKey(value) {
+    const n = Number(value);
+    return Number.isSafeInteger(n) && n !== 0 ? n : null;
+}
+
+/** Whether a file's download is on its way: asked for, queued, coming, being added, or paused. */
+export function onItsWay(fileId) {
+    return ON_ITS_WAY.has(downloads()?.status(fileId));
 }
 
 /**
- * Where a version's download stands, as the downloads list says: its status
+ * Where a file's download stands, as the downloads list says: its status
  * ('starting' once asked for, then the server's), percent and error - or
  * null when the list has none. The one answer a Download button, a chip and
  * the Resources dialog all draw from (#111): the chips kept a copy of their
@@ -110,18 +122,18 @@ export function onItsWay(versionId) {
  * while the library was asked about it. Complete is in the library: the
  * server says it only once the file is synced.
  */
-export function downloadState(versionId) {
+export function downloadState(fileId) {
     const list = downloads();
-    const status = list?.status(versionId);
+    const status = list?.status(fileId);
     if (!status) return null;
-    const item = list.progress(versionId) || {};
+    const item = list.progress(fileId) || {};
     return { status: status === 'complete' && !item.synced ? 'finishing' : status,
              percent: Math.floor(item.percent || 0), error: item.error || null };
 }
 
-/** A Download button's label and whether it is disabled, from its version's download. */
-function downloadButtonState(versionId) {
-    const busy = DOWNLOAD_BUTTON_BUSY[downloadState(versionId)?.status];
+/** A Download button's label and whether it is disabled, from its file's download. */
+function downloadButtonState(fileId) {
+    const busy = DOWNLOAD_BUTTON_BUSY[downloadState(fileId)?.status];
     return { disabled: !!busy, label: busy || 'Download' };
 }
 
@@ -137,8 +149,9 @@ function downloadButtonState(versionId) {
  * with 401/403 until it is bought on Civitai, so it is offered only when
  * Civitai says the API key's account bought it (`paid_access.owned`, see
  * civitai/ownership.py); otherwise its label, saying why. While
- * the version is downloading - from the click until it is in the library - the
- * button says so and takes no clicks: a second click started it again.
+ * the file is downloading - from the click until it is in the library - the
+ * button says so and takes no clicks: a second click started it again. It is
+ * the file's alone: another file of the version is a download of its own (#374).
  */
 export function renderDownloadControls({ controls, modelId, version, fileIndex, owned, ownedOther = false,
                                         ignoredBecause = null }) {
@@ -164,14 +177,14 @@ export function renderDownloadControls({ controls, modelId, version, fileIndex, 
         // Its page is the panel's View on Civitai, beside this.
         button = `<button class="mm-btn secondary" disabled title="${escapeHtml(why)}">${escapeHtml(paidLabel)}</button>`;
     } else if (file) {
-        const state = downloadButtonState(version?.id);
+        const state = downloadButtonState(file?.id);
         // Another file of the version held is no reason not to fetch this one
         // (#189), nor is a copy in a folder this WebUI does not load (#195).
         const title = ownedOther ? ' title="You have another file of this version."'
             : ignoredBecause ? ` title="${escapeHtml(ignoredTag(ignoredBecause).download)}"`
             : paidLabel ? ' title="Paid on Civitai - your account has bought it"' : '';
         button = `<button class="mm-btn primary" id="${prefix}_download_btn"${title} `
-            + `data-download-version="${safeId(version?.id)}" ${state.disabled ? 'disabled' : ''} `
+            + `data-download-file="${safeId(file?.id)}" ${state.disabled ? 'disabled' : ''} `
             + `data-action="${escapeHtml(download)}"`
             + `${dataAttributes({ modelId: safeId(modelId), versionId: safeId(version?.id), fileId: safeId(file?.id),
                                   fileName: file?.name, sizeKb: file?.sizeKB })}>`
@@ -211,11 +224,16 @@ export function showChosenFile(controls, modelId, version, file) {
     // The button's action reads these (renderDownloadControls).
     const button = document.getElementById(`${prefix}_download_btn`);
     if (button) {
-        const ids = { 'data-model-id': modelId, 'data-version-id': version?.id, 'data-file-id': file.id };
+        const ids = { 'data-model-id': modelId, 'data-version-id': version?.id, 'data-file-id': file.id,
+                      'data-download-file': file.id };
         for (const [name, id] of Object.entries(ids)) button.setAttribute(name, String(safeId(id) ?? ''));
         // The row's name and size until the download's turn asks Civitai (#223).
         button.setAttribute('data-file-name', file.name || '');
         button.setAttribute('data-size-kb', String(Number(file.sizeKB) || ''));
+        // Labelled by the new file's download, not the one picked before (#374).
+        const state = downloadButtonState(file.id);
+        button.disabled = state.disabled;
+        setText(button, state.label);
     }
 }
 
@@ -265,10 +283,10 @@ function ordinal(n) {
 }
 
 /** A small button in a download's row: downloads.control, as the panel's Pause all. */
-function downloadControl(action, versionId, label, title, { disabled = false, kind = 'secondary' } = {}) {
+function downloadControl(action, fileId, label, title, { disabled = false, kind = 'secondary' } = {}) {
     return `<button class="mm-btn mm-btn-small ${kind}" title="${escapeHtml(title)}" ${disabled ? 'disabled' : ''}
                     data-action="downloads.control" data-control="${escapeHtml(action)}"`
-        + `${dataAttributes({ versionId: safeId(versionId) })}>${label}</button>`;
+        + `${dataAttributes({ fileId: downloadKey(fileId) })}>${label}</button>`;
 }
 
 /** One download, as a panel shows it. Classes are the tab's own: `<prefix>-download-*`. */
@@ -282,7 +300,7 @@ function renderDownloadItem(dl, prefix) {
     const showProgress = status === 'downloading' || status === 'pending' || status === 'finishing'
         || status === 'paused';
     const showCancel = status === 'downloading' || status === 'pending' || status === 'paused';
-    const id = dl.version_id;
+    const id = dl.file_id;
     // Running: Pause. Waiting: Start now, and up or down the queue. Paused: Resume.
     const controls = status === 'downloading'
         ? downloadControl('pause', id, 'Pause', 'Pause: keeps what has arrived, and lets the next in the queue start')
@@ -333,10 +351,10 @@ function renderDownloadItem(dl, prefix) {
                     ${controls}
                     ${retry}
                     ${showCancel ? `
-                        <button class="mm-btn mm-btn-small danger" data-action="downloads.cancel"${dataAttributes({ versionId: safeId(dl.version_id) })}>Cancel</button>
+                        <button class="mm-btn mm-btn-small danger" data-action="downloads.cancel"${dataAttributes({ fileId: downloadKey(dl.file_id) })}>Cancel</button>
                     ` : ''}
                     ${showDismiss ? `
-                        <button class="mm-btn mm-btn-small secondary" data-action="downloads.dismiss"${dataAttributes({ versionId: safeId(dl.version_id) })}>Dismiss</button>
+                        <button class="mm-btn mm-btn-small secondary" data-action="downloads.dismiss"${dataAttributes({ fileId: downloadKey(dl.file_id) })}>Dismiss</button>
                     ` : ''}
                 </div>
             </div>
@@ -345,7 +363,7 @@ function renderDownloadItem(dl, prefix) {
 }
 
 function createDownloads(scope) {
-    const items = {};          // version id -> the server's progress
+    const items = {};          // file id -> the server's progress (#374)
     // The list's order, as the server keeps it: the order downloads were
     // added in, which ↑/↓ change - never their state, so no row moves when
     // one is paused or resumed. (An object's number keys come out sorted.)
@@ -372,10 +390,10 @@ function createDownloads(scope) {
         || dl.status === 'finishing' || (dl.status === 'complete' && !dl.synced);
     const starting = new Set();  // clicked, and the server has not answered yet
 
-    /** Every Download button on the page, as its version's download stands. */
+    /** Every Download button on the page, as its file's download stands. */
     function renderButtons() {
-        for (const button of document.querySelectorAll('[data-download-version]')) {
-            const state = downloadButtonState(Number(button.getAttribute('data-download-version')));
+        for (const button of document.querySelectorAll('[data-download-file]')) {
+            const state = downloadButtonState(Number(button.getAttribute('data-download-file')));
             button.disabled = state.disabled;
             button.textContent = state.label;
         }
@@ -419,21 +437,21 @@ function createDownloads(scope) {
             const result = await apiCall({ endpoint: '/model-manager/civitai/download/progress' });
             if (!result.success || !result.downloads) return;
             // The list is the server's: one it no longer has is gone here too.
-            const listed = new Set(result.downloads.map((dl) => dl.version_id));
+            const listed = new Set(result.downloads.map((dl) => dl.file_id));
             for (const id of Object.keys(items)) {
-                if (!listed.has(items[id].version_id)) delete items[id];
+                if (!listed.has(items[id].file_id)) delete items[id];
             }
-            sequence = result.downloads.map((dl) => dl.version_id);
+            sequence = result.downloads.map((dl) => dl.file_id);
             for (const dl of result.downloads) {
-                if (dismissed.has(dl.version_id)) {
+                if (dismissed.has(dl.file_id)) {
                     if (finished(dl)) continue;
-                    dismissed.delete(dl.version_id);         // started again
+                    dismissed.delete(dl.file_id);         // started again
                 }
-                const prev = items[dl.version_id];
+                const prev = items[dl.file_id];
                 // The file lands well before its database row does; until
                 // `synced` the model is not in the library yet.
                 const arrived = dl.status === 'complete' && dl.synced && !(prev && prev.synced);
-                items[dl.version_id] = dl;
+                items[dl.file_id] = dl;
                 if (arrived) {
                     landed = true;
                     for (const callback of completed) {
@@ -482,15 +500,15 @@ function createDownloads(scope) {
         onBatchDone: (callback) => { batchDone.push(callback); },
         /** Called after each look at the list, and when one is added to it. */
         onChange: (callback) => { changed.push(callback); },
-        /** A version's download as the server last said, or undefined. */
-        progress: (versionId) => items[versionId],
+        /** A file's download as the server last said, or undefined. */
+        progress: (fileId) => items[fileId],
 
         /** Follow a download the server has accepted. */
         track: (progress) => {
-            if (!progress || progress.version_id == null) return;
-            dismissed.delete(progress.version_id);
-            items[progress.version_id] = progress;
-            if (!sequence.includes(progress.version_id)) sequence.push(progress.version_id);
+            if (!progress || progress.file_id == null) return;
+            dismissed.delete(progress.file_id);
+            items[progress.file_id] = progress;
+            if (!sequence.includes(progress.file_id)) sequence.push(progress.file_id);
             render();
             told();
             follow();
@@ -502,8 +520,11 @@ function createDownloads(scope) {
          * one is gone from Civitai - what the Resources dialog asks for.
          */
         start: async function start(modelId, versionId, fileId, { newerIfGone = false, fileName, sizeKb } = {}) {
-            if (onItsWay(versionId)) return { success: false, error: 'Already downloading' };
-            starting.add(Number(versionId));
+            // Without a file the server names it, and answers with any
+            // download of it already on its way.
+            const key = downloadKey(fileId);
+            if (key !== null && onItsWay(key)) return { success: false, error: 'Already downloading' };
+            if (key !== null) starting.add(key);
             renderButtons();
             try {
                 const form = new FormData();
@@ -518,35 +539,35 @@ function createDownloads(scope) {
                 if (Number(sizeKb) > 0) form.append('size_kb', String(Number(sizeKb)));
                 const response = await fetch('/model-manager/civitai/download', { method: 'POST', body: form });
                 const result = await response.json();
-                starting.delete(Number(versionId));
+                starting.delete(key);
                 if (result.success && result.progress) store.track(result.progress);
                 return { ...result, status: response.status };
             } finally {
-                starting.delete(Number(versionId));
+                starting.delete(key);
                 renderButtons();
             }
         },
 
-        /** Where a version's download stands: 'starting', the server's status, or undefined. */
-        status: (versionId) => (starting.has(Number(versionId)) ? 'starting'
-            : items[versionId]?.status),
+        /** Where a file's download stands: 'starting', the server's status, or undefined. */
+        status: (fileId) => (starting.has(Number(fileId)) ? 'starting'
+            : items[fileId]?.status),
 
         /**
          * Steer the downloads (pause, resume, start_now, up, down, pause_all,
          * resume_all): the server's answer is the list afresh, and one that
          * starts something running polls again.
          */
-        control: async function control(action, versionId = 0) {
+        control: async function control(action, fileId = 0) {
             try {
                 const form = new FormData();
                 form.append('action', action);
-                form.append('version_id', versionId);
+                form.append('file_id', fileId);
                 const response = await fetch('/model-manager/civitai/download/control', { method: 'POST', body: form });
                 const result = await response.json();
                 if (result.success && result.downloads) {
-                    sequence = result.downloads.map((d) => d.version_id);
+                    sequence = result.downloads.map((d) => d.file_id);
                     for (const dl of result.downloads) {
-                        if (!dismissed.has(dl.version_id) || !finished(dl)) items[dl.version_id] = dl;
+                        if (!dismissed.has(dl.file_id) || !finished(dl)) items[dl.file_id] = dl;
                     }
                     render();
                     if (Object.values(items).some(running)) follow();
@@ -558,10 +579,10 @@ function createDownloads(scope) {
             }
         },
 
-        cancel: async function cancel(versionId) {
+        cancel: async function cancel(fileId) {
             try {
                 const form = new FormData();
-                form.append('version_id', versionId);
+                form.append('file_id', fileId);
                 await fetch('/model-manager/civitai/download/cancel', { method: 'POST', body: form });
                 // A waiting or paused one is cancelled at once, and nothing
                 // may be polling to show it: the list is asked for now.
@@ -572,30 +593,30 @@ function createDownloads(scope) {
         },
 
         /** Take a finished download off the list, here and on the server. */
-        dismiss: (versionId) => store.forget([versionId], versionId),
+        dismiss: (fileId) => store.forget([fileId], fileId),
 
         /** Take every finished download off the list. */
         dismissFinished: () => store.forget(
-            Object.values(items).filter(finished).map((dl) => dl.version_id), 0),
+            Object.values(items).filter(finished).map((dl) => dl.file_id), 0),
 
         // The server forgets them too: it kept every download until the WebUI
         // restarted, and the next poll brought back what was dismissed here.
-        forget: async function forget(versionIds, asked) {
-            for (const id of versionIds) {
+        forget: async function forget(fileIds, asked) {
+            for (const id of fileIds) {
                 dismissed.add(id);
                 delete items[id];
             }
             render();
             try {
                 const form = new FormData();
-                form.append('version_id', asked);
+                form.append('file_id', asked);
                 await fetch('/model-manager/civitai/download/dismiss', { method: 'POST', body: form });
             } catch (e) {
                 console.error('[ModelManager] Dismiss error:', e);
             }
         },
 
-        get: (versionId) => items[versionId],
+        get: (fileId) => items[fileId],
     };
 
     // The list as the server has it, once, when the page loads: after a
@@ -626,10 +647,10 @@ function createDownloads(scope) {
     }
 
     // What the panels' buttons do - a row's, and Pause all, Resume all and
-    // Dismiss all in the tabs' markup; a version 0 is all of them.
-    scope.provide('downloads.control', ({ control, versionId }) => store.control(control, safeId(versionId) ?? 0));
-    scope.provide('downloads.cancel', ({ versionId }) => store.cancel(safeId(versionId)));
-    scope.provide('downloads.dismiss', ({ versionId }) => store.dismiss(safeId(versionId)));
+    // Dismiss all in the tabs' markup; a file 0 is all of them.
+    scope.provide('downloads.control', ({ control, fileId }) => store.control(control, downloadKey(fileId) ?? 0));
+    scope.provide('downloads.cancel', ({ fileId }) => store.cancel(downloadKey(fileId)));
+    scope.provide('downloads.dismiss', ({ fileId }) => store.dismiss(downloadKey(fileId)));
     scope.provide('downloads.dismissFinished', () => store.dismissFinished());
     // Stopped with the last tab that downloads (#186): the poll too, which
     // ran on while a download did.

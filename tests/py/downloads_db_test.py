@@ -70,9 +70,14 @@ check('kept rows come back as kept, in the order given',
       asked(db, 'kept_downloads', HERE_INSTALL),
       [row(3, 'C:\\m\\f_3.safetensors.partial'), row(1), row(2)])
 check("another install's are its own", [r['version_id'] for r in asked(db, 'kept_downloads', OTHER_INSTALL) or []], [9])
-asked(db, 'keep_downloads', HERE_INSTALL, [row(2), row(4, file_id=None, total_bytes=0)])
+# A file not named yet is kept under its stand-in, its version negated (#374).
+asked(db, 'keep_downloads', HERE_INSTALL, [row(2), row(4, file_id=-4, total_bytes=0)])
 check('a save replaces the rows: gone ones go, the order is the new one',
-      asked(db, 'kept_downloads', HERE_INSTALL), [row(2), row(4, file_id=None, total_bytes=0)])
+      asked(db, 'kept_downloads', HERE_INSTALL), [row(2), row(4, file_id=-4, total_bytes=0)])
+asked(db, 'keep_downloads', HERE_INSTALL, [row(5), row(5, file_id=51, file_name='vae_5.safetensors')])
+check('two files of one version are two kept rows (#374)',
+      [(r['version_id'], r['file_id']) for r in asked(db, 'kept_downloads', HERE_INSTALL) or []], [(5, 50), (5, 51)])
+asked(db, 'keep_downloads', HERE_INSTALL, [row(2), row(4, file_id=-4, total_bytes=0)])
 check("and leaves another install's alone", [r['version_id'] for r in asked(db, 'kept_downloads', OTHER_INSTALL) or []], [9])
 asked(db, 'keep_downloads', HERE_INSTALL, [])
 check('nothing to keep leaves no row', asked(db, 'kept_downloads', HERE_INSTALL), [])

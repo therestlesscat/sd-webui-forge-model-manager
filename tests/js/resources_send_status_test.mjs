@@ -27,8 +27,11 @@ globalThis.fetch = async (url, init = {}) => {
     if (href.includes('/civitai/download/progress')) return reply({ success: true, downloads: listed });
     if (href.includes('/civitai/download')) {
         const versionId = Number(init.body.get('version_id'));
-        listed = [{ version_id: versionId, status: 'pending', percent: 0, file_name: 'checkpoint.safetensors' }];
-        return reply({ success: true, version_id: versionId, version_name: 'v1', progress: listed[0] });
+        // Found by its file (#374), which the server names.
+        listed = [{ version_id: versionId, file_id: versionId * 10 + 1, status: 'pending', percent: 0,
+                    file_name: 'checkpoint.safetensors' }];
+        return reply({ success: true, version_id: versionId, version_name: 'v1', file_id: versionId * 10 + 1,
+                       progress: listed[0] });
     }
     if (href.includes('/image-resources')) {
         return reply({ success: true, versions: Object.fromEntries([...installed].map((id) => [id, { version_id: id }])),

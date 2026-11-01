@@ -391,7 +391,7 @@ const showInManager = () => !!document.querySelector('#cb_details [data-action="
 
 await openTab('civitaiBrowser', 'showModel', 'model:31');
 await act('civitaiBrowser.openModel', { index: 0 });
-downloads.push({ version_id: 62, file_name: 'm.safetensors', status: 'downloading', percent: 40,
+downloads.push({ version_id: 62, file_id: 1, file_name: 'm.safetensors', status: 'downloading', percent: 40,
                  downloaded_bytes: 400, total_bytes: 1000, synced: false });
 const polled = progressAsked;
 await act('civitaiBrowser.download', { modelId: 31, versionId: 62 });

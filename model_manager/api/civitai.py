@@ -647,6 +647,9 @@ def register(app: FastAPI):
         file_id names one of the version's files outright and is what the file
         picker sends; file_index picks one by position. Leave both out and the
         file Civitai marks primary is used, which is not always the first one.
+        A download is found by its file (#374), so the file is named before it
+        is queued: without file_id, from the version's files the library has
+        stored, else by asking Civitai first, as below.
 
         newer_if_gone is for a version an image names: uploaders delete
         versions, and the image's is then gone for good. The model's newest
@@ -667,9 +670,20 @@ def register(app: FastAPI):
         try:
             from ..download_service import get_download_service, pick_file_index
 
-            if model_id and not newer_if_gone:
+            if model_id and not newer_if_gone and file_id is None:
+                stored, _ = get_models_db().get_civitai_versions(model_id)
+                listed = next((v for v in stored or [] if v.get("id") == version_id), None)
+                files = (listed or {}).get("files") or []
+                if files:
+                    chosen = files[pick_file_index(files, file_index)]
+                    file_id = chosen.get("id")
+                    file_name = file_name or chosen.get("name")
+                    size_kb = size_kb or chosen.get("sizeKB")
+
+            if model_id and not newer_if_gone and file_id is not None:
                 service = get_download_service()
-                asked = {"version_id": version_id, "version_name": None, "substituted": False}
+                asked = {"version_id": version_id, "version_name": None, "substituted": False,
+                         "file_id": file_id}
                 if file_id is not None:
                     place, held_path = service.library_place(file_id)
                     if place == "held":
@@ -738,6 +752,7 @@ def register(app: FastAPI):
             files = version_data.get("files") or []
             if files:
                 wanted = files[pick_file_index(files, file_index, file_id)]
+                chosen["file_id"] = wanted.get("id")
                 place, held_path = service.library_place(wanted.get("id"))
                 if place == "held":
                     return JSONResponse({"success": True, "already_installed": True,
@@ -774,22 +789,22 @@ def register(app: FastAPI):
 
     @app.get("/model-manager/civitai/download/progress")
     @gate("downloads")
-    def civitai_download_progress(version_id: Optional[int] = None):
+    def civitai_download_progress(file_id: Optional[int] = None):
         """
-        Get download progress for one or all downloads.
+        Get download progress for one download, by its file (#374), or for all.
         """
         try:
             from ..download_service import get_download_service
 
             service = get_download_service()
 
-            if version_id:
-                progress = service.get_progress(version_id)
+            if file_id:
+                progress = service.get_progress(file_id)
                 if not progress:
                     return JSONResponse({
                         "success": True,
                         "progress": None,
-                        "message": "No download found for this version"
+                        "message": "No download found for this file"
                     })
                 return JSONResponse({
                     "success": True,
@@ -807,20 +822,20 @@ def register(app: FastAPI):
 
     @app.post("/model-manager/civitai/download/cancel")
     @gate("downloads")
-    def civitai_cancel_download(version_id: int = Form(default=0)):
+    def civitai_cancel_download(file_id: int = Form(default=0)):
         """
-        Cancel a download. If version_id=0, cancels all downloads.
+        Cancel a download, by its file. If file_id=0, cancels all downloads.
         """
         try:
             from ..download_service import get_download_service
 
             service = get_download_service()
 
-            if version_id:
-                service.cancel(version_id)
+            if file_id:
+                service.cancel(file_id)
                 return JSONResponse({
                     "success": True,
-                    "message": f"Cancelled download for version {version_id}"
+                    "message": f"Cancelled download of file {file_id}"
                 })
             else:
                 service.cancel_all()
@@ -834,11 +849,12 @@ def register(app: FastAPI):
 
     @app.post("/model-manager/civitai/download/control")
     @gate("downloads")
-    def civitai_download_control(action: str = Form(...), version_id: int = Form(default=0)):
+    def civitai_download_control(action: str = Form(...), file_id: int = Form(default=0)):
         """
         Steer the downloads: `pause` or `resume` one, `start_now` a waiting
         one (over the limit), move one `up` or `down` the queue, `retry` a
-        failed one, or `pause_all` / `resume_all`. Cancel is /download/cancel.
+        failed one, or `pause_all` / `resume_all`. One is named by its file
+        (#374). Cancel is /download/cancel.
 
         Returns:
             done: whether it applied (a download already finished, say, is
@@ -851,7 +867,7 @@ def register(app: FastAPI):
                    "up": lambda v: service.move(v, -1), "down": lambda v: service.move(v, 1),
                    "retry": service.retry}
             if action in one:
-                done = bool(one[action](version_id))
+                done = bool(one[action](file_id))
             elif action == "pause_all":
                 service.pause_all()
                 done = True
@@ -867,17 +883,17 @@ def register(app: FastAPI):
 
     @app.post("/model-manager/civitai/download/dismiss")
     @gate("downloads")
-    def civitai_dismiss_download(version_id: int = Form(default=0)):
+    def civitai_dismiss_download(file_id: int = Form(default=0)):
         """
         Forget a finished download, so the downloads list stops showing it -
-        or, with version_id=0, every finished one. One still running is kept.
+        or, with file_id=0, every finished one. One still running is kept.
 
         Returns:
-            dismissed: the version ids forgotten.
+            dismissed: the file ids forgotten.
         """
         try:
             from ..download_service import get_download_service
-            gone = get_download_service().dismiss(version_id or None)
+            gone = get_download_service().dismiss(file_id or None)
             return JSONResponse({"success": True, "dismissed": gone})
         except Exception as e:
             say(f"Dismiss download error: {e}")

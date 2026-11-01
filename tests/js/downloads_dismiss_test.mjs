@@ -16,7 +16,8 @@ const { check, waitFor, done } = checker();
 // As download_service.DownloadService keeps them: every download until it is
 // dismissed, and only a finished one can be.
 const FINISHED = ['complete', 'error', 'cancelled'];
-const download = (id, status) => ({ version_id: id, file_name: `v${id}.safetensors`, status,
+// Found by its file (#374): file 1000 + n of version n.
+const download = (id, status) => ({ version_id: id, file_id: 1000 + id, file_name: `v${id}.safetensors`, status,
                                     percent: 50, downloaded_bytes: 5, total_bytes: 10, synced: status === 'complete' });
 let server = [download(1, 'downloading'), download(2, 'complete'), download(3, 'error'), download(4, 'cancelled')];
 let forgets = true;              // false: the server answers a dismiss, and forgets nothing
@@ -29,9 +30,9 @@ globalThis.fetch = async (url, init = {}) => {
         return reply({ success: true, downloads: structuredClone(server) });
     }
     if (href.includes('/civitai/download/dismiss')) {
-        const asked = Number(init.body.get('version_id'));
+        const asked = Number(init.body.get('file_id'));
         dismissAsked.push(asked);
-        if (forgets) server = server.filter((d) => !FINISHED.includes(d.status) || (asked && d.version_id !== asked));
+        if (forgets) server = server.filter((d) => !FINISHED.includes(d.status) || (asked && d.file_id !== asked));
         return reply({ success: true });
     }
     return reply({ success: true });
@@ -53,9 +54,9 @@ check('finished downloads are listed beside the running one',
       listed(), ['v1.safetensors', 'v2.safetensors', 'v3.safetensors', 'v4.safetensors']);
 check('with Dismiss all offered while any has finished', dismissAll()?.style.display, '');
 
-await act('downloads.dismiss', { versionId: 2 });
+await act('downloads.dismiss', { fileId: 1002 });
 check('Dismiss takes one off the list', listed().includes('v2.safetensors'), false);
-check('and asks the server to forget it', dismissAsked, [2]);
+check('and asks the server to forget it', dismissAsked, [1002]);
 await polls();
 check('so it stays gone while another download keeps the list polling',
       listed().includes('v2.safetensors'), false);
@@ -72,7 +73,7 @@ check('none of them comes back', listed(), ['v1.safetensors']);
 server = server.concat(download(5, 'error'));
 await waitFor('a new failure', () => listed().includes('v5.safetensors'));
 forgets = false;
-await act('downloads.dismiss', { versionId: 5 });
+await act('downloads.dismiss', { fileId: 1005 });
 await polls();
 check('a dismissed download a poll still carries stays off the list', listed().includes('v5.safetensors'), false);
 forgets = true;

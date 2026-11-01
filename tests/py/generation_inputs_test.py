@@ -415,8 +415,9 @@ conn.commit()
 
 
 # What a later migration adds, which v44 does not touch: v46's column on
-# models (#262). Such a table is compared by its other columns, not its SQL.
-LATER = {'models': {'civitai_gone_at'}}
+# models (#262), and v47's key on downloads (#374). Such a table is compared
+# by its other columns, not its SQL.
+LATER = {'models': {'civitai_gone_at'}, 'downloads': set()}
 
 
 def dump(path):

@@ -10,7 +10,7 @@ window.mmTiming = { poll: 20 };
 const { check, waitFor, done } = checker();
 
 const MB = 1024 * 1024;
-const download = (id, extra) => ({ version_id: id, file_name: `v${id}.safetensors`, status: 'downloading',
+const download = (id, extra) => ({ version_id: id, file_id: 1000 + id, file_name: `v${id}.safetensors`, status: 'downloading',
                                    percent: 42.1, downloaded_bytes: 2.7 * 1024 * MB, total_bytes: 6.5 * 1024 * MB,
                                    synced: false, ...extra });
 const server = [download(1, { speed_bps: 12.4 * MB, eta_seconds: 300, stalled: false }),

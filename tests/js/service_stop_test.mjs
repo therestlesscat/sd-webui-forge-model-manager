@@ -93,7 +93,7 @@ globalThis.fetch = async (url) => {
         return reply({ success: true, log: [], log_next: 0,
                        progress: { is_complete: false, processed: 1, total: 5, synced: 0, current_model: 'a' } });
     case '/model-manager/civitai/download/progress':
-        return reply({ success: true, downloads: [{ version_id: 7, model_id: 3, status: 'downloading',
+        return reply({ success: true, downloads: [{ version_id: 7, file_id: 71, model_id: 3, status: 'downloading',
                                                     progress: 10, file_name: 'a.safetensors' }] });
     default:
         return reply({ success: true, notes: [], models: [], tasks: [], total: 0, page: 1, pages: 1, counts: {},

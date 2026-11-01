@@ -31,7 +31,8 @@ let answers = {};           // version id -> the server's answer, when not "queu
 let hold = 0;               // ms each download answer is held
 let inFlight = 0, mostInFlight = 0;
 let draws = [];             // what each I'm feeling lucky draw answers, in turn
-let progress = [{ version_id: 60, file_name: 'm6.safetensors', status: 'downloading', percent: 5, synced: false }];
+// Found by its file (#374): model 6's primary, 62.
+let progress = [{ version_id: 60, file_id: 62, file_name: 'm6.safetensors', status: 'downloading', percent: 5, synced: false }];
 globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
     const reply = (body, status = 200) => ({ ok: status < 400, status, json: async () => body });
@@ -47,7 +48,8 @@ globalThis.fetch = async (url, init = {}) => {
         inFlight--;
         const answer = answers[asked.version];
         if (answer) return reply(answer.body, answer.status);
-        const queued = { version_id: asked.version, file_name: `m${asked.model}.safetensors`, status: 'pending', synced: false };
+        const queued = { version_id: asked.version, file_id: asked.file, file_name: `m${asked.model}.safetensors`,
+                         status: 'pending', synced: false };
         progress.push(queued);
         return reply({ success: true, progress: queued });
     }

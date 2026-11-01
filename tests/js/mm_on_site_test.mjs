@@ -53,7 +53,7 @@ const pills = () => Array.from(details()?.querySelectorAll('.mm-version-pill') |
 const pill = (name) => pills().find((p) => p.textContent.trim().startsWith(name));
 const onSiteButton = () => Array.from(details()?.querySelectorAll('button') || [])
     .find((b) => b.textContent.trim() === 'On-site only');
-const download = () => details()?.querySelector('[data-action="modelManager.downloadRemote"], [data-download-version]');
+const download = () => details()?.querySelector('[data-action="modelManager.downloadRemote"], [data-download-file]');
 
 await act('modelManager.selectModel', { index: 0 });
 await waitFor('the pills', () => pills().length === 4);

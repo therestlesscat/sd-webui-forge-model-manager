@@ -14,6 +14,10 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.73 - Each file of a download apart.** A download is one file, not one version: a checkpoint's
+model, VAE and text encoder download side by side, each with its own Download button and row in
+the downloads panel. A file several versions share, such as a common VAE, downloads once.
+
 **0.72 - Show the NSFW images alone.** Every gallery's NSFW switch is now three buttons, Safe,
 All and NSFW, each with how many images it holds. NSFW shows the explicit images alone, in the
 Generations tab, the Civitai Images tab and every model's gallery.

@@ -1703,7 +1703,7 @@ async function downloadSelected() {
             let result;
             if (!version?.id) {
                 result = { success: false, no_file: true };
-            } else if (onItsWay(version.id)) {
+            } else if (file?.id && onItsWay(file.id)) {
                 result = { success: false, coming: true };
             } else {
                 try {

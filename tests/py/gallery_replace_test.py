@@ -103,6 +103,51 @@ Civitai.answer = {'images': [{'id': 10, 'url': 'new10', 'browsingLevel': 1},
 check('one that works replaces it', (sync(), stored()), (True, [10, 11]))
 check('and records where Civitai\'s next page starts', cursor(), 'new-cursor')
 
+# Two files of one version landing at once (#374): each download's sync
+# replaces the version's gallery, both at the same moment here - held until
+# both have asked Civitai for it. Each replace is one transaction, so the
+# second is whole: the gallery once, both files in the library.
+import threading                                         # noqa: E402
+
+FILE2 = os.path.join(WORK, 'vae.safetensors')
+with open(FILE2, 'wb') as f:
+    f.write(b'vae weights')
+both_asked = threading.Barrier(2, timeout=5)
+
+
+class AtOnce(Civitai):
+    def get_model_images(self, version_id, cursor=None, limit=100):
+        try:
+            both_asked.wait()
+        except threading.BrokenBarrierError:
+            pass
+        return Civitai.answer
+
+
+Civitai.answer = {'images': [{'id': 20, 'url': 'new20', 'browsingLevel': 1},
+                             {'id': 21, 'url': 'new21', 'browsingLevel': 1}],
+                  'next_cursor': 'after-both'}
+landed = {}
+
+
+def land(path):
+    try:
+        landed[path] = SyncService(client=AtOnce()).sync_model(path, force=True).success
+    except Exception as error:                           # noqa: BLE001
+        landed[path] = repr(error)
+
+
+threads = [threading.Thread(target=land, args=(path,)) for path in (FILE, FILE2)]
+for thread in threads:
+    thread.start()
+for thread in threads:
+    thread.join(10)
+check('two files of one version landing at once: both syncs work', landed, {FILE: True, FILE2: True})
+check('the version\'s gallery is whole, once', (stored(), cursor()), ([20, 21], 'after-both'))
+check('and both files are the version\'s in the library',
+      sorted((os.path.basename(r['file_path']), r['version_id']) for r in db.library_files(version_ids=[VERSION])),
+      [('m.safetensors', VERSION), ('vae.safetensors', VERSION)])
+
 db.close()
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

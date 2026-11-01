@@ -6,6 +6,17 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.73 - Each file of a download apart
+
+*1 November 2026*
+
+A download is now one file, not one version: a checkpoint's model, VAE and text encoder, or a
+version's fp16 and fp32, download side by side, and each file's Download button, row and controls
+are its own. A file shared by several versions, such as a common VAE, is one download whichever
+version asks for it.
+
+- **0.73.0** (build 594) - Every download was found by its version (#374, refers to #189): once one file of a version had downloaded, the Download button read Downloaded, greyed out, for every other file of that version until its row was dismissed. The queue, the panel's controls and the downloads kept across a restart held one download per version too. Each download is now found by its Civitai file id: in the queue, in the downloads panel's Pause, Resume, Start now, ↑, ↓, Retry, Cancel and Dismiss, in every Download button and in the downloads kept across a restart. Two files of one version are queued, fetched, paused and kept apart; one file listed under several versions is one download. The Resources dialog's Download of a version whose file Civitai finds by no hash now takes the version's primary file at the press, from the version's files the library has stored, asking Civitai first only when none are stored. The database moves to v47: the kept downloads are keyed by file, each carried over, one kept without its file taking its version's primary from the stored list, or named at its turn when no list names it.
+
 ## 0.72 - Show the NSFW images alone
 
 *31 October 2026*

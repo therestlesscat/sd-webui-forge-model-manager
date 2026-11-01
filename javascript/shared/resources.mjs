@@ -96,7 +96,8 @@ export function resourceDownload(versionId) {
     if (job.refused) return { ...job, ...job.refused };
     if (job.asking) return { ...job, status: 'starting', percent: 0 };
     if (job.held) return { ...job, status: 'complete', percent: 100 };
-    const state = downloadState(job.target || versionId);
+    // Followed by its file (#374): the one its press was answered with.
+    const state = job.file != null ? downloadState(job.file) : null;
     return state && { ...job, ...state };
 }
 
@@ -912,16 +913,6 @@ function redrawSendBar() {
  */
 export async function downloadResource(versionId, modelId, hash = '', { chip = false, newest = false } = {}) {
     if (!downloads()) return;
-    if (onItsWay(versionId)) {
-        // Coming already - started in the Civitai Browser, say: followed as
-        // it is, not asked for again. It was refused, marked failed and never
-        // followed, and stayed failed once it had landed (#119).
-        resourceDownloads[versionId] = { modelId, hash, target: versionId, chip };
-        followResourceDownloads();
-        redrawResourceDownload(versionId, { versionId, modelId });
-        announceDownloads();
-        return;
-    }
     resourceDownloads[versionId] = { modelId, hash, asking: true, chip };
     redrawResourceDownload(versionId, { versionId, modelId, hash });
     announceDownloads();
@@ -938,6 +929,17 @@ export async function downloadResource(versionId, modelId, hash = '', { chip = f
                 .catch(() => null);
             fileId = found?.file?.file_id || undefined;
             listed = found?.file;
+        }
+        if (fileId && onItsWay(fileId)) {
+            // Coming already - started in the Civitai Browser, say: followed as
+            // it is, not asked for again. It was refused, marked failed and never
+            // followed, and stayed failed once it had landed (#119). A file the
+            // server names itself, it answers with any download of it coming.
+            Object.assign(resourceDownloads[versionId], { asking: false, target: versionId, file: fileId });
+            followResourceDownloads();
+            redrawResourceDownload(versionId, { versionId, modelId });
+            announceDownloads();
+            return;
         }
         // No file Civitai lists by the hash - the version deleted, say - is
         // downloaded as before: the version's primary, or, for a chip or the
@@ -959,7 +961,8 @@ export async function downloadResource(versionId, modelId, hash = '', { chip = f
                         error: (data && data.error) || 'Download failed' };
         console.warn(`[ModelManager] Download of version ${versionId} refused: ${job.refused.error}`);
     } else {
-        Object.assign(job, { target: data.version_id, versionName: data.version_name,
+        Object.assign(job, { target: data.version_id, file: data.progress?.file_id ?? data.file_id ?? null,
+                             versionName: data.version_name,
                              substituted: !!data.substituted });
         // A substitute the library has already: nothing is downloaded.
         if (data.already_installed) {
@@ -997,7 +1000,7 @@ function followResourceDownloads() {
         if (state && state.status === 'complete' && !job.announced) finishResourceDownload(Number(id));
         else if (state && (state.status === 'error' || state.status === 'cancelled') && !job.warned) {
             job.warned = true;
-            const name = downloads().progress(job.target)?.file_name || `version ${id}`;
+            const name = downloads().progress(job.file)?.file_name || `version ${id}`;
             console.warn(`[ModelManager] Download of ${name} failed: ${state.error || state.status}`);
         }
         redrawResourceDownload(Number(id));

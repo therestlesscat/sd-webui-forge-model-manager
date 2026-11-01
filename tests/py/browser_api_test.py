@@ -828,18 +828,20 @@ class FakeDownloads:
         # The version's data, or None when queued by its ids alone (#223).
         self.queued.append((version_id, (version_data or {}).get('id'), file_index, file_id))
         self.asked.append({'model_id': model_id, 'file_name': file_name, 'size_kb': size_kb})
-        record = ds.DownloadProgress(version_id=version_id, file_name='m.safetensors')
-        self.progress[version_id] = record
+        # Found by its file, as the service finds it (#374).
+        key = ds.download_key(version_id, version_data, file_index, file_id)
+        record = ds.DownloadProgress(version_id=version_id, file_id=key, file_name='m.safetensors')
+        self.progress[key] = record
         return record
 
-    def get_progress(self, version_id):
-        return self.progress.get(version_id)
+    def get_progress(self, file_id):
+        return self.progress.get(file_id)
 
     def get_all_progress(self):
         return [p.to_dict() for p in self.progress.values()]
 
-    def cancel(self, version_id):
-        self.cancelled.append(version_id)
+    def cancel(self, file_id):
+        self.cancelled.append(file_id)
 
     def cancel_all(self):
         self.all_cancelled += 1
@@ -853,21 +855,46 @@ ds.get_download_service = lambda: downloads
 # first cost each press about 0.4 s, and Download selected pressed one after
 # another.
 civitai(model=remote(90140, 90141))
-status, body = post('/model-manager/civitai/download', version_id=90141, model_id=90140,
+status, body = post('/model-manager/civitai/download', version_id=90141, model_id=90140, file_id=631,
                     file_name='page.safetensors', size_kb=2048)
-check('named by model and version: queued at once, Civitai not asked',
+check('named by model, version and file: queued at once, Civitai not asked',
       (status, body['success'], body['version_id'], [c for c in Stub.calls if c[0] != 'close']),
       (200, True, 90141, []))
 check('by its ids alone: no data, its model kept for its turn',
-      (downloads.queued[-1], downloads.asked[-1]['model_id']), ((90141, None, None, None), 90140))
+      (downloads.queued[-1], downloads.asked[-1]['model_id']), ((90141, None, None, 631), 90140))
 check('with the name and size the page sent, the row\'s until its turn',
       (downloads.asked[-1]['file_name'], downloads.asked[-1]['size_kb']), ('page.safetensors', 2048.0))
-check('and the UI is handed something to poll', body['progress']['version_id'], 90141)
+check('and the UI is handed something to poll, found by its file (#374)',
+      [body['progress']['version_id'], body['progress']['file_id'], body.get('file_id')], [90141, 631, 631])
+
+# With no file named - the Resources dialog's Download, no file found by its
+# hash - the route names it before queuing (#374): the primary, from the
+# version's files the library has stored, Civitai not asked.
+with sqlite3.connect(db.db_path) as raw:
+    raw.execute("INSERT OR REPLACE INTO models (id, name, type, nsfw_level, versions) VALUES (90140, 'Stored', "
+                "'Checkpoint', 1, ?)", (json.dumps([{'id': 90141, 'files': [
+                    {'id': 632, 'name': 'full.safetensors', 'sizeKB': 8.0},
+                    {'id': 633, 'name': 'pruned.safetensors', 'sizeKB': 4.0, 'primary': True}]}]),))
+civitai(model=remote(90140, 90141))
+status, body = post('/model-manager/civitai/download', version_id=90141, model_id=90140)
+check('no file named, the version\'s files stored: the primary, its name and size, Civitai not asked',
+      (status, downloads.queued[-1], downloads.asked[-1]['file_name'], downloads.asked[-1]['size_kb'],
+       body.get('file_id'), [c for c in Stub.calls if c[0] != 'close']),
+      (200, (90141, None, None, 633), 'pruned.safetensors', 4.0, 633, []))
+post('/model-manager/civitai/download', version_id=90141, model_id=90140, file_index=0)
+check('and a file position picks among them', downloads.queued[-1][3], 632)
+with sqlite3.connect(db.db_path) as raw:
+    raw.execute("DELETE FROM models WHERE id = 90140")
+
+civitai(model=remote(90140, 90141))
+status, body = post('/model-manager/civitai/download', version_id=90141, model_id=90140)
+check('no file named and none stored: Civitai is asked once, and the primary queued with its data',
+      (status, [c[0] for c in Stub.calls if c[0] != 'close'], downloads.queued[-1], body.get('file_id')),
+      (200, ['get_model'], (90141, 90141, None, None), 90141 * 7))
+check('the row is found by that file', body['progress']['file_id'], 90141 * 7)
 
 post('/model-manager/civitai/download', version_id=90141, model_id=90140, file_id=7)
 check('the file the picker chose is passed along', downloads.queued[-1][3], 7)
-post('/model-manager/civitai/download', version_id=90141, model_id=90140, file_index=1)
-check('and so is a file position', downloads.queued[-1][2], 1)
 
 # Without its model - an image's resource may not say - Civitai is asked
 # first, as before: whose version it is, then the model.
@@ -885,16 +912,18 @@ civitai(raises=RuntimeError('download setup failed'))
 status, body = post('/model-manager/civitai/download', version_id=1)
 check('anything else is a 500', status, 500)
 
-status, body = get('/model-manager/civitai/download/progress', version_id=90141)
-check('progress for one download answers', body['progress']['version_id'], 90141)
-status, body = get('/model-manager/civitai/download/progress', version_id=404404)
+status, body = get('/model-manager/civitai/download/progress', file_id=631)
+check('progress for one download answers, by its file', body['progress']['version_id'], 90141)
+status, body = get('/model-manager/civitai/download/progress', file_id=90141)
+check('not by its version', body['progress'], None)
+status, body = get('/model-manager/civitai/download/progress', file_id=404404)
 check('one nobody started is None, not an error', body['progress'], None)
 check('with an explanation', 'No download found' in body['message'], True)
 status, body = get('/model-manager/civitai/download/progress')
-check('and all of them at once', len(body['downloads']), 1)
+check('and all of them at once', len(body['downloads']), len(downloads.progress))
 
-status, body = post('/model-manager/civitai/download/cancel', version_id=90141)
-check('a cancel reaches the service', downloads.cancelled, [90141])
+status, body = post('/model-manager/civitai/download/cancel', file_id=631)
+check('a cancel reaches the service, naming the file', downloads.cancelled, [631])
 check('and is acknowledged', body['success'], True)
 status, body = post('/model-manager/civitai/download/cancel')
 check('and no id cancels everything', downloads.all_cancelled, 1)
@@ -905,21 +934,21 @@ check('and no id cancels everything', downloads.all_cancelled, 1)
 # dismissed in the page came straight back.
 service = ds.DownloadService()
 for vid, status in ((1, 'complete'), (2, 'error'), (3, 'downloading'), (4, 'cancelled')):
-    service._active_downloads[vid] = ds.DownloadProgress(version_id=vid, status=status)
-check('one finished download is forgotten on its own', service.dismiss(1), [1])
-check('one still running is kept, whatever is asked', service.dismiss(3), [])
+    service._active_downloads[100 + vid] = ds.DownloadProgress(version_id=vid, file_id=100 + vid, status=status)
+check('one finished download is forgotten on its own, by its file', service.dismiss(101), [101])
+check('one still running is kept, whatever is asked', service.dismiss(103), [])
 check('and every finished one at once, leaving the running one',
       (sorted(service.dismiss()), [p['version_id'] for p in service.get_all_progress()]),
-      ([2, 4], [3]))
+      ([102, 104], [3]))
 
 ds.get_download_service = lambda: service
-service._active_downloads[5] = ds.DownloadProgress(version_id=5, status='complete')
-service._active_downloads[6] = ds.DownloadProgress(version_id=6, status='error')
-status, body = post('/model-manager/civitai/download/dismiss', version_id=5)
-check('the endpoint forgets the one asked', (status, body['dismissed']), (200, [5]))
+service._active_downloads[105] = ds.DownloadProgress(version_id=5, file_id=105, status='complete')
+service._active_downloads[106] = ds.DownloadProgress(version_id=6, file_id=106, status='error')
+status, body = post('/model-manager/civitai/download/dismiss', file_id=105)
+check('the endpoint forgets the one asked, by its file', (status, body['dismissed']), (200, [105]))
 status, body = post('/model-manager/civitai/download/dismiss')
 check('and with no id, every finished one',
-      (body['dismissed'], [p['version_id'] for p in service.get_all_progress()]), ([6], [3]))
+      (body['dismissed'], [p['version_id'] for p in service.get_all_progress()]), ([106], [3]))
 ds.get_download_service = lambda: downloads
 
 # Retry (#223): Civitai is asked at a download's turn, so a failure there is
@@ -927,14 +956,14 @@ ds.get_download_service = lambda: downloads
 service = ds.DownloadService()
 service._store = (lambda: [], lambda rows: None)
 service.max_concurrent = 0          # nothing starts: its turn is download_test's
-service._active_downloads[7] = ds.DownloadProgress(version_id=7, status='error', error='Civitai is busy')
-service._active_downloads[8] = ds.DownloadProgress(version_id=8, status='pending')
+service._active_downloads[107] = ds.DownloadProgress(version_id=7, file_id=107, status='error', error='Civitai is busy')
+service._active_downloads[108] = ds.DownloadProgress(version_id=8, file_id=108, status='pending')
 ds.get_download_service = lambda: service
-status, body = post('/model-manager/civitai/download/control', action='retry', version_id=7)
+status, body = post('/model-manager/civitai/download/control', action='retry', file_id=107)
 check('the control route retries a failed download: waiting again, last in the list',
       (status, body.get('done'), [(d['version_id'], d['status'], d['error']) for d in body.get('downloads', [])]),
       (200, True, [(8, 'pending', None), (7, 'pending', None)]))
-status, body = post('/model-manager/civitai/download/control', action='sideways', version_id=7)
+status, body = post('/model-manager/civitai/download/control', action='sideways', file_id=107)
 check('an action it does not know is still a 400', status, 400)
 ds.get_download_service = lambda: downloads
 
@@ -947,8 +976,8 @@ ds.get_download_service = broken_service
 check('progress with no service is a 500',
       get('/model-manager/civitai/download/progress')[0], 500)
 check('and so is a cancel',
-      post('/model-manager/civitai/download/cancel', version_id=1)[0], 500)
-check('and a dismiss', post('/model-manager/civitai/download/dismiss', version_id=1)[0], 500)
+      post('/model-manager/civitai/download/cancel', file_id=1)[0], 500)
+check('and a dismiss', post('/model-manager/civitai/download/dismiss', file_id=1)[0], 500)
 ds.get_download_service = lambda: downloads
 
 # ------------------------------------------------- downloads from an image
@@ -981,8 +1010,8 @@ check('a version gone from its model: the model\'s newest is downloaded instead'
       (downloads.queued[-1][:2], body['version_id'], body['version_name'], body['substituted']),
       ((90172, 90172), 90172, 'v2', True))
 check('and progress is for that one', body['progress']['version_id'], 90172)
-status, body = post('/model-manager/civitai/download', version_id=90175, model_id=90170)
-check('not asked for: queued at once, by its ids - its turn finds it gone, an Error row',
+status, body = post('/model-manager/civitai/download', version_id=90175, model_id=90170, file_id=90175 * 7)
+check('not asked for, its file named: queued at once, by its ids - its turn finds it gone, an Error row',
       (status, downloads.queued[-1][:2]), (200, (90175, None)))
 
 # The image's own version is never asked about: the page offers its Download
@@ -1039,8 +1068,8 @@ check('another file of the version is not that one: queued',
 
 downloads.placed = []
 status, body = post('/model-manager/civitai/download', version_id=90181, model_id=90180)
-check('no file named: queued, the library asked at its turn, once the file is known',
-      (body.get('already_installed'), downloads.queued[-1][:2], downloads.placed), (None, (90181, None), []))
+check('no file named and none stored: Civitai asked first, then the library about the primary - held (#374)',
+      (body.get('already_installed'), body.get('file_id'), downloads.placed), (True, 802, [802]))
 
 downloads.placed = []
 status, body = post('/model-manager/civitai/download', version_id=90181, model_id=90180, newer_if_gone='true')
@@ -1072,8 +1101,8 @@ status, body = post('/model-manager/civitai/download', version_id=90191, model_i
 check('one the account has not bought: said no, in the queue\'s words; nothing queued',
       (status, body.get('paid'), 'has not bought it' in (body.get('error') or ''), len(downloads.queued) - before),
       (403, True, True, 0))
-status, body = post('/model-manager/civitai/download', version_id=90191, model_id=90190)
-check('named by model and version, the same one is queued: its turn says no',
+status, body = post('/model-manager/civitai/download', version_id=90191, model_id=90190, file_id=90191 * 7)
+check('named by model, version and file, the same one is queued: its turn says no',
       (status, body['success'], body.get('paid'), len(downloads.queued) - before), (200, True, None, 1))
 
 ds.owned_versions = lambda ids: {90191: True}
@@ -1087,8 +1116,8 @@ before = len(downloads.queued)
 status, body = post('/model-manager/civitai/download', version_id=90196, model_id=90195, newer_if_gone='true')
 check('a version with no file: said no; nothing queued',
       (status, body['success'], body.get('no_file'), len(downloads.queued) - before), (409, False, True, 0))
-status, body = post('/model-manager/civitai/download', version_id=90196, model_id=90195)
-check('named by model and version, it is queued: its turn says there is no file',
+status, body = post('/model-manager/civitai/download', version_id=90196, model_id=90195, file_id=1)
+check('named by model, version and a file, it is queued: its turn says there is no file',
       (status, body.get('no_file'), len(downloads.queued) - before), (200, None, 1))
 
 # ---------------------------------------------------------------------- tags

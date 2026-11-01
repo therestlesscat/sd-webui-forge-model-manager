@@ -56,7 +56,7 @@ globalThis.fetch = async (url, init = {}) => {
         posted.push(Object.fromEntries(init.body.entries()));
         if (refuse) return reply({ success: false, error: refuse });
         if (heldAnswer) return reply(heldAnswer);
-        progress.push({ version_id: 503, file_name: 'v3_fp32.safetensors', status: 'downloading', percent: 40,
+        progress.push({ version_id: 503, file_id: 9031, file_name: 'v3_fp32.safetensors', status: 'downloading', percent: 40,
                         downloaded_bytes: 400, total_bytes: 1000, synced: false });
         return reply({ success: true, progress: structuredClone(progress[0]) });
     }
@@ -213,9 +213,14 @@ await click(button());
 check('   so a second click starts nothing', posted.length, 1);
 await click(pill('v2'));
 await click(pill('v3'));
-check('   and it is still disabled after another version and back',
-      [button()?.disabled, button()?.textContent.trim()], [true, 'Downloading...']);
+// The button is the file's (#374): back on the version, its primary - the
+// fp16, not the fp32 on its way - offers Download; the fp32 picked, it
+// shows its download again.
+check('   after another version and back, the primary - another file - offers Download',
+      [button()?.disabled, button()?.textContent.trim()], [false, 'Download']);
 await choose('modelManager.selectFile', '0');
+check('   and the file on its way, picked again, is still disabled, saying how it is going',
+      [button()?.disabled, button()?.textContent.trim()], [true, 'Downloading...']);
 const panel = document.getElementById('mm_downloads');
 const badge = () => panel.querySelector('.mm-download-status-badge')?.textContent.trim();
 check('   and the download shows in the tab\'s own panel, as it does in the Civitai Browser\'s',

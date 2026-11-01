@@ -309,7 +309,7 @@ globalThis.fetch = withGalleryPages(async (url, init = {}) => {
         return reply({ success: true, versions: answered, hashes: {} });
     }
     if (href.includes('/model-manager/civitai/download/progress')) {
-        const asked = new URL(href, 'http://webui').searchParams.get('version_id');
+        const asked = new URL(href, 'http://webui').searchParams.get('file_id');
         if (!asked) {
             listAsked += 1;
             return reply({ success: true, downloads: Object.values(server.progress) });
@@ -337,16 +337,17 @@ check('a version the library has says so, and offers no download',
       [cell(6002).textContent.trim(), !!cell(6002).querySelector('button')], ['Installed', false]);
 check('one it does not have offers Download', cell(6001).textContent.trim(), 'Download');
 
-server.download[6001] = { success: true, version_id: 6001, version_name: 'v1', substituted: false,
-                          progress: { version_id: 6001, percent: 0, status: 'pending' } };
-server.progress[6001] = { version_id: 6001, percent: 40.2, status: 'downloading', synced: false };
+// Found by its file (#374): the server names it, 60011 of version 6001.
+server.download[6001] = { success: true, version_id: 6001, version_name: 'v1', substituted: false, file_id: 60011,
+                          progress: { version_id: 6001, file_id: 60011, percent: 0, status: 'pending' } };
+server.progress[60011] = { version_id: 6001, file_id: 60011, percent: 40.2, status: 'downloading', synced: false };
 download(6001);
 await waitFor('the download to be asked for', () => downloadsAsked.length === 1);
 check('it asks the server for that very version, never a newer one (#372)',
       [downloadsAsked[0].version_id, 'newer_if_gone' in downloadsAsked[0]], ['6001', false]);
 await waitFor('progress', () => cell(6001)?.textContent.includes('40%'));
 check('and shows how far it has got', cell(6001).textContent.trim(), '40%');
-server.progress[6001] = { version_id: 6001, percent: 100, status: 'complete', synced: true };
+server.progress[60011] = { version_id: 6001, file_id: 60011, percent: 100, status: 'complete', synced: true };
 await waitFor('the finish', () => cell(6001)?.textContent.includes('Downloaded'), 200);
 // The Download button's word, from the same downloads list (#111).
 check('in the library, it says Downloaded, as a Download button does', cell(6001).textContent.trim(), 'Downloaded');
@@ -361,9 +362,9 @@ check('a version Civitai deleted says so under its name, and its button names th
 check('a version Civitai still lists says nothing of the kind',
       [!!panel().querySelector('[data-res-name="6001"] .mm-res-gone'), !!panel().querySelector('[data-res-name="6002"] .mm-res-gone')],
       [false, false]);
-server.download[7001] = { success: true, version_id: 7009, version_name: 'v3', substituted: true,
-                          progress: { version_id: 7009, percent: 0, status: 'pending' } };
-server.progress[7009] = { version_id: 7009, percent: 100, status: 'complete', synced: true };
+server.download[7001] = { success: true, version_id: 7009, version_name: 'v3', substituted: true, file_id: 70091,
+                          progress: { version_id: 7009, file_id: 70091, percent: 0, status: 'pending' } };
+server.progress[70091] = { version_id: 7009, file_id: 70091, percent: 100, status: 'complete', synced: true };
 download(7001);
 await waitFor('the newer version', () => cell(7001)?.textContent.includes('Downloaded'), 200);
 check('that button asks for the newest, the version being gone',

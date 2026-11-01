@@ -1,5 +1,28 @@
 [
     {
+        "id": "shared-database-0-73-0",
+        "version": "0.73.0",
+        "kind": "warning",
+        "audience": "update",
+        "important": true,
+        "when": "custom_database",
+        "tabs": [
+            "model_manager",
+            "civitai_browser",
+            "generations"
+        ],
+        "title": "This update changed the database: update the extension in your other WebUI too",
+        "text": "If Forge Neo and the original Forge share one database (Database file, in the settings), update the copy of this extension in the other WebUI before starting it. This version keeps each file of a download apart, so two files of one version can download together; an older copy cannot open the database any more, and its tabs would fail until it is updated. If you use this extension in one WebUI only, there is nothing to do.",
+        "action": {
+            "id": "settings",
+            "label": "Open settings",
+            "section": "files"
+        },
+        "replaces": [
+            "shared-database-0-69-1"
+        ]
+    },
+    {
         "id": "recorded-twice-0-70-5",
         "version": "0.70.5",
         "kind": "action",

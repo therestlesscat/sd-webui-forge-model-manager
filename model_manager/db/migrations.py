@@ -2587,6 +2587,93 @@ def _migrate_to_v46(cursor):
     print("[ModelManager] Migration to v46 complete")
 
 
+def _v47_primary(versions_json, version_id):
+    """
+    The file a download of this version with no file named takes, from the
+    model's stored list: Civitai's primary, else the first - pick_file_index
+    as of v47, frozen here. None when the list does not name the version's files.
+    """
+    try:
+        versions = json.loads(versions_json) if versions_json else []
+    except (TypeError, ValueError):
+        return None
+    for version in versions or []:
+        if isinstance(version, dict) and version.get("id") == version_id:
+            files = [f for f in version.get("files") or [] if isinstance(f, dict) and f.get("id") is not None]
+            chosen = next((f for f in files if f.get("primary")), files[0] if files else None)
+            return chosen["id"] if chosen else None
+    return None
+
+
+def _migrate_to_v47(cursor):
+    """
+    A kept download is one file (#374): `downloads` is keyed by
+    (install, file_id), not (install, version_id), so two files of one
+    version are kept, and brought back after a restart, apart. Every row is
+    carried over but a second row of a file one install already keeps - one
+    shared file queued from two versions - which is the same download: its
+    .partial stays on disk, named on the console. One kept with no file id - a Resources download whose file
+    was picked only at its turn - takes its version's primary from the
+    model's stored list; where no list names it, its version id negated,
+    which the queue reads as "file not named yet" until its turn names it.
+    Each row is compared after, and any difference leaves the table as it was.
+    """
+    print("[ModelManager] Migrating to v47: one kept download per file...")
+    cursor.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('downloads', 'models')")
+    tables = {row[0] for row in cursor.fetchall()}
+    if "downloads" not in tables:
+        print("[ModelManager] Migration to v47 complete")
+        return
+    columns = ("install", "version_id", "position", "model_id", "file_id", "file_index",
+               "file_name", "partial_path", "total_bytes")
+    cursor.execute(f"SELECT {', '.join(columns)} FROM downloads ORDER BY install, position")
+    old = [dict(zip(columns, row)) for row in cursor.fetchall()]
+    new = []
+    for row in old:
+        row = dict(row)
+        if row["file_id"] is None:
+            named = None
+            if "models" in tables and row["model_id"] is not None:
+                cursor.execute("SELECT versions FROM models WHERE id = ?", (row["model_id"],))
+                found = cursor.fetchone()
+                named = _v47_primary(found[0], row["version_id"]) if found else None
+            row["file_id"] = named if named is not None else -abs(int(row["version_id"]))
+        new.append(row)
+    # The same file kept twice under one install - two versions listing one
+    # shared file - is one download now: the first in the list stays.
+    kept, seen = [], set()
+    for row in new:
+        if (row["install"], row["file_id"]) not in seen:
+            seen.add((row["install"], row["file_id"]))
+            kept.append(row)
+        else:
+            print(f"[ModelManager] v47: file {row['file_id']} was kept twice; its second copy, "
+                  f"of version {row['version_id']}, is not ({row['partial_path'] or 'not begun'})")
+    cursor.execute("ALTER TABLE downloads RENAME TO downloads_v46")
+    cursor.execute("""
+        CREATE TABLE downloads (
+            install TEXT NOT NULL,
+            version_id INTEGER NOT NULL,
+            position INTEGER NOT NULL,
+            model_id INTEGER,
+            file_id INTEGER NOT NULL,
+            file_index INTEGER,
+            file_name TEXT,
+            partial_path TEXT,
+            total_bytes INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (install, file_id)
+        )
+    """)
+    cursor.executemany(f"INSERT INTO downloads ({', '.join(columns)}) VALUES ({', '.join('?' * len(columns))})",
+                       [tuple(row[c] for c in columns) for row in kept])
+    cursor.execute(f"SELECT {', '.join(columns)} FROM downloads ORDER BY install, position")
+    back = [dict(zip(columns, row)) for row in cursor.fetchall()]
+    if back != kept:
+        raise RuntimeError("v47: the downloads table did not come out as it went in")
+    cursor.execute("DROP TABLE downloads_v46")
+    print(f"[ModelManager] Migration to v47 complete: {len(kept)} kept download(s)")
+
+
 def run_migrations(cursor, from_version: int, to_version: int,
                    db_path: str, db_dir: str, progress=None):
     """
@@ -2615,6 +2702,7 @@ def run_migrations(cursor, from_version: int, to_version: int,
         41: lambda c: _migrate_to_v41(c, db_path),
         42: lambda c: _migrate_to_v42(c, db_path, progress),
         43: _migrate_to_v43, 44: _migrate_to_v44, 45: _migrate_to_v45, 46: _migrate_to_v46,
+        47: _migrate_to_v47,
     }
     for version in sorted(steps):
         if from_version < version <= to_version:
