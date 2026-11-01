@@ -125,7 +125,7 @@ globalThis.fetch = withGalleryPages(async (url, init = {}) => {
             images_state: { version_id: VERSION_ID, next_cursor: null,
                             sync_date: '2026-01-01T00:00:00Z', total_count: 1,
                             hidden_count: 0, hidden_nsfw: 0, hidden_promptless: 0,
-                            hide_nsfw_images: false, hide_promptless_images: true },
+                            nsfw_images: 'all', hide_promptless_images: true },
         } }) };
     }
     if (href.includes('/model-manager/models/versions')) {

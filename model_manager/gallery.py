@@ -121,8 +121,31 @@ def fetch_gallery(client, version_id: int, count: int) -> Tuple[List[Dict[str, A
     return images, cursor
 
 
+# The NSFW switch's three states (#363): explicit images hidden - the
+# default, as the switch was before - everything shown, or the safe ones
+# hidden. A request names one; a yes or no to hiding explicit images, as the
+# switch sent before, is read as the first two.
+SAFE, ALL, NSFW = "safe", "all", "nsfw"
+NSFW_MODES = (SAFE, ALL, NSFW)
+
+
+def nsfw_mode(value: Any) -> str:
+    """
+    The NSFW switch's state: one of NSFW_MODES, named or as a yes or no to
+    hiding explicit images.
+
+    Raises:
+        ValueError: for a word that is no mode.
+    """
+    if isinstance(value, str):
+        if value.lower() not in NSFW_MODES:
+            raise ValueError(f"no such NSFW mode: {value!r}")
+        return value.lower()
+    return SAFE if value else ALL
+
+
 def switch_counts(items: Sequence[Any], safe: Sequence[bool], readable: Sequence[bool],
-                  hide_nsfw: bool, hide_promptless: bool) -> Tuple[List[Any], Dict[str, int]]:
+                  nsfw: Any, hide_promptless: bool) -> Tuple[List[Any], Dict[str, int]]:
     """
     The items the two switches let through, in order, and the counts - as
     ImagesOps.get_image_counts() means each - over all of them: what each
@@ -131,27 +154,44 @@ def switch_counts(items: Sequence[Any], safe: Sequence[bool], readable: Sequence
     Args:
         safe: for each item, whether it is no more than PG-13.
         readable: for each item, whether its prompt is worth reading.
+        nsfw: the NSFW switch's mode (nsfw_mode).
     """
+    mode = nsfw_mode(nsfw)
     n = len(items)
-    nsfw_kept = [i for i in range(n) if safe[i] or not hide_nsfw]
+    nsfw_kept = [i for i in range(n) if mode == ALL or safe[i] == (mode == SAFE)]
     shown = [i for i in nsfw_kept if readable[i] or not hide_promptless]
-    both = sum(1 for i in range(n)
-               if hide_nsfw and hide_promptless and not safe[i] and not readable[i])
+    kept = set(nsfw_kept)
+    both = sum(1 for i in range(n) if hide_promptless and i not in kept and not readable[i])
+    hidden_by_nsfw = n - len(nsfw_kept) - both
     return [items[i] for i in shown], {
         "total": n,
         "filtered": len(shown),
-        "hidden_nsfw": n - len(nsfw_kept) - both,
+        "hidden_nsfw": hidden_by_nsfw if mode == SAFE else 0,
+        "hidden_safe": hidden_by_nsfw if mode == NSFW else 0,
         "hidden_both": both,
         "hidden_promptless": len(nsfw_kept) - len(shown),
         "hidden": n - len(shown),
         "nsfw_count": sum(1 for i in range(n)
                           if not safe[i] and (readable[i] or not hide_promptless)),
+        "safe_count": sum(1 for i in range(n)
+                          if safe[i] and (readable[i] or not hide_promptless)),
         "promptless_count": sum(1 for i in nsfw_kept if not readable[i]),
         "promptless_total": sum(1 for r in readable if not r),
     }
 
 
-def switch_counts_sql(hide_nsfw: bool, hide_promptless: bool,
+def nsfw_shown(total: int, explicit: int, nsfw: Any) -> int:
+    """Of `total` images, `explicit` of them explicit, how many the NSFW switch lets through."""
+    mode = nsfw_mode(nsfw)
+    return explicit if mode == NSFW else total - explicit if mode == SAFE else total
+
+
+def nsfw_kept_sql(nsfw: Any, safe: str = "safe") -> str:
+    """What the NSFW switch lets through, as SQL over a `safe` column of 1 or 0."""
+    return {SAFE: f"({safe})", ALL: "1", NSFW: f"(NOT {safe})"}[nsfw_mode(nsfw)]
+
+
+def switch_counts_sql(nsfw: Any, hide_promptless: bool,
                       safe: str = "safe", readable: str = "readable") -> str:
     """
     switch_counts()'s counts as SQL aggregates, each named as it names them,
@@ -159,27 +199,31 @@ def switch_counts_sql(hide_nsfw: bool, hide_promptless: bool,
     that counts in SQL, rather than handing every row to Python (#231).
     switch_counts_test holds the two to the same answers.
     """
-    kept = f"({safe} OR NOT {int(bool(hide_nsfw))})"
+    mode = nsfw_mode(nsfw)
+    kept = nsfw_kept_sql(mode, safe)
     shown = f"({kept} AND ({readable} OR NOT {int(bool(hide_promptless))}))"
-    both = f"({int(bool(hide_nsfw and hide_promptless))} AND NOT {safe} AND NOT {readable})"
+    both = f"({int(bool(hide_promptless))} AND NOT {kept} AND NOT {readable})"
+    hidden_by_nsfw = f"COUNT(*) - TOTAL({kept}) - TOTAL({both})"
     return ", ".join([
         "COUNT(*) AS total",
         f"TOTAL({shown}) AS filtered",
-        f"COUNT(*) - TOTAL({kept}) - TOTAL({both}) AS hidden_nsfw",
+        f"{hidden_by_nsfw if mode == SAFE else 0} AS hidden_nsfw",
+        f"{hidden_by_nsfw if mode == NSFW else 0} AS hidden_safe",
         f"TOTAL({both}) AS hidden_both",
         f"TOTAL({kept}) - TOTAL({shown}) AS hidden_promptless",
         f"COUNT(*) - TOTAL({shown}) AS hidden",
         f"TOTAL(NOT {safe} AND ({readable} OR NOT {int(bool(hide_promptless))})) AS nsfw_count",
+        f"TOTAL({safe} AND ({readable} OR NOT {int(bool(hide_promptless))})) AS safe_count",
         f"TOTAL({kept} AND NOT {readable}) AS promptless_count",
         f"TOTAL(NOT {readable}) AS promptless_total",
     ])
 
 
-def filter_images(images: List[Dict[str, Any]], hide_nsfw: bool,
+def filter_images(images: List[Dict[str, Any]], nsfw: Any,
                   hide_promptless: bool) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
     """Civitai images through the switches: judged by nsfw.py, read by prompt_rules."""
     return switch_counts(
         images,
         [image_level(img) <= SFW_MAX for img in images],
         [image_readable(img) for img in images],
-        hide_nsfw, hide_promptless)
+        nsfw, hide_promptless)

@@ -59,7 +59,7 @@ globalThis.fetch = async (url) => {
     }
     if (href.includes('/generations/browse')) {
         return reply({ success: true, more: false, tiles,
-                       state: { total: 2, filtered: 2, hidden_nsfw: 0, nsfw_count: 0, hide_nsfw_images: true,
+                       state: { total: 2, filtered: 2, hidden_nsfw: 0, nsfw_count: 0, nsfw_images: 'safe',
                                 stored_generations: 2 },
                        scope: { count: 2 } });
     }

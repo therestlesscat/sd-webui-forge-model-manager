@@ -323,8 +323,8 @@ if has_fastapi:
     # the Your generations per page setting (#230) - before the switches.
     newer = generate(Processing(n_iter=1), PROMPTS[:2], [[]], extra_saves=False)
     opts.model_manager_mm_generations_per_page = 1
-    first = page(CHECKPOINT, hide_nsfw_images='false', hide_promptless_images='false')
-    second = page(CHECKPOINT, page=2, hide_nsfw_images='true', hide_promptless_images='false')
+    first = page(CHECKPOINT, nsfw_images='all', hide_promptless_images='false')
+    second = page(CHECKPOINT, page=2, nsfw_images='safe', hide_promptless_images='false')
     opts.model_manager_mm_generations_per_page = 100
     check('at one generation a page, page 1 is the newest, and more come after it',
           ([c['id'] for c in first['generations']], first['page']['more']), ([newer], True))
@@ -336,7 +336,7 @@ if has_fastapi:
     db.delete_generation(newer)
 
     # The prompt words above made images 1 and 3 explicit.
-    body = page(CHECKPOINT, hide_nsfw_images='false', hide_promptless_images='false')
+    body = page(CHECKPOINT, nsfw_images='all', hide_promptless_images='false')
     card = body['generations'][0]
     check('the checkpoint\'s gallery holds the generation, as one card',
           (len(body['generations']), card['id'], card['matching_count']), (1, generation_id, 4))
@@ -362,7 +362,7 @@ if has_fastapi:
            {'type': 'lora', 'name': 'other', 'weight': None, 'hash': '1234abcd'},
            {'type': 'embedding', 'name': 'easynegative', 'weight': None, 'hash': 'c74b4e810b'}])
 
-    body = page(CHECKPOINT, hide_nsfw_images='true', hide_promptless_images='true')
+    body = page(CHECKPOINT, nsfw_images='safe', hide_promptless_images='true')
     check('the NSFW switch hides the explicit ones, as in the Civitai gallery',
           [i['position'] for i in body['generations'][0]['images']], [0, 2])
     check('and how many generations are filed here, filtered or not, for the tab\'s label',
@@ -370,6 +370,25 @@ if has_fastapi:
     check('and the banner is told what it hid',
           {k: body['state'][k] for k in ('total', 'filtered', 'hidden_nsfw', 'nsfw_count')},
           {'total': 4, 'filtered': 2, 'hidden_nsfw': 2, 'nsfw_count': 2})
+
+    # NSFW only (#363): the safe images hidden, the explicit ones alone, in a
+    # model's Your generations as in every gallery.
+    body = page(CHECKPOINT, nsfw_images='nsfw', hide_promptless_images='false')
+    check('NSFW only shows a card its explicit images alone',
+          ([i['position'] for i in body['generations'][0]['images']], body['generations'][0]['matching_count']),
+          ([1, 3], 2))
+    check('and tells the banner the safe ones it hid, and each kind\'s number',
+          {k: body['state'][k] for k in ('filtered', 'hidden_nsfw', 'hidden_safe', 'nsfw_count', 'safe_count')},
+          {'filtered': 2, 'hidden_nsfw': 0, 'hidden_safe': 2, 'nsfw_count': 2, 'safe_count': 2})
+    check('and the page\'s note what it hid on that page',
+          {k: body['page'][k] for k in ('shown', 'hidden_nsfw', 'hidden_safe')},
+          {'shown': 2, 'hidden_nsfw': 0, 'hidden_safe': 2})
+    check('it answers the mode it was asked, for the page to draw',
+          body['state'].get('nsfw_images'), 'nsfw')
+    check('every button\'s number is the same in every mode: one press changes none',
+          {mode: tuple(page(CHECKPOINT, nsfw_images=mode, hide_promptless_images='false')['state'][k]
+                       for k in ('safe_count', 'nsfw_count', 'total')) for mode in ('safe', 'all', 'nsfw')},
+          {mode: (2, 2, 4) for mode in ('safe', 'all', 'nsfw')})
     # An image both switches hide is counted apart, as in the Civitai gallery
     # (api_test.py): each switch's number is what it alone hides.
     from model_manager.api.generations import _filtered                 # noqa: E402
@@ -384,13 +403,13 @@ if has_fastapi:
     check('and the prompt switch\'s every image with an unusable prompt, either way',
           [both_hiding['promptless_total'], nsfw_shown['promptless_total']], [2, 2])
     check('an image made with a LoRA is in the LoRA\'s gallery too, and only those that used it',
-          [i['position'] for i in page(LORA_A, hide_nsfw_images='false')['generations'][0]['images']],
+          [i['position'] for i in page(LORA_A, nsfw_images='all')['generations'][0]['images']],
           [0, 1])
     check('a model nobody generated with has an empty gallery',
           page(facts['linked_paths'][2])['generations'], [])
 
     body = client.get('/model-manager/generations/%d/images' % generation_id,
-                      params={'path': CHECKPOINT, 'hide_nsfw_images': 'false'}).json()
+                      params={'path': CHECKPOINT, 'nsfw_images': 'all'}).json()
     check('"Show all" brings every image of the generation the gallery shows',
           [i['position'] for i in body['images']], [0, 1, 2, 3])
     check('each with its card\'s sampler and schedule type, as the cards\' are (#302)',
@@ -433,7 +452,7 @@ if has_fastapi:
 
     # A file gone from disk leaves its record, which can still be sent.
     os.remove(db.get_generation(generation_id)['images'][3]['path'])
-    body = page(CHECKPOINT, hide_nsfw_images='false')
+    body = page(CHECKPOINT, nsfw_images='all')
     check('an image whose file is gone keeps its record, marked missing',
           [i['exists'] for i in body['generations'][0]['images']], [True, True, True, False])
     check('and its file is not found', client.get(body['generations'][0]['images'][3]['url']).status_code,
@@ -455,7 +474,7 @@ if has_fastapi:
     setattr(shared.opts, 'model_manager_generations_hide_nsfw', True)
     check('and hides its explicit images when that says to',
           browse()['state']['hidden_nsfw'] > 0, True)
-    body = browse(hide_nsfw_images='false')
+    body = browse(nsfw_images='all')
     tiles = {t['generation']['id']: t for t in body['tiles']}
     check('every generation is a tile, the newest first, whatever model made it',
           (body['tiles'][0]['generation']['id'], single in tiles, generation_id in tiles), (single, True, True))
@@ -468,17 +487,49 @@ if has_fastapi:
     check('and every generation recorded is counted', body['state']['stored_generations'],
           db.count_generations(None))
 
-    body = browse(hide_nsfw_images='true')
+    body = browse(nsfw_images='safe')
     tile = next(t for t in body['tiles'] if t['generation']['id'] == generation_id)
     check('the NSFW switch leaves a generation what it does not hide',
           ([i['position'] for i in tile['images']], tile['matching_count']), ([0, 2], 2))
 
+    # NSFW only (#363): the tab's every level keeps the explicit images alone -
+    # an image no rule has judged among them, as Safe mode hides it.
+    images_now = db.get_generation(generation_id)['images']
+    connection = db._get_connection()
+    connection.execute('UPDATE generation_images SET prompt_nsfw_level = NULL WHERE id = ?', (images_now[3]['id'],))
+    connection.commit()
+    body = browse(nsfw_images='nsfw')
+    tile = next(t for t in body['tiles'] if t['generation']['id'] == generation_id)
+    check('NSFW only leaves a generation its explicit images, an Unknown one among them',
+          ([i['position'] for i in tile['images']], [i['mm_level'] for i in tile['images']], tile['matching_count']),
+          ([1, 3], [PROMPT_LEVEL, None], 2))
+    explicit = lambda image: image['mm_level'] is None or image['mm_level'] > 3
+    check('and no tile of the tab shows a safe image',
+          [i['mm_level'] for t in body['tiles'] for i in t['images'] if not explicit(i)], [])
+    check('the banner counts the safe images it hides, not as hidden for NSFW',
+          (body['state']['hidden_nsfw'], body['state']['hidden_safe'], body['state']['safe_count'] > 0),
+          (0, body['state']['safe_count'], True))
+    batch = browse(generation=generation_id, nsfw_images='nsfw')
+    check('a batch opened in NSFW mode: its explicit images, a tile each',
+          [t['images'][0]['position'] for t in batch['tiles']], [1, 3])
+    by_prompt = {t['group']['value']: t for t in browse(group='prompt', nsfw_images='nsfw')['tiles']}
+    every = {t['group']['value']: t for t in browse(group='prompt', nsfw_images='all')['tiles']}
+    # Every image of a group of up to four is on its tile: its explicit ones counted from there.
+    whole = {k: sum(1 for i in t['images'] if explicit(i)) for k, t in every.items() if t['matching_count'] <= 4}
+    check('a group\'s number in NSFW mode is its explicit images alone, a group with none left out',
+          {k: by_prompt[k]['matching_count'] if k in by_prompt else 0 for k in whole}, whole)
+    check('among them groups with explicit images and groups without', (min(whole.values()), max(whole.values()) > 0),
+          (0, True))
+    connection.execute('UPDATE generation_images SET prompt_nsfw_level = ? WHERE id = ?',
+                       (images_now[3]['prompt_nsfw_level'], images_now[3]['id']))
+    connection.commit()
+
     # Grouped: a tile per group of images, whatever generation each is of -
     # a group opens onto its generations, a generation onto its images.
     def groups(by):
-        return {t['group']['value']: t for t in browse(group=by, hide_nsfw_images='false')['tiles']}
+        return {t['group']['value']: t for t in browse(group=by, nsfw_images='all')['tiles']}
 
-    body = browse(group='prompt', hide_nsfw_images='false')
+    body = browse(group='prompt', nsfw_images='all')
     check('grouped, every tile is a group', {t['kind'] for t in body['tiles']}, {'group'})
     fox = groups('prompt')[PROMPTS[0]]
     check('by the prompt each image was made with: two generations\' images in one group',
@@ -506,7 +557,7 @@ if has_fastapi:
                                                  if library_base and k == library_base[0]) > 0],
           ['SDXL 1.0', True])
 
-    inside = browse(group='prompt', in_group=fox['group']['id'], hide_nsfw_images='false')
+    inside = browse(group='prompt', in_group=fox['group']['id'], nsfw_images='all')
     check('a group opens onto its generations, each a tile of the images it has there',
           (sorted(t['generation']['id'] for t in inside['tiles']), {t['kind'] for t in inside['tiles']},
            [t['matching_count'] for t in inside['tiles']]),
@@ -514,12 +565,12 @@ if has_fastapi:
     check('saying what the group is, for its header', (inside['scope']['value'], inside['scope']['count'],
                                                       inside['scope']['grouping']),
           (PROMPTS[0], 2, 'Prompt, as generated'))
-    batch = browse(generation=generation_id, hide_nsfw_images='false')
+    batch = browse(generation=generation_id, nsfw_images='all')
     check('a generation opens onto its images, a tile each',
           ([t['kind'] for t in batch['tiles']], [t['images'][0]['position'] for t in batch['tiles']],
            batch['scope']['generation']['id']), (['image'] * 4, [0, 1, 2, 3], generation_id))
     deeper = browse(group='prompt', in_group=fox['group']['id'], generation=generation_id,
-                    hide_nsfw_images='false')
+                    nsfw_images='all')
     check('and a generation opened inside a group shows only its images in that group',
           [t['images'][0]['position'] for t in deeper['tiles']], [0])
     check('an unknown grouping groups nothing', {t['kind'] for t in browse(group='nonsense')['tiles']},
@@ -528,7 +579,7 @@ if has_fastapi:
     # Grouped twice, "LoRA combination, then Prompt": the top level is the
     # prompts' groups, in sections by LoRA set - each tile says its section -
     # and a prompt's group opens straight onto its batches.
-    top = browse(group='loras>prompt', hide_nsfw_images='false')['tiles']
+    top = browse(group='loras>prompt', nsfw_images='all')['tiles']
     by_section = {}
     for t in top:
         by_section.setdefault(t['section']['value'], []).append(t)
@@ -546,14 +597,14 @@ if has_fastapi:
           [groups('loras')['a']['matching_count'], len(with_a), groups('loras')['a']['matching_count'], True])
     fox_with_a = next(t for t in with_a if t['group']['value'] == PROMPTS[0])
     batches = browse(group='loras>prompt', in_group=fox_with_a['section']['id'],
-                     in_subgroup=fox_with_a['group']['id'], hide_nsfw_images='false')
+                     in_subgroup=fox_with_a['group']['id'], nsfw_images='all')
     check('a group opens onto its batches, of the images in it and its section',
           [{t['kind'] for t in batches['tiles']}, sum(t['matching_count'] for t in batches['tiles']),
            batches['scope']['grouping'], [v['value'] for v in batches['scope']['values']]],
           [{'generation'}, fox_with_a['matching_count'], 'LoRA combination › Prompt, as generated', ['a', PROMPTS[0]]])
     one_batch = batches['tiles'][0]['generation']['id']
     inner = browse(group='loras>prompt', in_group=fox_with_a['section']['id'], in_subgroup=fox_with_a['group']['id'],
-                   generation=one_batch, hide_nsfw_images='false')
+                   generation=one_batch, nsfw_images='all')
     check('a batch opened there shows its images in both groups',
           [{t['kind'] for t in inner['tiles']}, len(inner['tiles'])],
           [{'image'}, batches['tiles'][0]['matching_count']])
@@ -564,7 +615,7 @@ if has_fastapi:
     # Each tile says its checkpoint, for "Show model in Model Manager" - a
     # group only if every image of it had the same one - and each image its own.
     recorded = db.get_generation(generation_id)['checkpoint_path']
-    tile = next(t for t in browse(hide_nsfw_images='false')['tiles'] if t['generation']['id'] == generation_id)
+    tile = next(t for t in browse(nsfw_images='all')['tiles'] if t['generation']['id'] == generation_id)
     check('a generation\'s tile names its checkpoint, and so does each image',
           (tile['checkpoint_path'], {i['checkpoint_path'] for i in tile['images']}), (recorded, {recorded}))
     # For the menus, by version and model (#42): another tab is asked for
@@ -590,7 +641,7 @@ if has_fastapi:
     today = next(iter(groups('day').values()))
     check('a group of images made with two checkpoints names none', today['checkpoint_path'], None)
     check('while its images keep their own', len({i['checkpoint_path'] for i in
-          browse(generation=other, hide_nsfw_images='false')['tiles'][0]['images']}), 1)
+          browse(generation=other, nsfw_images='all')['tiles'][0]['images']}), 1)
     db.delete_generation(other)
 
     # Rating: a person's own NSFW level for an image, over its prompt's - one
@@ -603,62 +654,75 @@ if has_fastapi:
 
     images = db.get_generation(generation_id)['images']
     first_id = images[0]['id']
-    body = rate(image_id=first_id, level=8, hide_nsfw_images='true').json()
+    body = rate(image_id=first_id, level=8, nsfw_images='safe').json()
     check('one image rated X is X, as rated, not as its prompt says',
           (body['rated'], body['image']['mm_level'], body['image']['user_level'],
            body['image']['mm_level_from_prompt']), (1, 8, 8, False))
     check('its card drawn again with its sampler and schedule type (#302)',
           ('mm_sampler' in body['image'], 'mm_scheduler' in body['image']), (True, True))
     check('and with the NSFW switch on, is said to be hidden now', body['visible'], False)
-    body = rate(image_id=first_id, level='', hide_nsfw_images='true').json()
+    body = rate(image_id=first_id, level='', nsfw_images='safe').json()
     check('a rating cleared, it goes back to its prompt\'s level, and shows again',
           (body['image']['user_level'], body['image']['mm_level'], body['visible']), (None, PG, True))
     check('a level nobody can choose is refused', rate(image_id=first_id, level=5).status_code, 400)
     check('and so is a rating of nothing in particular', rate(level=8).status_code, 400)
 
-    body = rate(generation=generation_id, level=4, hide_nsfw_images='true').json()
+    body = rate(generation=generation_id, level=4, nsfw_images='safe').json()
     check('a batch rated: the images of it the tab shows, and not those the switch hid',
           (body['rated'], user_levels()), (2, [4, None, 4, None]))
-    tile = next(t for t in browse(hide_nsfw_images='false')['tiles'] if t['generation']['id'] == generation_id)
+    tile = next(t for t in browse(nsfw_images='all')['tiles'] if t['generation']['id'] == generation_id)
     check('a tile of mixed levels shows none as the one they share', (tile['level'], tile['user_level']), (None, None))
-    rate(generation=generation_id, level=1, hide_nsfw_images='false')
-    tile = next(t for t in browse(hide_nsfw_images='false')['tiles'] if t['generation']['id'] == generation_id)
+    rate(generation=generation_id, level=1, nsfw_images='all')
+    tile = next(t for t in browse(nsfw_images='all')['tiles'] if t['generation']['id'] == generation_id)
     check('one they all share, it does', (tile['level'], tile['user_level'], user_levels()), (PG, PG, [PG] * 4))
     # A batch rated answers with its tile as a part now draws it, and the
     # banner's totals: the tab swaps that one tile and asks for nothing more,
     # where it loaded every part again (#239).
-    body = rate(generation=generation_id, level=4, hide_nsfw_images='false').json()
-    part = browse(hide_nsfw_images='false')
+    body = rate(generation=generation_id, level=4, nsfw_images='all').json()
+    part = browse(nsfw_images='all')
     drawn = next(t for t in part['tiles'] if t['generation']['id'] == generation_id)
     check('a batch rated answers with its tile, as a part draws it', body.get('tile'), drawn)
     check('and the banner\'s totals and the level\'s header, as a part has them',
           (body.get('state'), body.get('scope')), (part['state'], part['scope']))
-    body = rate(generation=generation_id, level=8, hide_nsfw_images='true').json()
-    hidden = browse(hide_nsfw_images='true')
+    body = rate(generation=generation_id, level=8, nsfw_images='safe').json()
+    hidden = browse(nsfw_images='safe')
     check('rated X with the NSFW switch on, every image hidden: no tile, the totals counting them hidden',
           ('tile' in body, body.get('tile'), body.get('state')), (True, None, hidden['state']))
-    rate(generation=generation_id, level=1, hide_nsfw_images='false')
+    rate(generation=generation_id, level=1, nsfw_images='all')
     refused = rate(group='prompt', in_group=groups('prompt')[PROMPTS[1]]['group']['id'], level=16,
-                   hide_nsfw_images='false')
+                   nsfw_images='all')
     check('a group is not rated whole: its images are of any prompt, and easily misrated',
           (refused.status_code, user_levels()), (400, [PG] * 4))
     body = rate(group='prompt', in_group=groups('prompt')[PROMPTS[1]]['group']['id'], generation=generation_id,
-                level=16, hide_nsfw_images='false').json()
+                level=16, nsfw_images='all').json()
     check('a batch opened from a group is: its images in that group', (body['rated'], user_levels()),
           (1, [PG, 16, PG, PG]))
     in_group = groups('prompt')[PROMPTS[1]]['group']['id']
-    drawn = next(t for t in browse(group='prompt', in_group=in_group, hide_nsfw_images='false')['tiles']
+    drawn = next(t for t in browse(group='prompt', in_group=in_group, nsfw_images='all')['tiles']
                  if t['generation']['id'] == generation_id)
     check('and answers with its tile as that group\'s level draws it, counted within the group',
           body.get('tile'), drawn)
-    body = rate(path=CHECKPOINT, generation=generation_id, level=2, hide_nsfw_images='false',
+    body = rate(path=CHECKPOINT, generation=generation_id, level=2, nsfw_images='all',
                 hide_promptless_images='false').json()
     check('a card\'s answer is as it was: no tile', 'tile' in body, False)
     check('a card of a model\'s "Your generations": its images that gallery shows', user_levels(), [2] * 4)
     db.restamp_generation_levels(lambda meta: PG)
     check('the prompt words changing leaves a rating as it was', user_levels(), [2] * 4)
-    rate(generation=generation_id, level='', hide_nsfw_images='false')
+    rate(generation=generation_id, level='', nsfw_images='all')
     check('and a batch\'s ratings clear together', user_levels(), [None] * 4)
+
+    # Rated in NSFW mode (#363), as in Safe mode turned round: an image made
+    # safe is hidden now, one made explicit is shown.
+    body = rate(image_id=first_id, level=1, nsfw_images='nsfw').json()
+    check('one image rated PG in NSFW mode is said to be hidden now', body['visible'], False)
+    body = rate(image_id=first_id, level=8, nsfw_images='nsfw').json()
+    check('and rated X, shown', body['visible'], True)
+    body = rate(image_id=first_id, level=8, nsfw_images='all').json()
+    check('with every image shown, shown whatever its level', body['visible'], True)
+    body = rate(generation=generation_id, level=1, nsfw_images='nsfw').json()
+    check('a batch rated PG in NSFW mode, every image hidden: no tile, the totals counting them hidden',
+          ('tile' in body, body.get('tile'), body.get('state')), (True, None, browse(nsfw_images='nsfw')['state']))
+    rate(generation=generation_id, level='', nsfw_images='all')
 
     # A group is not deleted whole: its images are of any number of generations.
     before_group = groups('loras')['']['matching_count']
@@ -668,8 +732,8 @@ if has_fastapi:
           (refused.status_code != 200, groups('loras')['']['matching_count']), (True, before_group))
 
     gallery_module.TILE_PART = 1
-    parts = [browse(page=n, hide_nsfw_images='false') for n in (1, 2)]
-    last = browse(page=db.count_generations(None), hide_nsfw_images='false')
+    parts = [browse(page=n, nsfw_images='all') for n in (1, 2)]
+    last = browse(page=db.count_generations(None), nsfw_images='all')
     gallery_module.TILE_PART = 100
     check('parts of a fixed size (TILE_PART, #230), one after another, until there are no more',
           ([len(p['tiles']) for p in parts], parts[0]['more'], last['more'],
@@ -677,7 +741,7 @@ if has_fastapi:
           ([1, 1], True, False, True))
 
     body = client.get('/model-manager/generations/%d/images' % generation_id,
-                      params={'hide_nsfw_images': 'false'}).json()
+                      params={'nsfw_images': 'all'}).json()
     check('a tile opens out into every image of its generation, with no model to go by',
           [i['position'] for i in body['images']], [0, 1, 2, 3])
 

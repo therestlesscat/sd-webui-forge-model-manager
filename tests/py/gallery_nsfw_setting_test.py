@@ -80,7 +80,7 @@ client = TestClient(app)
 def details_hide():
     body = client.get('/model-manager/models/details',
                       params={'path': facts['linked_paths'][0]}).json()
-    return body['model']['images_state']['hide_nsfw_images']
+    return body['model']['images_state']['nsfw_images'] == 'safe'
 
 
 for thumb in (True, False):

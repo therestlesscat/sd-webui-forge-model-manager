@@ -186,7 +186,7 @@ check('with the file it was asked about',
 first_version = body['model']['images_state']['version_id']
 db.update_version_images_state(first_version, None)      # synced to the end: no Civitai here
 code, body = get('/model-manager/images/gallery-page', version_id=first_version,
-                 hide_nsfw_images='false', hide_promptless_images='false')
+                 nsfw_images='all', hide_promptless_images='false')
 check('its gallery\'s images judged here, for the browser to read',
       bool(body.get('images')) and all('mm_level' in i for i in body['images']), True)
 check('and their card\'s sampler and schedule type read here too (#302)',
@@ -562,7 +562,7 @@ for label, hide_nsfw, hide_promptless in (('both hiding', True, True), ('NSFW sh
           {k: paged[k] for k in keys}, {k: stored[k] for k in keys})
 
 status, body = get('/model-manager/models/details', path=facts['linked_paths'][0],
-                   hide_nsfw_images='false', hide_promptless_images='false')
+                   nsfw_images='all', hide_promptless_images='false')
 state = body['model']['images_state']
 check('the endpoint reports what each switch is showing when nothing is hidden',
       (state['nsfw_count'], state['promptless_count'], state['hidden_nsfw'],
@@ -588,7 +588,7 @@ ALL = [91000 + n for n in range(250)]
 
 def page(number, **switches):
     return get('/model-manager/images/gallery-page', version_id=LARGE, page=number,
-               **{'hide_nsfw_images': 'true', 'hide_promptless_images': 'true', **switches})[1]
+               **{'nsfw_images': 'safe', 'hide_promptless_images': 'true', **switches})[1]
 
 
 body = page(1)
@@ -603,15 +603,35 @@ check('and read for its card (#302)', all('mm_sampler' in i and 'mm_scheduler' i
 check('with the banner\'s totals over every page',
       (body['images_state']['total_count'], body['images_state']['filtered_count']), (250, 200))
 check('a page is the same slice whatever the switches say',
-      [i['id'] for i in page(2, hide_nsfw_images='false')['images']], ALL[100:200])
+      [i['id'] for i in page(2, nsfw_images='all')['images']], ALL[100:200])
 body = page(3)
 check('the last page holds what is left, and nothing comes after it',
       (body['page']['count'], body['page']['more']), (50, False))
 check('past the end is an empty page, not an error', page(9)['page']['count'], 0)
+
+# NSFW only (#363): the explicit images of each page alone, the safe ones
+# counted as hidden for being safe - on the page's note and in the banner.
+body = page(1, nsfw_images='nsfw', hide_promptless_images='false')
+check('NSFW only: page 1 shows its explicit images alone',
+      [i['id'] for i in body['images']], [i for i in ALL[:100] if (i - 91000) % 5 == 0])
+check('its note: 100 images, 20 shown, 80 hidden as safe',
+      {k: body['page'][k] for k in ('count', 'shown', 'hidden_nsfw', 'hidden_safe')},
+      {'count': 100, 'shown': 20, 'hidden_nsfw': 0, 'hidden_safe': 80})
+check('the banner\'s totals over every page, and each kind\'s number',
+      {k: body['images_state'][k] for k in ('total_count', 'filtered_count', 'hidden_nsfw', 'hidden_safe',
+                                             'nsfw_count', 'safe_count', 'nsfw_images')},
+      {'total_count': 250, 'filtered_count': 50, 'hidden_nsfw': 0, 'hidden_safe': 200,
+       'nsfw_count': 50, 'safe_count': 200, 'nsfw_images': 'nsfw'})
+check('Load More, page 2, the same', [i['id'] for i in page(2, nsfw_images='nsfw')['images']],
+      [i for i in ALL[100:200] if (i - 91000) % 5 == 0])
+check('each kind\'s number the same in every mode',
+      {mode: (page(1, nsfw_images=mode)['images_state']['safe_count'],
+              page(1, nsfw_images=mode)['images_state']['nsfw_count']) for mode in ('safe', 'all', 'nsfw')},
+      {mode: (200, 50) for mode in ('safe', 'all', 'nsfw')})
 shared_opts = sys.modules['modules.shared'].opts
 shared_opts.model_manager_mm_images_per_page = 30
 check('the page size is a setting: page 2 at 30 is the 31st to the 60th',
-      [i['id'] for i in page(2, hide_nsfw_images='false')['images']], ALL[30:60])
+      [i['id'] for i in page(2, nsfw_images='all')['images']], ALL[30:60])
 shared_opts.model_manager_mm_images_per_page = 100
 
 # The Civitai Browser's cache has no level column, so its pages are filtered
@@ -656,7 +676,7 @@ try:
     images_api.download_more(db, db.get_version_by_id(LARGE))
     check('a download is stored on a page after the last',
           db.get_cached_page_count(LARGE), before + 1)
-    body = page(3, hide_nsfw_images='false')
+    body = page(3, nsfw_images='all')
     check('so it follows everything stored before it', [i['id'] for i in body['images']][-2:],
           [92001, 92002])
 finally:
@@ -732,7 +752,7 @@ try:
     db.update_version_images_state(FILL, 'after-250')
     civitai_pages = Pages({'after-250': (list(range(97000, 97100)), None)})
     fill = lambda number: get('/model-manager/images/gallery-page', version_id=FILL, page=number,
-                              hide_nsfw_images='false', hide_promptless_images='false')[1]
+                              nsfw_images='all', hide_promptless_images='false')[1]
     body = fill(3)
     check('a page the library cannot fill asks Civitai for more first',
           civitai_pages.asked, ['after-250'])
@@ -752,7 +772,7 @@ try:
                        "images_sync_last_date = NULL WHERE id = ?", (EMPTY,))
     civitai_pages = Pages({None: ([98001, 98002, 98003], None)})
     body = get('/model-manager/images/gallery-page', version_id=EMPTY, page=1,
-               hide_nsfw_images='false', hide_promptless_images='false')[1]
+               nsfw_images='all', hide_promptless_images='false')[1]
     check('a model with no images stored loads page 1 from Civitai',
           ([i['id'] for i in body['images']], body['page']['more']), ([98001, 98002, 98003], False))
 
@@ -765,7 +785,7 @@ try:
     opts_ = sys.modules['modules.shared'].opts
     opts_.model_manager_mm_images_per_page = 10
     body = get('/model-manager/images/gallery-page', version_id=EMPTY, page=1,
-               hide_nsfw_images='false', hide_promptless_images='false')[1]
+               nsfw_images='all', hide_promptless_images='false')[1]
     opts_.model_manager_mm_images_per_page = 100
     check('a page Civitai fails to fill shows what is stored, with the error for its note',
           (len(body['images']), body['page']['error']), (3, 'Civitai: overloaded (503)'))

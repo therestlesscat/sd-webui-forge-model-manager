@@ -288,7 +288,7 @@ def register(app: FastAPI):
 
     @app.get("/model-manager/models/details")
     @gate("model_manager")
-    def get_model_details(path: str, hide_nsfw_images: Optional[bool] = None,
+    def get_model_details(path: str, nsfw_images: Optional[str] = None,
                                 hide_promptless_images: Optional[bool] = None):
         """
         Get detailed info for a specific model by file path, with its
@@ -352,10 +352,9 @@ def register(app: FastAPI):
             # /model-manager/images/gallery-page, after: page 1 may have to
             # be fetched from Civitai, and the details must not wait on it.
             if version_id:
-                hide_nsfw_images, hide_promptless_images = gallery_switches(
-                    hide_nsfw_images, hide_promptless_images)
+                nsfw, hide_promptless_images = gallery_switches(nsfw_images, hide_promptless_images)
                 result["images_state"] = gallery_state(
-                    get_models_db(), version_id, hide_nsfw_images, hide_promptless_images)
+                    get_models_db(), version_id, nsfw, hide_promptless_images)
 
             # For the label of the gallery's other tab: your generations.
             result["generations_count"] = db.count_generations(db.generation_gallery_files(path))

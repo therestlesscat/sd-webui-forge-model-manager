@@ -154,10 +154,20 @@ check('New seed: another, kept', (isinstance(fresh, int) and 1 <= fresh <= 2 ** 
 client.post('/model-manager/gallery/seed', data={'seed': str(seed)})
 
 # ------------------------------------------------------------ NSFW hidden
-hidden, data = every_page(hide_nsfw_images='true')
+hidden, data = every_page(nsfw_images='safe')
 check('NSFW hidden: no explicit image on any page', [i for i in ids_of(hidden) if i in explicit], [])
 check('and every other image still there', sorted(ids_of(hidden)), sorted(set(library) - set(explicit)))
 check('what it hides is counted in the banner', data.get('state', {}).get('hidden_nsfw'), len(explicit))
+
+# ------------------------------------------------------------ NSFW only (#363)
+only, data = every_page(nsfw_images='nsfw')
+check('NSFW only: the explicit images alone, every one, in the seed\'s order',
+      ids_of(only), [i for i in order if i in explicit])
+check('the safe images it hides counted as safe, apart from the NSFW filter\'s',
+      {k: data.get('state', {}).get(k) for k in ('filtered', 'hidden_nsfw', 'hidden_safe', 'nsfw_count', 'safe_count')},
+      {'filtered': len(explicit), 'hidden_nsfw': 0, 'hidden_safe': len(library) - len(explicit),
+       'nsfw_count': len(explicit), 'safe_count': len(library) - len(explicit)})
+check('the level\'s header counts what it shows', data.get('scope', {}).get('count'), len(explicit))
 
 # ------------------------------------------------------------ grouped
 model_images = {}
@@ -186,6 +196,19 @@ check('inside a group, its images by their scores',
 check('a group\'s tile shows its first four images, and counts them all',
       [([img['id'] for img in t['images']], t['matching_count']) for t in groups],
       [(inside[t['group']['key']][:4], len(inside[t['group']['key']])) for t in groups])
+# NSFW only (#363), grouped.
+by_model, _ = every_page(group='model', nsfw_images='nsfw')
+check('some groups hold explicit images, to check', bool(by_model), True)
+check('grouped in NSFW mode: a group\'s number is its explicit images, a group with none left out',
+      {t['group']['key']: t['matching_count'] for t in by_model},
+      {'v%d' % m: n for m, n in ((m, len([i for i in ids if i in explicit])) for m, ids in model_images.items()) if n})
+check('and its tile shows explicit images alone',
+      [img['id'] for t in by_model for img in t['images'] if img['id'] not in explicit], [])
+inner = {t['group']['key']: ids_of(every_page(group='model', in_group=t['group']['key'], nsfw_images='nsfw')[0])
+         for t in by_model}
+check('inside a group in NSFW mode, its explicit images alone',
+      inner, {'v%d' % m: sorted([i for i in ids if i in explicit], key=lambda i: (score(i, seed), i))
+              for m, ids in model_images.items() if any(i in explicit for i in ids)})
 
 # ------------------------------------------------------------ what a page reads
 # Picked by its keys, then only its rows read: the reading of a page's rows

@@ -74,7 +74,7 @@ globalThis.fetch = async (url) => {
     if (href.includes('/generations/browse')) {
         return reply({ success: true, more: false,
                        tiles,
-                       state: { total: 1, filtered: 1, hidden_nsfw: 0, nsfw_count: 0, hide_nsfw_images: true,
+                       state: { total: 1, filtered: 1, hidden_nsfw: 0, nsfw_count: 0, nsfw_images: 'safe',
                                 stored_generations: 1 },
                        scope: { count: 1 } });
     }

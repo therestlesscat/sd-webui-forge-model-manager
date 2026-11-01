@@ -109,7 +109,7 @@ check('and the details count them, with no more to come', $('cb_images_count').t
 check('and the foot is clear again, with nothing more to load', [footer(), !!$('cb_load_more_btn')], ['', false]);
 
 from = galleryAsks.length;
-await tick('civitaiBrowser.showAllImages', true);
+await tick('civitaiBrowser.nsfwMode', true, { mode: 'all' });
 await waitFor('the reload', () => separators().length === 0);
 check('a switch starts again from page 1, asked for afresh', [cards().length, notes(), asked(from)],
       [3, ['Displaying 3 images for page 1'], [['1', '']]]);
@@ -119,22 +119,42 @@ check('a switch starts again from page 1, asked for afresh', [cards().length, no
 // hides, what both do, and every unusable prompt on the prompt switch.
 cached.splice(0, cached.length, image(1, 1), { ...image(2, 8), meta: null }, image(3, 1),
               { ...image(4, 1), meta: null }, { ...image(5, 16), meta: null }, image(6, 8));
-await tick('civitaiBrowser.showAllImages', false);
+await tick('civitaiBrowser.nsfwMode', true, { mode: 'safe' });
 await waitFor('page 1 again', () => separators().length === 0 && cards().length === 2);
 await act('civitaiBrowser.loadMoreImages');
 await waitFor('page 2', () => separators().length === 1);
 const switchText = (id) => (document.getElementById(id)?.closest('label')?.textContent || '').replace(/\s+/g, ' ').trim();
+// The NSFW switch's three buttons (#363), each one's words.
+const buttons = () => [...document.querySelectorAll('#cb_show_all_images .mm-settings-seg-option')]
+    .map((b) => b.textContent.replace(/\s+/g, ' ').trim());
 check('the banner adds the pages up, counting what both filters hide apart',
-      [sentence(), switchText('cb_show_all_images'), switchText('cb_show_promptless_images')],
+      [sentence(), buttons(), switchText('cb_show_promptless_images')],
       ['6 images loaded · 2 match the filters (2 shown) · 1 hidden due to NSFW filter, 1 hidden due to unusable prompt, '
-       + '2 hidden due to both', 'Show NSFW (1)', 'Show unusable prompts (3)']);
-await tick('civitaiBrowser.showAllImages', true);
+       + '2 hidden due to both', ['Safe (2)', 'All (3)', 'NSFW (1)'], 'Show unusable prompts (3)']);
+await tick('civitaiBrowser.nsfwMode', true, { mode: 'all' });
 await waitFor('page 1 again', () => separators().length === 0);
 await act('civitaiBrowser.loadMoreImages');
 await waitFor('page 2', () => separators().length === 1);
-check('NSFW shown: its number as it was, and the prompt switch\'s as it was',
-      [switchText('cb_show_all_images'), switchText('cb_show_promptless_images')],
-      ['Show NSFW (1)', 'Show unusable prompts (3)']);
+check('All: each button\'s number as it was, and the prompt switch\'s as it was',
+      [buttons(), switchText('cb_show_promptless_images')],
+      [['Safe (2)', 'All (3)', 'NSFW (1)'], 'Show unusable prompts (3)']);
+// NSFW only (#363): each page's explicit images, its safe ones counted apart, added up over the pages.
+from = galleryAsks.length;
+await tick('civitaiBrowser.nsfwMode', true, { mode: 'nsfw' });
+await waitFor('page 1 again', () => separators().length === 0);
+check('NSFW asks for page 1 afresh, naming the mode', galleryAsks.slice(from).map((p) => p.get('nsfw_images')),
+      ['nsfw']);
+await act('civitaiBrowser.loadMoreImages');
+await waitFor('page 2', () => separators().length === 1);
+check('NSFW: the banner adds the pages up, the safe ones hidden as such, and no number moves',
+      [sentence(), buttons()],
+      ['6 images loaded · 1 match the filters (1 shown) · 2 hidden as safe, 2 hidden due to unusable prompt, '
+       + '1 hidden due to both', ['Safe (2)', 'All (3)', 'NSFW (1)']]);
+// Back to every image, both pages, as the viewer's checks below take it.
+await tick('civitaiBrowser.nsfwMode', true, { mode: 'all' });
+await waitFor('page 1 again', () => separators().length === 0);
+await act('civitaiBrowser.loadMoreImages');
+await waitFor('page 2', () => separators().length === 1);
 
 // The viewer: a click on an image opens it on the card as it is.
 const viewer = () => document.querySelector('.mm-viewer');

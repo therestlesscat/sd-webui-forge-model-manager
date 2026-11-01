@@ -96,6 +96,61 @@ for hide_nsfw, hide_promptless in itertools.product((False, True), repeat=2):
           {k: int(v) for k, v in sql.items()}, python)
 memory.close()
 
+# NSFW only (#363): the switch's third mode keeps the explicit images alone,
+# and counts the safe ones it hides apart - as hidden_safe, not hidden_nsfw -
+# with the safe images' number beside the explicit ones', for the Safe button.
+# The page counts as the banner does in every mode, as for the other two.
+from model_manager.gallery import NSFW_MODES, nsfw_kept_sql, nsfw_mode   # noqa: E402
+MODE_KEYS = KEYS + ('hidden_safe', 'safe_count')
+for mode in NSFW_MODES:
+    for hide_promptless in (False, True):
+        shown, py = filter_images(IMAGES, mode, hide_promptless)
+        sql = db.get_image_counts(VERSION, max_nsfw_level=SFW_MAX if mode == 'safe' else None,
+                                  require_prompt=hide_promptless,
+                                  min_nsfw_level=SFW_MAX if mode == 'nsfw' else None)
+        check(f'{mode}, hide unusable prompts {hide_promptless}: the page counts as the banner does',
+              {k: py.get(k) for k in MODE_KEYS}, {k: sql.get(k) for k in MODE_KEYS})
+        check(f'and shows the images it counts as shown ({mode}, {hide_promptless})', len(shown), py['filtered'])
+
+explicit = [img['id'] for img in IMAGES if img['browsingLevel'] > SFW_MAX]
+check('NSFW only shows the explicit images, every one, in order',
+      [img['id'] for img in filter_images(IMAGES, 'nsfw', False)[0]], explicit)
+# 12 safe images, 4 of them with an unusable prompt each level: with both
+# filters on, 8 are hidden by both, 4 as safe alone.
+_, only = filter_images(IMAGES, 'nsfw', True)
+check('with both filters on, the safe images hidden: as safe alone, and by both',
+      {k: only[k] for k in ('filtered', 'hidden_nsfw', 'hidden_safe', 'hidden_both', 'hidden_promptless',
+                            'nsfw_count', 'safe_count')},
+      {'filtered': 6, 'hidden_nsfw': 0, 'hidden_safe': 4, 'hidden_both': 8, 'hidden_promptless': 12,
+       'nsfw_count': 6, 'safe_count': 4})
+check('the hidden add up to what is not shown',
+      only['hidden_safe'] + only['hidden_both'] + only['hidden_promptless'], only['hidden'])
+check('each kind\'s number is the same in every mode: a press changes none',
+      {mode: (filter_images(IMAGES, mode, True)[1]['safe_count'], filter_images(IMAGES, mode, True)[1]['nsfw_count'])
+       for mode in NSFW_MODES}, {mode: (4, 6) for mode in NSFW_MODES})
+check('a yes or no to hiding explicit images is read as Safe or All, as the switch sent before',
+      (nsfw_mode(True), nsfw_mode(False), nsfw_mode('NSFW')), ('safe', 'all', 'nsfw'))
+try:
+    nsfw_mode('everything')
+    check('a word that is no mode is refused', 'taken', 'refused')
+except ValueError:
+    pass
+
+memory = sqlite3.connect(':memory:')
+memory.execute('CREATE TABLE rows (safe INTEGER, readable INTEGER)')
+memory.executemany('INSERT INTO rows VALUES (?, ?)', verdicts)
+memory.row_factory = sqlite3.Row
+for mode, hide_promptless in itertools.product(NSFW_MODES, (False, True)):
+    sql = dict(memory.execute(f'SELECT {switch_counts_sql(mode, hide_promptless)} FROM rows').fetchone())
+    python = switch_counts(verdicts, [bool(v[0]) for v in verdicts], [bool(v[1]) for v in verdicts],
+                           mode, hide_promptless)[1]
+    check(f'switch_counts_sql counts as switch_counts, {mode}/{hide_promptless}',
+          {k: int(v) for k, v in sql.items()}, python)
+    kept = [tuple(r) for r in memory.execute(f'SELECT safe, readable FROM rows WHERE {nsfw_kept_sql(mode)}')]
+    check(f'nsfw_kept_sql keeps what switch_counts keeps, {mode}',
+          kept, [v for v in verdicts if mode == 'all' or bool(v[0]) == (mode == 'safe')])
+memory.close()
+
 db.close()
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

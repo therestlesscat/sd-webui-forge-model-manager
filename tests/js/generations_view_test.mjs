@@ -69,7 +69,8 @@ const rated = [];
 // Grouped by size only, here - the server's groupings are generations_test.py's.
 const sizeOf = (i) => `${i.width}×${i.height}`;
 function browse(params) {
-    const hide = params.get('hide_nsfw_images') !== 'false';
+    // The NSFW switch's Safe mode hides explicit images; this stand-in shows every one in any other.
+    const hide = (params.get('nsfw_images') || 'safe') === 'safe';
     const page = Number(params.get('page') || 1);
     const grouped = params.get('group') === 'size';
     const inGroup = params.get('in_group');
@@ -106,7 +107,7 @@ function browse(params) {
         more: tiles.length > page * PART,
         state: { total, filtered: shown.length, hidden_nsfw: total - shown.length,
                  nsfw_count: rows.filter((r) => r.i.mm_level > 3).length,
-                 hide_nsfw_images: hide, stored_generations: generations.length },
+                 nsfw_images: hide ? 'safe' : 'all', stored_generations: generations.length },
         scope: { count: shown.length, first: shown.at(-1)?.g.generation.created_at,
                  last: shown[0]?.g.generation.created_at,
                  ...(grouped ? { grouping: 'Size', value: inGroup || undefined } : {}),
@@ -143,12 +144,12 @@ globalThis.fetch = async (url, init = {}) => {
     const images = href.match(/\/generations\/(\d+)\/images/);
     if (images) {
         const g = generations.find((x) => x.generation.id === Number(images[1]));
-        return reply({ success: true, images: g ? shownOf(g, params.get('hide_nsfw_images') !== 'false') : [] });
+        return reply({ success: true, images: g ? shownOf(g, (params.get('nsfw_images') || 'safe') === 'safe') : [] });
     }
     if (href.includes('/generations/rate')) {
         const form = new URLSearchParams(String(init.body));
         rated.push(Object.fromEntries(form));
-        const hide = form.get('hide_nsfw_images') !== 'false';
+        const hide = (form.get('nsfw_images') || 'safe') === 'safe';
         const level = form.get('level') ? Number(form.get('level')) : null;
         const apply = (i) => { i.user_level = level; i.mm_level = level ?? i.prompt_level; };
         if (form.get('image_id')) {
@@ -163,7 +164,7 @@ globalThis.fetch = async (url, init = {}) => {
         // As the server answers since #239: the batch's tile as its level now
         // draws it - none if the switch hides it all - and the level's totals.
         if (rateAnswersTile) {
-            const level = browse(new URLSearchParams({ page: '1', hide_nsfw_images: String(hide) }));
+            const level = browse(new URLSearchParams({ page: '1', nsfw_images: hide ? 'safe' : 'all' }));
             answer.tile = level.tiles.find((t) => t.generation?.id === g.generation.id) || null;
             answer.state = level.state;
             answer.scope = level.scope;
@@ -253,7 +254,7 @@ check('the newest generations first, a part at a time: a batch folded, a single 
 const group = tileEls()[0];
 check('a folded batch shows its first four images the filter leaves, and how many there are',
       [group.querySelectorAll('.mm-generation-tile').length, group.querySelector('.gen-count')?.textContent], [4, '×4']);
-check('the NSFW images hidden as the gallery setting says', lastAsked().get('hide_nsfw_images'), 'true');
+check('the NSFW images hidden as the gallery setting says', lastAsked().get('nsfw_images'), 'safe');
 const clickAt = (tile) => ['action', 'tile'].map((key) => tile.querySelector('.gen-viewable, .gen-openable')?.dataset[key]);
 check('a click on an image opens the viewer on it; on a batch, the batch, in a grid of its own',
       [clickAt(tileEls()[1]), clickAt(group)], [['generations.view', '1'], ['generations.open', '0']]);
@@ -578,10 +579,15 @@ check('and grouped by nothing, a tile per generation again', tileIds(), ['3g', '
 
 // ---------------------------------------------------------------- the switches
 
-await tick('generations.showNsfw', true);
+await tick('generations.nsfwMode', true, { mode: 'all' });
 check('the NSFW switch starts again from the first part, showing NSFW',
-      [lastAsked().get('page'), lastAsked().get('hide_nsfw_images'), tileEls()[0].querySelector('.gen-count')?.textContent],
-      ['1', 'false', '×3']);   // 33 and 34 deleted above, 32 hidden until now
+      [lastAsked().get('page'), lastAsked().get('nsfw_images'), tileEls()[0].querySelector('.gen-count')?.textContent],
+      ['1', 'all', '×3']);   // 33 and 34 deleted above, 32 hidden until now
+// NSFW only (#363): the press through the page's listener, the next request naming it.
+await tick('generations.nsfwMode', true, { mode: 'nsfw' });
+check('NSFW asks again from the first part, for the explicit images alone',
+      [lastAsked().get('page'), lastAsked().get('nsfw_images')], ['1', 'nsfw']);
+await tick('generations.nsfwMode', true, { mode: 'all' });
 const before = asked.length;
 await act('generations.refresh');
 check('Refresh loads it again from the first part', [asked.length > before, lastAsked().get('page')], [true, '1']);
@@ -600,7 +606,7 @@ endTop = 100000;
 // "Rate": a row of NSFW levels under every image - the level it has outlined,
 // your rating filled; your rating again clears it. A rated image the switch
 // now hides leaves at once; a batch rated, every image of it shown.
-await tick('generations.showNsfw', false);
+await tick('generations.nsfwMode', true, { mode: 'safe' });
 await call('generations.loadMore');
 const rows = () => tileEls().map((t) => !!t.querySelector('.mm-rate'));
 const chips = (tile) => Array.from(tile.querySelectorAll('.mm-rate-chip'));

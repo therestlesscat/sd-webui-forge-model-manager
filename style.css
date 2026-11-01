@@ -2006,6 +2006,14 @@ body.mm-modal-open {
     margin: 0;
 }
 
+/* The NSFW switch in a gallery's banner (#363): the settings window's bar
+   (.mm-settings-seg), at the banner's own text size - 13px stood it 0.6px
+   taller than the prompt switch beside it. */
+.filter-banner-modes .mm-settings-seg-option > span {
+    font-size: inherit;
+    line-height: inherit;
+}
+
 .mm-no-images {
     text-align: center;
     padding: 20px;

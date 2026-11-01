@@ -33,7 +33,7 @@ from .annotations import (annotate_image_levels, annotate_local_ownership, annot
 from ..nsfw import stamp_levels
 from ..send import stamp_readings
 from ..gallery import cb_images_page_size
-from ..gallery import filter_images
+from ..gallery import ALL, filter_images
 from .images import PAGE_FETCHES
 
 # The most Civitai's /images gives one request, whatever limit it is sent:
@@ -519,13 +519,14 @@ def register(app: FastAPI):
         version_id: int,
         page: int = 1,
         cursor: str = "",
-        hide_nsfw_images: bool = False,
+        nsfw_images: str = ALL,
         hide_promptless_images: bool = False,
     ):
         """
         Page `page` of a Civitai version's images, live from Civitai: the next
         `size` images after `cursor` (the first when it is empty), before the
-        switches - which only decide which are drawn. The page carries the
+        switches - the NSFW switch's mode (gallery.NSFW_MODES) and the prompt
+        switch - which only decide which are drawn. The page carries the
         cursor to the one after it; nothing is kept here.
 
         It used to page a cache of every image the browser had fetched, which
@@ -569,7 +570,7 @@ def register(app: FastAPI):
             finally:
                 client.close()
 
-            shown, counts = filter_images(images, hide_nsfw_images, hide_promptless_images)
+            shown, counts = filter_images(images, nsfw_images, hide_promptless_images)
             return JSONResponse({
                 "success": True,
                 "images": stamp_readings(stamp_levels(shown)),
@@ -579,9 +580,11 @@ def register(app: FastAPI):
                     "count": len(images),
                     "shown": counts["filtered"],
                     "hidden_nsfw": counts["hidden_nsfw"],
+                    "hidden_safe": counts["hidden_safe"],
                     "hidden_promptless": counts["hidden_promptless"],
                     "hidden_both": counts["hidden_both"],
                     "nsfw_count": counts["nsfw_count"],
+                    "safe_count": counts["safe_count"],
                     "promptless_count": counts["promptless_count"],
                     "promptless_total": counts["promptless_total"],
                     "more": bool(next_cursor),

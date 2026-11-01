@@ -6,6 +6,17 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.72 - Show the NSFW images alone
+
+*31 October 2026*
+
+Every gallery's NSFW switch is now three buttons, Safe, All and NSFW, each with how many images
+it holds: in the Generations tab, the Civitai Images tab, a model's Civitai images and Your
+generations in the Model Manager, and a version's images in the Civitai Browser. NSFW shows the
+explicit images alone.
+
+- **0.72.0** (build 592) - A gallery could hide its explicit images or show them all, never show them alone: to look over the images rated R and above, you scrolled through all of them for their badges (#363). The NSFW switch is now three buttons, Safe, All and NSFW, in all five galleries that drew it. NSFW hides the safe images, PG and PG-13, and keeps every other, an image no rule has judged included; the banner says how many it hid as safe, and each button says how many images it holds, which a press changes none of. A gallery still opens as its Hide explicit images by default setting says, on Safe or All. While a gallery reloads its images, its buttons are off, as its switches are.
+
 ## 0.71 - What a download fetches, said first
 
 *31 October 2026*

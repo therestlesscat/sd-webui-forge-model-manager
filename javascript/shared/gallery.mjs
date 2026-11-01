@@ -38,7 +38,8 @@ export function dimGalleryWhileLoading(containerId, on) {
     container.querySelector(':scope > .mm-loading-bar')?.remove();
     if (!on) container.querySelector(':scope > .mm-images-loading')?.remove();
     if (on) container.insertAdjacentHTML('afterbegin', LOADING_BAR);
-    container.querySelectorAll('input[type="checkbox"]').forEach((box) => { box.disabled = on; });
+    // The NSFW switch's buttons too (#363): a press meanwhile would ask for another page under this one.
+    container.querySelectorAll('input[type="checkbox"], input[type="radio"]').forEach((box) => { box.disabled = on; });
 }
 
 /**
@@ -86,6 +87,49 @@ export function statusSayer(show) {
     };
 }
 
+// ------------------------------------------------------------ the NSFW switch
+// Three modes (#363): Safe hides the explicit images - the default, as the
+// switch did unticked - All shows every image, and NSFW hides the safe ones.
+// The server is asked by name (nsfw_images, gallery.NSFW_MODES there).
+export const NSFW_MODES = [['safe', 'Safe'], ['all', 'All'], ['nsfw', 'NSFW']];
+
+/**
+ * A gallery's NSFW switch, for renderFilterBanner, from what the server
+ * counted: its mode now, how many it hides in it, and each kind's number -
+ * the safe and the explicit images among what the prompt switch lets through,
+ * which a press changes neither of.
+ *
+ * @param {object} options
+ * @param {string} options.id - the switch's id; each button's is it and its mode.
+ * @param {string} options.mode - one of NSFW_MODES.
+ * @param {object} options.counts - the server's: hidden_nsfw, hidden_safe, nsfw_count, safe_count.
+ * @param {string} options.action - what a press does (shared/calls.mjs), with the button's mode as its value.
+ * @param {string} [options.noteHtml] - a word on what decides it.
+ */
+export function nsfwSwitch({ id, mode, counts, action, noteHtml }) {
+    const safe = counts?.safe_count || 0;
+    const explicit = counts?.nsfw_count || 0;
+    return {
+        id, action, noteHtml, mode, modes: { safe, all: safe + explicit, nsfw: explicit },
+        // Off its default, it stays drawn - the way back - as a ticked box did.
+        showing: mode !== 'safe',
+        hidden: mode === 'nsfw' ? counts?.hidden_safe || 0 : mode === 'safe' ? counts?.hidden_nsfw || 0 : 0,
+        reason: 'NSFW filter',
+    };
+}
+
+/** The NSFW switch as three buttons in a row, the mode it is in pressed: radio inputs, one for each. */
+function modesHtml(s) {
+    const options = NSFW_MODES.map(([mode, name]) => `
+                <label class="mm-settings-seg-option">
+                    <input type="radio" name="${escapeHtml(s.id)}" id="${escapeHtml(`${s.id}_${mode}`)}" value="${mode}"
+                           ${s.mode === mode ? 'checked' : ''} data-action="${escapeHtml(s.action)}" data-mode="${mode}">
+                    <span>${name} (${s.modes[mode]})</span>
+                </label>`).join('');
+    return `<div class="mm-settings-seg filter-banner-modes" id="${escapeHtml(s.id)}" role="radiogroup"
+                 aria-label="Which images to show by NSFW level">${options}</div>`;
+}
+
 /**
  * The gallery's filter banner: one sentence, and a switch for each filter.
  *
@@ -125,7 +169,8 @@ export function statusSayer(show) {
  *     through), total (if given, the number on the switch whatever either
  *     switch says - the prompt switch's, every image with an unusable
  *     prompt), note (a word on what decides it), and applies (false to leave
- *     it out altogether).
+ *     it out altogether). Or the NSFW switch, made by nsfwSwitch(): its
+ *     modes, drawn as three buttons, each with its number.
  * @param {number} [options.both] - images both switches hide: counted in
  *     neither's `hidden`, so each switch's number is what it alone hides and
  *     does not change when it is flipped - and said as a clause of its own.
@@ -135,13 +180,17 @@ export function renderFilterBanner({ matching, total, onScreen, word = 'stored',
     if (!total) return '';
     const active = switches.filter((s) => s.applies !== false);
 
+    // The NSFW switch in NSFW mode hides the safe images: said as such.
     const clauses = active
-        .filter((s) => !s.showing && s.hidden > 0)
-        .map((s) => `${s.hidden} hidden due to ${s.reason}`);
+        .filter((s) => (s.modes ? s.mode !== 'all' : !s.showing) && s.hidden > 0)
+        .map((s) => (s.mode === 'nsfw' ? `${s.hidden} hidden as safe` : `${s.hidden} hidden due to ${s.reason}`));
     if (both > 0) clauses.push(`${both} hidden due to both`);
 
+    // The NSFW switch is offered while its modes differ - some explicit image,
+    // or something it hides now - else every mode would show the same; and
+    // while it is off Safe, to come back.
     const offered = active
-        .map((s) => ({ ...s, number: s.total ?? (s.showing ? s.count : s.hidden) }))
+        .map((s) => ({ ...s, number: s.modes ? s.modes.nsfw + s.hidden : s.total ?? (s.showing ? s.count : s.hidden) }))
         .filter((s) => s.number > 0 || s.showing);
 
     const counted = `${total} ${total === 1 ? 'image' : 'images'} ${word}`
@@ -153,11 +202,11 @@ export function renderFilterBanner({ matching, total, onScreen, word = 'stored',
     const sentence = counted + notes.map((n) => `<small class="filter-banner-note">${n}</small>`).join('');
 
     const controls = offered.length
-        ? `<div class="filter-banner-switches">${offered.map((s) => `
+        ? `<div class="filter-banner-switches">${offered.map((s) => (s.modes ? modesHtml(s) : `
                 <label class="${labelClass}">
                     <input type="checkbox" id="${s.id}" ${s.showing ? 'checked' : ''} data-action="${escapeHtml(s.action)}">
                     ${s.label} (${s.number})
-                </label>`).join('')}
+                </label>`)).join('')}
            </div>`
         : '';
 
@@ -185,6 +234,7 @@ export function pageNoteHtml(page, { end = 'no more images on Civitai' } = {}) {
     const shown = page.shown || 0;
     const parts = [`Displaying ${shown} ${shown === 1 ? 'image' : 'images'} for page ${page.number}`];
     if (page.hidden_nsfw) parts.push(`${page.hidden_nsfw} hidden due to NSFW filter`);
+    if (page.hidden_safe) parts.push(`${page.hidden_safe} hidden as safe`);
     if (page.hidden_promptless) parts.push(`${page.hidden_promptless} hidden due to unusable prompt`);
     if (page.hidden_both) parts.push(`${page.hidden_both} hidden due to both`);
     if (page.error) parts.push(`more could not be fetched from Civitai: ${page.error}`);

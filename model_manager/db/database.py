@@ -509,9 +509,9 @@ class ModelsDatabase:
         """The model files whose generations one gallery shows."""
         return self._generations.gallery_files(path)
 
-    def generation_scope_counts(self, scope, hide_nsfw: bool, hide_promptless: bool) -> Dict[str, Any]:
+    def generation_scope_counts(self, scope, nsfw: Any, hide_promptless: bool) -> Dict[str, Any]:
         """A scope's counts through the switches; see GenerationsOps.scope_counts()."""
-        return self._generations.scope_counts(scope, hide_nsfw, hide_promptless)
+        return self._generations.scope_counts(scope, nsfw, hide_promptless)
 
     def generation_scope_rows(self, scope) -> List[Dict[str, Any]]:
         """A small scope's images, newest first; see GenerationsOps.scope_rows()."""
@@ -521,30 +521,30 @@ class ModelsDatabase:
         """A part of a scope's generations, and how many; see GenerationsOps.scope_generations()."""
         return self._generations.scope_generations(scope, offset, limit)
 
-    def generation_scope_units(self, scope, unit: str, section: Optional[str], hide_nsfw: bool,
+    def generation_scope_units(self, scope, unit: str, section: Optional[str], nsfw: Any,
                                offset: int, limit: int) -> List[Dict[str, Any]]:
         """A part of a level of the Generations tab; see GenerationsOps.scope_units()."""
-        return self._generations.scope_units(scope, unit, section, hide_nsfw, offset, limit)
+        return self._generations.scope_units(scope, unit, section, nsfw, offset, limit)
 
-    def generation_scope_previews(self, scope, unit: str, section: Optional[str], hide_nsfw: bool,
+    def generation_scope_previews(self, scope, unit: str, section: Optional[str], nsfw: Any,
                                   part, count: int) -> List[Dict[str, Any]]:
         """The first images of each unit of a part; see GenerationsOps.scope_previews()."""
-        return self._generations.scope_previews(scope, unit, section, hide_nsfw, part, count)
+        return self._generations.scope_previews(scope, unit, section, nsfw, part, count)
 
-    def generation_scope_unit_checkpoints(self, scope, unit: str, section: Optional[str], hide_nsfw: bool,
+    def generation_scope_unit_checkpoints(self, scope, unit: str, section: Optional[str], nsfw: Any,
                                           part) -> Dict[Any, Optional[str]]:
         """The checkpoint each unit of a part shares; see GenerationsOps.scope_unit_checkpoints()."""
-        return self._generations.scope_unit_checkpoints(scope, unit, section, hide_nsfw, part)
+        return self._generations.scope_unit_checkpoints(scope, unit, section, nsfw, part)
 
-    def generation_scope_unit_loras(self, scope, unit: str, section: Optional[str], hide_nsfw: bool,
+    def generation_scope_unit_loras(self, scope, unit: str, section: Optional[str], nsfw: Any,
                                     part) -> Dict[Any, List[str]]:
         """Every LoRA each unit of a part used; see GenerationsOps.scope_unit_loras()."""
-        return self._generations.scope_unit_loras(scope, unit, section, hide_nsfw, part)
+        return self._generations.scope_unit_loras(scope, unit, section, nsfw, part)
 
-    def generation_scope_level(self, scope, unit: str, section: Optional[str], hide_nsfw: bool,
+    def generation_scope_level(self, scope, unit: str, section: Optional[str], nsfw: Any,
                                single_pass: bool = True):
         """A level to read a part and its tiles from; see GenerationsOps.scope_level()."""
-        return self._generations.scope_level(scope, unit, section, hide_nsfw, single_pass)
+        return self._generations.scope_level(scope, unit, section, nsfw, single_pass)
 
     def generation_image_loras(self, image_ids: List[int]) -> Dict[int, List[str]]:
         """Each generated image's LoRA files; see GenerationsOps.image_loras()."""
@@ -799,10 +799,11 @@ class ModelsDatabase:
         self,
         version_id: int,
         max_nsfw_level: Optional[int] = None,
-        require_prompt: bool = False
+        require_prompt: bool = False,
+        min_nsfw_level: Optional[int] = None
     ) -> Dict[str, int]:
         """Get total and filtered image counts for a version."""
-        return self._images.get_image_counts(version_id, max_nsfw_level, require_prompt)
+        return self._images.get_image_counts(version_id, max_nsfw_level, require_prompt, min_nsfw_level)
 
     def stored_records(self, image_ids) -> List[Dict[str, Any]]:
         """The stored records of these images, whatever galleries show them. See db/images_ops.py."""

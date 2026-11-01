@@ -38,7 +38,7 @@ const {
 } = await shared('filters.mjs');
 const { tickList } = await shared('tick_list.mjs');
 const {
-    showGalleryLoading, dimGalleryWhileLoading, sayGalleryLoading, statusSayer, renderFilterBanner,
+    showGalleryLoading, dimGalleryWhileLoading, sayGalleryLoading, statusSayer, renderFilterBanner, nsfwSwitch,
     createPagedGallery, scrollToImagesTop,
 } = await shared('gallery.mjs');
 const {
@@ -128,7 +128,8 @@ let nextImagesCursor = null;
 let isLoadingImages = false;
 // The gallery's two switches. Each model opens as the settings say, and a
 // switch then lasts while that model is open - as in the Model Manager.
-let showAllNsfwImages = false;
+// The NSFW switch's mode (shared/gallery.mjs, NSFW_MODES).
+let nsfwMode = 'all';
 let showPromptlessImages = false;
 
 // Card sizing (default values, updated from API)
@@ -892,7 +893,7 @@ async function openModel(index, versionIndex = 0) {
     // are listed, and someone may list them and still not want every image.
     const defaults = await galleryDefaults();
     if (selectedModel !== model) return;   // another model was opened meanwhile
-    showAllNsfwImages = !defaults.hideNsfw;
+    nsfwMode = defaults.hideNsfw ? 'safe' : 'all';
     showPromptlessImages = !defaults.hidePromptless;
     loadImagesFromVersion();
 }
@@ -1174,7 +1175,7 @@ async function fetchImagesPage(number) {
             endpoint: `/model-manager/civitai/versions/${version.id}/images`,
             params: {
                 page: number, cursor: number > 1 ? (nextImagesCursor || '') : '',
-                hide_nsfw_images: !showAllNsfwImages,
+                nsfw_images: nsfwMode,
                 hide_promptless_images: !showPromptlessImages,
             },
             onStatus: status.say,
@@ -1188,13 +1189,13 @@ async function fetchImagesPage(number) {
 
 /** Every loaded page's counts added up: what the banner states. */
 function addUpPages() {
-    const keys = ['count', 'shown', 'hidden_nsfw', 'hidden_promptless', 'hidden_both', 'nsfw_count',
-                  'promptless_count', 'promptless_total'];
+    const keys = ['count', 'shown', 'hidden_nsfw', 'hidden_safe', 'hidden_promptless', 'hidden_both', 'nsfw_count',
+                  'safe_count', 'promptless_count', 'promptless_total'];
     const sums = Object.fromEntries(keys.map((key) =>
         [key, imageGallery.pages.reduce((sum, page) => sum + (page[key] || 0), 0)]));
-    return { total: sums.count, filtered: sums.shown, hidden_nsfw: sums.hidden_nsfw,
+    return { total: sums.count, filtered: sums.shown, hidden_nsfw: sums.hidden_nsfw, hidden_safe: sums.hidden_safe,
              hidden_promptless: sums.hidden_promptless, hidden_both: sums.hidden_both,
-             nsfw_count: sums.nsfw_count,
+             nsfw_count: sums.nsfw_count, safe_count: sums.safe_count,
              // Only when every page says it: a page without it would make it short.
              promptless_total: imageGallery.pages.every((page) => typeof page.promptless_total === 'number')
                  ? sums.promptless_total : undefined,
@@ -1293,10 +1294,8 @@ function imagesBannerHtml() {
         labelClass: 'cb-show-all-label',
         both: counts.hidden_both || 0,
         switches: [
-            { id: 'cb_show_all_images', label: 'Show NSFW', reason: 'NSFW filter',
-              showing: showAllNsfwImages, hidden: counts.hidden_nsfw || 0,
-              count: counts.nsfw_count || 0,
-              action: 'civitaiBrowser.showAllImages', noteHtml: nsfwModelNoteHtml() },
+            nsfwSwitch({ id: 'cb_show_all_images', mode: nsfwMode, counts,
+                         action: 'civitaiBrowser.nsfwMode', noteHtml: nsfwModelNoteHtml() }),
             { id: 'cb_show_promptless_images', label: 'Show unusable prompts',
               reason: 'unusable prompt',
               showing: showPromptlessImages, hidden: counts.hidden_promptless || 0,
@@ -1358,10 +1357,10 @@ async function reloadFromFirstPage() {
         `<div class="mm-images-error">The images could not be loaded again: ${escapeHtml(failed)}</div>`);
 }
 
-// Toggle show all images checkbox. The server filters, so the gallery is
+// The NSFW switch's mode pressed (#363). The server filters, so the gallery is
 // fetched again from its first page.
-async function toggleShowAllImages(checked) {
-    showAllNsfwImages = checked;
+async function setNsfwMode(mode) {
+    nsfwMode = mode;
     await reloadFromFirstPage();
 }
 
@@ -2337,7 +2336,7 @@ work.provide('civitaiBrowser.viewModel', ({ index }) => openModel(Number(index))
 work.provide('civitaiBrowser.goToPage', ({ page }) => goToPage(Number(page)));
 work.provide('civitaiBrowser.prevPage', () => prevPage());
 work.provide('civitaiBrowser.nextPage', () => nextPage());
-work.provide('civitaiBrowser.showAllImages', (data, box) => toggleShowAllImages(box.checked));
+work.provide('civitaiBrowser.nsfwMode', (data, box) => setNsfwMode(box.value));
 work.provide('civitaiBrowser.showPromptless', (data, box) => toggleShowPromptless(box.checked));
 work.provide('civitaiBrowser.loadMoreImages', () => loadMoreImages());
 work.provide('civitaiBrowser.download', ({ modelId, versionId, fileId, fileName, sizeKb }) =>

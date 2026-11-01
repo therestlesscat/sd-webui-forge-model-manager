@@ -63,7 +63,7 @@ await waitFor('the gallery', () => document.querySelectorAll('#cb_images .mm-ima
 const shown = () => Array.from(document.querySelectorAll('#cb_images .mm-image-card img'))
     .map((img) => (img.getAttribute('data-src') || img.getAttribute('src') || '').split('/').pop());
 check('with NSFW hidden, the gallery leaves it out', shown(), ['clean.jpeg']);
-await tick('civitaiBrowser.showAllImages', true);
+await tick('civitaiBrowser.nsfwMode', true, { mode: 'all' });
 check('shown, it is badged for why', document.querySelector('#cb_images .mm-nsfw-badge')?.textContent,
       'X · prompt');
 

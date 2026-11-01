@@ -36,7 +36,8 @@ let serverDown = false;
 
 function galleryPage(params) {
     const number = Number(params.get('page'));
-    const hideNsfw = params.get('hide_nsfw_images') !== 'false';
+    // The NSFW switch's Safe mode hides the X ones; this stand-in shows every image in any other.
+    const hideNsfw = (params.get('nsfw_images') || 'safe') === 'safe';
     while (stored.length < number * SIZE && civitai.length) stored.push(...civitai.splice(0, 100));
     const rows = stored.slice((number - 1) * SIZE, number * SIZE);
     const shown = rows.filter((img) => !hideNsfw || img.mm_level <= 3);
@@ -50,8 +51,9 @@ function galleryPage(params) {
         images_state: { version_id: 5001, next_cursor: civitai.length ? 'more' : null,
                         sync_date: '2026-01-01T00:00:00Z', total_count: stored.length,
                         filtered_count: all.length, hidden_nsfw: stored.length - all.length,
-                        hidden_promptless: 0, nsfw_count: stored.length - all.length,
-                        promptless_count: 0, hide_nsfw_images: hideNsfw,
+                        hidden_promptless: 0, nsfw_count: stored.filter((img) => img.mm_level > 3).length,
+                        safe_count: stored.filter((img) => img.mm_level <= 3).length,
+                        promptless_count: 0, nsfw_images: hideNsfw ? 'safe' : 'all',
                         hide_promptless_images: false },
     };
 }
@@ -76,7 +78,7 @@ globalThis.fetch = async (url) => {
     }
     if (href.includes('/model-manager/models/details')) {
         const { images_state } = galleryPage(new URLSearchParams(
-            `page=1&hide_nsfw_images=${params.get('hide_nsfw_images') ?? 'true'}`));
+            `page=1&nsfw_images=${params.get('nsfw_images') ?? 'safe'}`));
         return reply({ success: true, model: { ...MODEL, images_state, generations_count: 0 } });
     }
     if (href.includes('/model-manager/models/versions')) return reply({ success: true, versions: [MODEL] });
@@ -160,7 +162,7 @@ check('so there is no Load More', loadMore(), false);
 scrolls.length = 0;
 window.scrollY = 2000;
 before = asked.length;
-await tick('modelManager.showNsfwImages', true);
+await tick('modelManager.nsfwMode', true, { mode: 'all' });
 await waitFor('the reload', () => cards().length === 100);
 check('changing a switch starts again from page 1', [pagesAsked(before), separators(), notes()],
       [['1'], [], ['Displaying 100 images for page 1']]);

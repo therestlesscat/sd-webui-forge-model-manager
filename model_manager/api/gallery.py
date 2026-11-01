@@ -21,7 +21,7 @@ from fastapi.responses import JSONResponse
 from ..db import get_models_db
 from ..db.gallery_ops import GROUPINGS, NUMBER_KEYS, Scope
 from ..db.images_ops import resource_rows
-from ..gallery import gallery_page_size
+from ..gallery import NSFW, SAFE, gallery_page_size, nsfw_mode, nsfw_shown
 from ..model_dirs import held_here
 from ..nsfw import stamp_levels
 from ..send import stamp_readings
@@ -73,7 +73,7 @@ def group_rank(seed: int, group: str, key: Any) -> bytes:
 
 def ordered_groups(db, seed: int, group: str, scope: Scope, level) -> List[Dict[str, Any]]:
     """A grouping's groups within a level (read by `level`), in the seed's order, kept until the images change."""
-    kept = (group, seed, bool(scope.hide_nsfw), tuple(scope.words), tuple(scope.opened), tuple(scope.images),
+    kept = (group, seed, nsfw_mode(scope.nsfw), tuple(scope.words), tuple(scope.opened), tuple(scope.images),
             tuple(scope.versions), tuple(scope.models), db.gallery_signature())
     with _lock:
         if kept in _groups_kept:
@@ -214,7 +214,7 @@ def _lora_name(key: str, images: List[Dict[str, Any]]) -> str:
     return ", ".join(sorted(wanted))
 
 
-def browse_page(db, seed: int, hide_nsfw: bool, page: int, group: str = "",
+def browse_page(db, seed: int, nsfw: Any, page: int, group: str = "",
                 in_group: str = "", in_subgroup: str = "", search: str = "") -> Dict[str, Any]:
     """
     Part `page` of a level: every image, a grouping's groups, or one group's
@@ -231,7 +231,7 @@ def browse_page(db, seed: int, hide_nsfw: bool, page: int, group: str = "",
         if text == "":
             break
         opened.append((grouping, group_key(grouping, text)))
-    scope = Scope(bool(hide_nsfw), terms.words, opened, images=terms.images,
+    scope = Scope(nsfw_mode(nsfw), terms.words, opened, images=terms.images,
                   versions=terms.versions, models=terms.models)
     grouping = chain[len(opened)] if len(opened) < len(chain) else None
     # The level read once, its counts and its page or groups from it (#283).
@@ -258,22 +258,26 @@ def browse_page(db, seed: int, hide_nsfw: bool, page: int, group: str = "",
                 "kind": "group",
                 "group": {"key": group_id(g["key"]), "value": name, "by": grouping, "count": g["count"]},
                 "images": images,
-                "matching_count": g["count"] - (g["nsfw"] if hide_nsfw else 0),
+                "matching_count": nsfw_shown(g["count"], g["nsfw"], nsfw),
             })
         return {"seed": seed, "tiles": tiles, "more": offset + size < len(groups),
-                "state": _state(counts["total"], counts["nsfw"], hide_nsfw),
+                "state": _state(counts["total"], counts["nsfw"], nsfw),
                 "scope": {"count": counts["total"], "groups": len(groups)}}
 
     # The level's count is what it shows, as its group's tile says it.
-    shown = counts["total"] - (counts["nsfw"] if hide_nsfw else 0)
+    shown = nsfw_shown(counts["total"], counts["nsfw"], nsfw)
     return {"seed": seed, "tiles": image_tiles(db, keys[:size]), "more": len(keys) > size,
-            "state": _state(counts["total"], counts["nsfw"], hide_nsfw), "scope": {"count": shown}}
+            "state": _state(counts["total"], counts["nsfw"], nsfw), "scope": {"count": shown}}
 
 
-def _state(total: int, explicit: int, hide_nsfw: bool) -> Dict[str, int]:
+def _state(total: int, explicit: int, nsfw: Any) -> Dict[str, int]:
     """What the banner counts, in the meanings every gallery's switch keeps (gallery.switch_counts)."""
-    hidden = explicit if hide_nsfw else 0
-    return {"total": total, "filtered": total - hidden, "hidden_nsfw": hidden, "nsfw_count": explicit}
+    mode = nsfw_mode(nsfw)
+    shown = nsfw_shown(total, explicit, mode)
+    return {"total": total, "filtered": shown,
+            "hidden_nsfw": total - shown if mode == SAFE else 0,
+            "hidden_safe": total - shown if mode == NSFW else 0,
+            "nsfw_count": explicit, "safe_count": total - explicit}
 
 
 def register(app: FastAPI) -> None:
@@ -282,11 +286,11 @@ def register(app: FastAPI) -> None:
     @app.get("/model-manager/gallery/browse")
     @gate("gallery")
     def get_gallery_page(page: int = 1, group: str = "", in_group: str = "", in_subgroup: str = "",
-                         search: str = "", hide_nsfw_images: Optional[bool] = None):
+                         search: str = "", nsfw_images: Optional[str] = None):
         """
         Part `page` of a level of the Civitai Images tab, in the seed's order, through
-        the NSFW switch - which starts as the Model Manager gallery's setting
-        says, as every gallery of Civitai's images does.
+        the NSFW switch's mode (gallery.NSFW_MODES) - which starts as the Model
+        Manager gallery's setting says, as every gallery of Civitai's images does.
 
         Args:
             group: what the images are grouped by (db/gallery_ops.GROUPINGS), one
@@ -297,9 +301,9 @@ def register(app: FastAPI) -> None:
         """
         try:
             db = get_models_db()
-            hide_nsfw, _ = gallery_switches(hide_nsfw_images, None)
+            nsfw, _ = gallery_switches(nsfw_images, None)
             return JSONResponse({"success": True, **browse_page(
-                db, gallery_seed(db), bool(hide_nsfw), page, group, in_group, in_subgroup, search)})
+                db, gallery_seed(db), nsfw, page, group, in_group, in_subgroup, search)})
         except Exception as e:
             return failed(e, "Gallery page error")
 

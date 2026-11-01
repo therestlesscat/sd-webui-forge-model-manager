@@ -71,7 +71,8 @@ const $ = (id) => document.getElementById(id);
 const gallery = () => $('cb_images');
 const bar = () => gallery()?.querySelector(':scope > .mm-loading-bar');
 const cards = () => Array.from(gallery()?.querySelectorAll('.mm-image-card') || []);
-const switches = () => Array.from(gallery()?.querySelectorAll('input[type="checkbox"]') || []);
+// The prompt switch's box and the NSFW switch's three buttons (#363).
+const switches = () => Array.from(gallery()?.querySelectorAll('input[type="checkbox"], input[type="radio"]') || []);
 const held = () => waitFor('the images request', () => release !== null);
 
 $('cb_status').textContent = '';
@@ -91,7 +92,11 @@ check('and the bar goes when the images are drawn', [!!bar(), gallery().classLis
       [false, false]);
 
 // ------------------------------------------------------ changing a switch
-const toggling = tick('civitaiBrowser.showAllImages', false);
+// Every image here safe, the gallery opened on All: the bar stays, the way back to Safe (#363).
+const drawn = !!document.querySelector('[data-action="civitaiBrowser.nsfwMode"]');
+check('the NSFW switch is drawn off Safe, with nothing explicit', drawn, true);
+const toggling = drawn ? tick('civitaiBrowser.nsfwMode', true, { mode: 'safe' })
+    : call('civitaiBrowser.nsfwMode', {}, { value: 'safe' });
 await held();
 check('changing a switch keeps the images, dimmed under the bar, the switches off until the answer',
       [!!bar(), gallery().classList.contains('mm-gallery-loading'), cards().length,
@@ -106,7 +111,7 @@ check('then the new images, undimmed, the switches on again',
 // ---------------------------------------------------------- a failure said
 failNext = true;
 // The switch is not drawn now - nothing hidden for it to show - so its action is called.
-const failing = call('civitaiBrowser.showAllImages', {}, { checked: true });
+const failing = call('civitaiBrowser.nsfwMode', {}, { value: 'all' });
 await held();
 release();
 await failing;

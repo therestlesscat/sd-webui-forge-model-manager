@@ -95,29 +95,29 @@ chains = [''] + list(api.GROUPINGS) + [f'{a}>{b}' for a in api.GROUPINGS for b i
 for hide in (False, True):
     for group in chains:
         label = f'grouped by {group or "nothing"}, NSFW {"hidden" if hide else "shown"}'
-        first = same(label, hide_nsfw=hide, group=group)
+        first = same(label, nsfw=hide, group=group)
         if not group:
-            same(f'{label}, expanded', hide_nsfw=hide, group=group, expand=True)
+            same(f'{label}, expanded', nsfw=hide, group=group, expand=True)
         for tile in first['tiles'][:2]:
             if tile['kind'] == 'generation':
-                same(f'{label}, inside a batch', hide_nsfw=hide, group=group, generation=tile['generation']['id'])
+                same(f'{label}, inside a batch', nsfw=hide, group=group, generation=tile['generation']['id'])
             elif 'section' in tile:
-                same(f'{label}, a section', hide_nsfw=hide, group=group, in_group=tile['section']['id'])
-                same(f'{label}, a group in a section', hide_nsfw=hide, group=group,
+                same(f'{label}, a section', nsfw=hide, group=group, in_group=tile['section']['id'])
+                same(f'{label}, a group in a section', nsfw=hide, group=group,
                      in_group=tile['section']['id'], in_subgroup=tile['group']['id'])
             else:
-                inner = same(f'{label}, a group', hide_nsfw=hide, group=group, in_group=tile['group']['id'])
-                same(f'{label}, a group, expanded', hide_nsfw=hide, group=group, in_group=tile['group']['id'],
+                inner = same(f'{label}, a group', nsfw=hide, group=group, in_group=tile['group']['id'])
+                same(f'{label}, a group, expanded', nsfw=hide, group=group, in_group=tile['group']['id'],
                      expand=True)
                 for batch in inner['tiles'][:1]:
                     if batch['kind'] == 'generation':
-                        same(f'{label}, a batch in a group', hide_nsfw=hide, group=group,
+                        same(f'{label}, a batch in a group', nsfw=hide, group=group,
                              in_group=tile['group']['id'], generation=batch['generation']['id'])
 # The ids (#336): a checkpoint's version, LoRAs' with a word, a model, images.
 for search in ('cat', '"red fox"', 'nothing-matches', f'task:{facts["task"]}',
                'version:1', 'version:10,11 cat', 'model:2', 'image:1,2,3,40'):
     for group in ('', 'prompt', 'base_model', 'model>prompt_written'):
-        same(f'search {search!r}, grouped by {group or "nothing"}', hide_nsfw=False, group=group, search=search)
+        same(f'search {search!r}, grouped by {group or "nothing"}', nsfw=False, group=group, search=search)
 check('every grouping and pair was compared both ways, with what lies inside', compared >= 2 * len(chains) * 2,
       True)
 # The comparison can fail: Single pass's tiles drawn from another level differ.

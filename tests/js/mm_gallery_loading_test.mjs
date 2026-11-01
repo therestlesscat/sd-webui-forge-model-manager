@@ -14,8 +14,8 @@ const MODEL = {
     file_size: 1, nsfw_level: 1, has_civitai_data: true, local_version_count: 1, trained_words: [], tags: [],
 };
 const image = (id) => ({ id, url: `https://example.invalid/${id}.jpeg`, mm_level: 1, meta: { prompt: 'a lighthouse' } });
-const STATE = { version_id: 5001, total_count: 2, filtered_count: 2, hide_nsfw_images: false,
-                hide_promptless_images: false };
+const STATE = { version_id: 5001, total_count: 2, filtered_count: 2, nsfw_count: 1, safe_count: 1,
+                nsfw_images: 'all', hide_promptless_images: false };
 // What a gallery waits on, as a server asked for a stream sends it (#132):
 // its status lines, then - once the gate opens - its answer.
 const streamed = (lines, gate) => new Response(new ReadableStream({
@@ -85,7 +85,8 @@ const $ = (id) => document.getElementById(id);
 const gallery = () => $('mm_images');
 const bar = () => gallery()?.querySelector(':scope > .mm-loading-bar');
 const cards = () => Array.from(gallery()?.querySelectorAll('.mm-image-card') || []);
-const switches = () => Array.from(gallery()?.querySelectorAll('input[type="checkbox"]') || []);
+// The prompt switch's box and the NSFW switch's three buttons (#363).
+const switches = () => Array.from(gallery()?.querySelectorAll('input[type="checkbox"], input[type="radio"]') || []);
 const held = () => waitFor('the gallery page', () => release !== null);
 
 $('mm_load_btn').dispatchEvent(new window.Event('click', { bubbles: true }));
@@ -102,7 +103,7 @@ await waitFor('the images', () => cards().length === 2);
 check('and it goes when the images are drawn', [!!bar(), gallery().classList.contains('mm-gallery-loading')],
       [false, false]);
 
-const toggling = tick('modelManager.showNsfwImages', false);
+const toggling = tick('modelManager.nsfwMode', true, { mode: 'safe' });
 await held();
 check('changing a switch keeps the images, dimmed under the bar, the switches off',
       [!!bar(), gallery().classList.contains('mm-gallery-loading'), cards().length,
@@ -116,7 +117,7 @@ check('then the new page, undimmed, the switches on again',
 
 failNext = true;
 // The switch is not drawn now - nothing hidden for it to show - so its action is called.
-const failing = call('modelManager.showNsfwImages', {}, { checked: true });
+const failing = call('modelManager.nsfwMode', {}, { value: 'all' });
 await held();
 release();
 await failing;
@@ -131,7 +132,7 @@ check('a first page that fails is said in the gallery, which is undimmed again',
 const line = () => gallery().querySelector(':scope > .mm-images-loading')?.textContent;
 let open;
 streamNext = new Promise((resolve) => { open = resolve; });
-const waiting = call('modelManager.showNsfwImages', {}, { checked: false });
+const waiting = call('modelManager.nsfwMode', {}, { value: 'safe' });
 await waitFor('what it waits on', () => line()?.includes('overloaded'));
 check('a switch\'s page that waits on Civitai says why over the dimmed images, counting down',
       [line(), gallery().classList.contains('mm-gallery-loading')],

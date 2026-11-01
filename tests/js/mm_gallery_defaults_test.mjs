@@ -29,21 +29,24 @@ globalThis.fetch = withGalleryPages(async (url) => {
         const params = new URL(href, 'http://webui').searchParams;
         // What api/models.py does: the request's value, else the setting.
         const said = (name) => (params.has(name) ? params.get(name) !== 'false' : settings[name]);
-        const hideNsfw = said('hide_nsfw_images');
+        // The NSFW switch's mode, named; else the setting's yes or no to hiding (#363).
+        const mode = params.get('nsfw_images') || (settings.hide_nsfw_images ? 'safe' : 'all');
         const hidePromptless = said('hide_promptless_images');
         // Counted as images_ops.get_image_counts counts them.
-        const nsfwPass = LIBRARY.filter((x) => !hideNsfw || !x.nsfw);
+        const nsfwPass = LIBRARY.filter((x) => mode === 'all' || x.nsfw === (mode === 'nsfw'));
         const promptPass = LIBRARY.filter((x) => !hidePromptless || x.prompt);
         const shown = nsfwPass.filter((x) => promptPass.includes(x));
         return { ok: true, json: async () => ({ success: true, model: {
             ...MODELS[0], images: shown.map((x) => ({ id: x.id, url: `https://example.invalid/${x.id}.jpeg`,
                 browsingLevel: x.nsfw ? 8 : 1, meta: x.prompt ? { prompt: 'a lighthouse by the sea' } : null })),
             images_state: { version_id: 5001, total_count: LIBRARY.length,
-                            hidden_nsfw: LIBRARY.length - nsfwPass.length,
+                            hidden_nsfw: mode === 'safe' ? LIBRARY.length - nsfwPass.length : 0,
+                            hidden_safe: mode === 'nsfw' ? LIBRARY.length - nsfwPass.length : 0,
                             hidden_promptless: nsfwPass.length - shown.length,
                             nsfw_count: promptPass.filter((x) => x.nsfw).length,
+                            safe_count: promptPass.filter((x) => !x.nsfw).length,
                             promptless_count: nsfwPass.filter((x) => !x.prompt).length,
-                            hide_nsfw_images: hideNsfw, hide_promptless_images: hidePromptless } } }) };
+                            nsfw_images: mode, hide_promptless_images: hidePromptless } } }) };
     }
     if (href.includes('/models/versions')) {
         return { ok: true, json: async () => ({ success: true, versions: [] }) };
@@ -62,8 +65,9 @@ await waitFor('the grid', () => document.querySelectorAll('#mm_grid .model-card'
 
 const shown = () => Array.from(document.querySelectorAll('#mm_images .mm-image-card img'))
     .map((img) => (img.getAttribute('data-src') || img.getAttribute('src') || '').split('/').pop());
-const ticked = () => ['mm_show_nsfw_images', 'mm_show_promptless_images']
-    .map((id) => document.getElementById(id)?.checked ?? null);
+// The NSFW switch's mode pressed, and whether the prompt switch is ticked.
+const ticked = () => [document.querySelector('#mm_show_nsfw_images input:checked')?.value ?? null,
+                      document.getElementById('mm_show_promptless_images')?.checked ?? null];
 
 async function open(index) {
     document.getElementById('mm_images').innerHTML = '';
@@ -73,24 +77,24 @@ async function open(index) {
 
 await open(0);
 check('hiding both, the gallery opens with only the safe image with a prompt',
-      [shown(), ticked()], [['1.jpeg'], [false, false]]);
+      [shown(), ticked()], [['1.jpeg'], ['safe', false]]);
 
-await tick('modelManager.showNsfwImages', true);
+await tick('modelManager.nsfwMode', true, { mode: 'all' });
 await tick('modelManager.showPromptless', true);
 check('the switches show everything for this model', shown(), ['1.jpeg', '2.jpeg', '3.jpeg']);
 
 await open(1);
 check('the next model starts from the settings again, not from the switches',
-      [shown(), ticked()], [['1.jpeg'], [false, false]]);
+      [shown(), ticked()], [['1.jpeg'], ['safe', false]]);
 
 settings.hide_nsfw_images = false;
 settings.hide_promptless_images = false;
 await open(0);
 check('a change to the settings reaches the next model opened, without a reload',
-      [shown(), ticked()], [['1.jpeg', '2.jpeg', '3.jpeg'], [true, true]]);
+      [shown(), ticked()], [['1.jpeg', '2.jpeg', '3.jpeg'], ['all', true]]);
 
 settings.hide_nsfw_images = true;
 await open(1);
-check('each setting on its own', [shown(), ticked()], [['1.jpeg', '3.jpeg'], [false, true]]);
+check('each setting on its own', [shown(), ticked()], [['1.jpeg', '3.jpeg'], ['safe', true]]);
 
 done();

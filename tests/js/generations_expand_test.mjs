@@ -37,7 +37,7 @@ globalThis.fetch = async (url, init = {}) => {
         const tiles = batch ? IMAGES.filter((t) => String(t.generation.id) === batch)
             : expanded ? IMAGES : BATCHES;
         return reply({ success: true, tiles, more: false,
-                       state: { total: 3, filtered: 3, hidden_nsfw: 0, nsfw_count: 0, hide_nsfw_images: false,
+                       state: { total: 3, filtered: 3, hidden_nsfw: 0, nsfw_count: 0, nsfw_images: 'all',
                                 stored_generations: 2 },
                        scope: { count: batch ? tiles.length : 3 } });
     }

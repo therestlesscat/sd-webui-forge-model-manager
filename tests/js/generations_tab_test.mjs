@@ -113,7 +113,7 @@ globalThis.fetch = withGalleryPages(async (url, init = {}) => {
             images: [{ id: 99, url: 'https://example.invalid/99.jpeg', browsingLevel: 1, mm_level: 1,
                        meta: { prompt: 'a civitai image' } }],
             images_state: { version_id: 5001, total_count: 1, filtered_count: 1, offset: 0,
-                            hide_nsfw_images: true, hide_promptless_images: true },
+                            nsfw_images: 'safe', hide_promptless_images: true },
             generations_count: path.endsWith('a.safetensors') ? 2 : 0 } });
     }
     if (href.includes('/models/versions')) return reply({ success: true, versions: [MODEL] });

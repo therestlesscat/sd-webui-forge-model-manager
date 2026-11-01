@@ -53,7 +53,7 @@ globalThis.fetch = async (url) => {
         }
         if (q('generation')) tiles = IMAGES;
         return reply({ success: true, tiles, more: false,
-                       state: { total: 4, filtered: 4, hidden_nsfw: 0, nsfw_count: 0, hide_nsfw_images: true,
+                       state: { total: 4, filtered: 4, hidden_nsfw: 0, nsfw_count: 0, nsfw_images: 'safe',
                                 stored_generations: 2 },
                        scope: { count: 3 } });
     }

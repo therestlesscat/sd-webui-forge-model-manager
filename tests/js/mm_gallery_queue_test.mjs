@@ -37,7 +37,7 @@ globalThis.fetch = withGalleryPages(async (url) => {
     if (href.includes('/models/details')) {
         return reply({ success: true, model: { ...MODEL, images: GALLERY, generations_count: 0,
             images_state: { version_id: 20937, total_count: COUNT, filtered_count: COUNT, offset: 0,
-                            hide_nsfw_images: false, hide_promptless_images: false } } });
+                            nsfw_images: 'all', hide_promptless_images: false } } });
     }
     if (href.includes('/models/versions')) return reply({ success: true, versions: [MODEL] });
     if (href.includes('/model-manager/models')) {

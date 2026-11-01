@@ -22,6 +22,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple
 
 from ..console import say_failure
+from ..gallery import ALL, nsfw_kept_sql
 from ..nsfw import SFW_MAX
 from .images_ops import IMAGE_PROMPTS
 from .prompt_table import like_pattern
@@ -100,11 +101,12 @@ def day_range(day: str) -> Tuple[str, str]:
 @dataclass
 class Scope:
     """
-    The images a level holds: the NSFW switch, a search's words, the groups
-    opened above it, each (grouping, key), and the images, versions and
-    models a search names (#336) - an empty list naming none.
+    The images a level holds: the NSFW switch's mode (gallery.nsfw_mode), a
+    search's words, the groups opened above it, each (grouping, key), and the
+    images, versions and models a search names (#336) - an empty list naming
+    none.
     """
-    hide_nsfw: bool = False
+    nsfw: Any = ALL
     words: List[str] = field(default_factory=list)
     opened: List[Tuple[str, Any]] = field(default_factory=list)
     images: List[int] = field(default_factory=list)
@@ -219,7 +221,7 @@ class GalleryOps:
                 cursor.execute(f"CREATE TEMP TABLE {_LEVEL_TABLE} AS {head} SELECT p.id AS id, "
                                f"p.version_id AS version_id, p.level AS level, {_SCORE} AS s {body}", args)
                 cursor.execute(f"CREATE INDEX temp.{_LEVEL_TABLE}_order ON {_LEVEL_TABLE} (s, id)")
-                yield _Level(cursor, scope.hide_nsfw)
+                yield _Level(cursor, scope.nsfw)
             finally:
                 try:
                     cursor.execute(f"DROP TABLE IF EXISTS temp.{_LEVEL_TABLE}")
@@ -294,9 +296,10 @@ class GalleryOps:
 class _Level:
     """A level read into its table (GalleryOps.level): its counts, a page, its groups."""
 
-    def __init__(self, cursor, hide_nsfw: bool):
+    def __init__(self, cursor, nsfw: Any):
         self._cursor = cursor
-        self._hide = hide_nsfw
+        # What the NSFW switch lets through, as SQL over the level's table.
+        self._shown = nsfw_kept_sql(nsfw, f"(NOT {_EXPLICIT})")
 
     def counts(self) -> Dict[str, int]:
         """Every image the level holds - the NSFW switch aside - and how many of them are explicit."""
@@ -309,8 +312,7 @@ class _Level:
         A page of the level's images by score, as (image id, version id), in
         order. Ties broken by the image id: an order that cannot tie.
         """
-        where = f"WHERE NOT {_EXPLICIT}" if self._hide else ""
-        self._cursor.execute(f"SELECT p.id, p.version_id FROM temp.{_LEVEL_TABLE} p {where} "
+        self._cursor.execute(f"SELECT p.id, p.version_id FROM temp.{_LEVEL_TABLE} p WHERE {self._shown} "
                              "ORDER BY p.s, p.id LIMIT ? OFFSET ?", (int(limit), int(offset)))
         return [(row[0], row[1]) for row in self._cursor.fetchall()]
 
@@ -318,19 +320,18 @@ class _Level:
         """
         Every group of a grouping within the level: its key, its name, how many
         images it has and how many are explicit, and its first `previews` shown
-        images by score. A group whose every image the NSFW switch hides is
-        left out. The groups' own order is the caller's (one from the seed and
+        images by score. A group whose every image the NSFW switch hides - its
+        explicit ones, or in NSFW mode its safe ones - is left out. The groups' own order is the caller's (one from the seed and
         the group): placed by their lowest-scoring image, the biggest groups
         came first for almost every seed (#209).
         """
         key, label = GROUPINGS[grouping]
         combo = grouping == "loras"
-        shown = f"NOT {_EXPLICIT}" if self._hide else "1"
         # The LoRA combination is worked out only for the grouping that reads it.
         combo_cte = _COMBO.lstrip(",\n ") + "," if combo else ""
         sql = f"""WITH {combo_cte}
             scored AS (SELECT p.id, p.version_id, {key} AS k, {label} AS name, p.s AS s,
-                              {_EXPLICIT} AS explicit, ({shown}) AS shown
+                              {_EXPLICIT} AS explicit, ({self._shown}) AS shown
                        {_LEVEL_JOINS}{" LEFT JOIN combo ON combo.image_id = p.id" if combo else ""}),
             counted AS (SELECT *, COUNT(*) OVER (PARTITION BY k) AS n_all,
                                TOTAL(explicit) OVER (PARTITION BY k) AS n_explicit FROM scored),

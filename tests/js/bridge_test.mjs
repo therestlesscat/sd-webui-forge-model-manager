@@ -245,7 +245,7 @@ $('cb_require_prompt').checked = true;
 let renderError = null;
 try {
     // The gallery again, as a switch reloads it: the NSFW one, not drawn - every image is PG.
-    await call('civitaiBrowser.showAllImages', {}, { checked: true });
+    await call('civitaiBrowser.nsfwMode', {}, { value: 'all' });
 } catch (e) {
     renderError = e.message;
 }
@@ -261,6 +261,12 @@ const switchLabel = (id) => (document.querySelector(`#cb_images .cb-nsfw-warning
     ?.closest('label')?.textContent || '').replace(/\s+/g, ' ').trim() || null;
 const PROMPT = 'cb_show_promptless_images';
 const NSFW = 'cb_show_all_images';
+// The NSFW switch's three buttons (#363), each one's words; null where it is not drawn.
+const buttons = () => {
+    const bar = document.querySelector(`#cb_images .cb-nsfw-warning #${NSFW}`);
+    return bar ? [...bar.querySelectorAll('.mm-settings-seg-option')].map((b) => b.textContent.replace(/\s+/g, ' ').trim())
+        : null;
+};
 
 check('the banner carries the prompt switch', switchLabel(PROMPT), 'Show unusable prompts (1)');
 check('and its sentence says what the prompt filter hides', sentence(),
@@ -292,19 +298,19 @@ await openTab('civitaiBrowser', 'showModel', 'model:12345');
 await waitFor('the gallery with an NSFW image', () => galleryDrawn(galleryImages[0].url));
 const switchIn = (where) => document.querySelectorAll(`${where} #cb_show_all_images`).length;
 
-await tick('civitaiBrowser.showAllImages', false);
+await tick('civitaiBrowser.nsfwMode', true, { mode: 'safe' });
 check('the NSFW switch sits in the banner', switchIn('.cb-nsfw-warning'), 1);
 check('not in the list header', switchIn('.mm-images-header'), 0);
 check('and there is one of it, though the sentence repeats below the list',
       document.querySelectorAll('#cb_show_all_images').length, 1);
-check('beside a count of what it is holding back', switchLabel(NSFW), 'Show NSFW (1)');
+check('each button with its kind\'s number, All their sum', buttons(), ['Safe (1)', 'All (2)', 'NSFW (1)']);
 check('which the sentence states too', sentence(),
       '2 images loaded · 1 match the filters (1 shown) · 1 hidden due to NSFW filter');
 
-await tick('civitaiBrowser.showAllImages', true);
+await tick('civitaiBrowser.nsfwMode', true, { mode: 'all' });
 check('with everything shown the switch is still there to turn back',
       switchIn('.cb-nsfw-warning'), 1);
-check('saying how many NSFW it shows', switchLabel(NSFW), 'Show NSFW (1)');
+check('no number moved for the press', buttons(), ['Safe (1)', 'All (2)', 'NSFW (1)']);
 check('and the sentence says nothing is hidden', sentence(), '2 images loaded · 2 match the filters (2 shown)');
 
 // ------------------------------------------- what the numbers count
@@ -324,26 +330,29 @@ await openTab('civitaiBrowser', 'showModel', 'model:12345');
 await waitFor('the gallery both filters hide from', () => galleryDrawn(galleryImages[0].url));
 $('cb_require_prompt').checked = true;
 // NSFW hidden, as the switch says - which is not drawn: it would show nothing.
-await call('civitaiBrowser.showAllImages', {}, { checked: false });
+await call('civitaiBrowser.nsfwMode', {}, { value: 'safe' });
 
 check('there is one banner at the top, not one per filter', banners().length, 1);
 check('whose sentence adds up to the total, what both filters hide apart', sentence(),
       '3 images loaded · 1 match the filters (1 shown) · 1 hidden due to unusable prompt, 1 hidden due to both');
 check('the prompt switch saying every unusable one; the NSFW one, which would show nothing, left out',
-      [switchLabel(NSFW), switchLabel(PROMPT)], [null, 'Show unusable prompts (2)']);
+      [buttons(), switchLabel(PROMPT)], [null, 'Show unusable prompts (2)']);
 
-await call('civitaiBrowser.showAllImages', {}, { checked: true });
+await call('civitaiBrowser.nsfwMode', {}, { value: 'all' });
 check('showing NSFW, its image without a prompt is the prompt filter\'s alone', sentence(),
       '3 images loaded · 1 match the filters (1 shown) · 2 hidden due to unusable prompt');
 check('and the prompt switch has not moved',
-      [switchLabel(NSFW), switchLabel(PROMPT)], ['Show NSFW (0)', 'Show unusable prompts (2)']);
+      [buttons(), switchLabel(PROMPT)], [['Safe (1)', 'All (1)', 'NSFW (0)'], 'Show unusable prompts (2)']);
 
-await tick('civitaiBrowser.showAllImages', false);
+// Off Safe with nothing explicit, the bar stays: the way back (#363).
+check('the NSFW switch is still drawn, to come back to Safe', buttons() !== null, true);
+if (buttons()) await tick('civitaiBrowser.nsfwMode', true, { mode: 'safe' });
+else await call('civitaiBrowser.nsfwMode', {}, { value: 'safe' });
 await tick('civitaiBrowser.showPromptless', true);
 check('showing prompts leaves only the NSFW clause', sentence(),
       '3 images loaded · 2 match the filters (2 shown) · 1 hidden due to NSFW filter');
 check('and the NSFW switch appears, with what it would show',
-      [switchLabel(NSFW), switchLabel(PROMPT)], ['Show NSFW (1)', 'Show unusable prompts (2)']);
+      [buttons(), switchLabel(PROMPT)], [['Safe (2)', 'All (3)', 'NSFW (1)'], 'Show unusable prompts (2)']);
 await tick('civitaiBrowser.showPromptless', false);
 
 // ------------------------------------------ a download, finishing in place

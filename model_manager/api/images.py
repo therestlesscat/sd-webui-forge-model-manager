@@ -19,7 +19,7 @@ from ..nsfw import SFW_MAX, stamp_levels
 from ..send import stamp_readings
 from ..civitai import CivitaiClient, enrich_images_with_generation_data
 from ..civitai.images import IMAGE_HOST, is_image_address
-from ..gallery import filter_images, mm_images_page_size
+from ..gallery import NSFW, SAFE, filter_images, mm_images_page_size, nsfw_mode
 from .common import failed, gate, streams_status
 from ..console import say
 
@@ -28,18 +28,18 @@ from ..console import say
 LOAD_MORE_BATCHES = 5
 
 
-def gallery_switches(hide_nsfw: Optional[bool],
-                     hide_promptless: Optional[bool]) -> Tuple[bool, bool]:
+def gallery_switches(nsfw: Optional[str],
+                     hide_promptless: Optional[bool]) -> Tuple[str, bool]:
     """
-    The Model Manager gallery's two switches: as the page set them, or, until
-    it has, as the settings say. The page sends neither on a model's first
-    load, so that the settings are read at all.
+    The Model Manager gallery's two switches - the NSFW switch's mode
+    (gallery.nsfw_mode) and whether unusable prompts are hidden: as the page
+    set them, or, until it has, as the settings say. The page sends neither
+    on a model's first load, so that the settings are read at all.
     """
-    if hide_nsfw is None:
-        hide_nsfw = setting('model_manager_gallery_hide_nsfw')
+    mode = nsfw_mode(bool(setting('model_manager_gallery_hide_nsfw')) if nsfw is None else nsfw)
     if hide_promptless is None:
         hide_promptless = setting('model_manager_hide_promptless_images')
-    return hide_nsfw, hide_promptless
+    return mode, hide_promptless
 
 
 def civitai_has_more(version: Optional[Dict[str, Any]]) -> bool:
@@ -59,7 +59,7 @@ def civitai_has_more(version: Optional[Dict[str, Any]]) -> bool:
 PAGE_FETCHES = 5
 
 
-def gallery_page(db, version_id: int, page: int, hide_nsfw: bool, hide_promptless: bool,
+def gallery_page(db, version_id: int, page: int, nsfw: Any, hide_promptless: bool,
                  fetch: bool = True) -> Dict[str, Any]:
     """
     Page `page` of a version's gallery: the images stored at places
@@ -99,7 +99,7 @@ def gallery_page(db, version_id: int, page: int, hide_nsfw: bool, hide_promptles
             break
 
     rows = db.get_image_page(version_id, (page - 1) * size, size)
-    shown, counts = filter_images(rows, hide_nsfw, hide_promptless)
+    shown, counts = filter_images(rows, nsfw, hide_promptless)
     return {
         "images": stamp_readings(stamp_levels(shown)),
         "page": {
@@ -108,12 +108,13 @@ def gallery_page(db, version_id: int, page: int, hide_nsfw: bool, hide_promptles
             "count": len(rows),
             "shown": counts["filtered"],
             "hidden_nsfw": counts["hidden_nsfw"],
+            "hidden_safe": counts["hidden_safe"],
             "hidden_promptless": counts["hidden_promptless"],
             "hidden_both": counts["hidden_both"],
             "more": stored > page * size or civitai_has_more(version),
             "error": error,
         },
-        "images_state": gallery_state(db, version_id, hide_nsfw, hide_promptless),
+        "images_state": gallery_state(db, version_id, nsfw, hide_promptless),
     }
 
 
@@ -144,11 +145,12 @@ def still_answer(url: str, head=requests.head):
     return Response(status_code=404, headers={"Cache-Control": f"private, max-age={STILL_NONE_SECONDS}"})
 
 
-def gallery_state(db, version_id: int, hide_nsfw: bool, hide_promptless: bool) -> Dict[str, Any]:
+def gallery_state(db, version_id: int, nsfw: Any, hide_promptless: bool) -> Dict[str, Any]:
     """The gallery's totals, as the banner states them, over every stored image."""
-    max_level = SFW_MAX if hide_nsfw else None
-    counts = db.get_image_counts(version_id, max_nsfw_level=max_level,
-                                 require_prompt=hide_promptless)
+    mode = nsfw_mode(nsfw)
+    counts = db.get_image_counts(version_id, max_nsfw_level=SFW_MAX if mode == SAFE else None,
+                                 require_prompt=hide_promptless,
+                                 min_nsfw_level=SFW_MAX if mode == NSFW else None)
     record = db.get_version_by_id(version_id)
     return {
         "version_id": version_id,
@@ -158,12 +160,14 @@ def gallery_state(db, version_id: int, hide_nsfw: bool, hide_promptless: bool) -
         "filtered_count": counts["filtered"],
         "hidden_count": counts["hidden"],
         "hidden_nsfw": counts["hidden_nsfw"],
+        "hidden_safe": counts["hidden_safe"],
         "hidden_promptless": counts["hidden_promptless"],
         "hidden_both": counts["hidden_both"],
         "nsfw_count": counts["nsfw_count"],
+        "safe_count": counts["safe_count"],
         "promptless_count": counts["promptless_count"],
         "promptless_total": counts["promptless_total"],
-        "hide_nsfw_images": hide_nsfw,
+        "nsfw_images": mode,
         "hide_promptless_images": hide_promptless,
     }
 
@@ -259,7 +263,7 @@ def register(app: FastAPI):
     @gate("model_manager")
     @streams_status
     def get_gallery_page(version_id: int, page: int = 1,
-                         hide_nsfw_images: Optional[bool] = None,
+                         nsfw_images: Optional[str] = None,
                          hide_promptless_images: Optional[bool] = None):
         """
         Page `page` of a version's gallery, fetching from Civitai what the
@@ -269,14 +273,14 @@ def register(app: FastAPI):
         Args:
             version_id: Civitai version ID.
             page: Which page, from 1.
-            hide_nsfw_images, hide_promptless_images: The switches; the
-                settings decide either one not sent.
+            nsfw_images, hide_promptless_images: The switches - the NSFW
+                switch's mode (gallery.NSFW_MODES); the settings decide either
+                one not sent.
         """
         try:
-            hide_nsfw, hide_promptless = gallery_switches(hide_nsfw_images,
-                                                          hide_promptless_images)
+            nsfw, hide_promptless = gallery_switches(nsfw_images, hide_promptless_images)
             return JSONResponse({"success": True, **gallery_page(
-                get_models_db(), version_id, page, hide_nsfw, hide_promptless)})
+                get_models_db(), version_id, page, nsfw, hide_promptless)})
         except Exception as e:
             return failed(e, "Gallery page error")
 

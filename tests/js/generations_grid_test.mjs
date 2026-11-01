@@ -35,13 +35,13 @@ const tile = (generation, kind = 'generation') => ({
 });
 function answer(params) {
     const count = params.search ? 30 : params.group ? 40 : params.expand === 'true' ? 260
-        : params.hide_nsfw_images === 'false' ? 255 : 250;
-    const offset = params.search ? 1000 : params.expand === 'true' ? 2000 : params.hide_nsfw_images === 'false' ? 3000 : 0;
+        : params.nsfw_images === 'all' ? 255 : 250;
+    const offset = params.search ? 1000 : params.expand === 'true' ? 2000 : params.nsfw_images === 'all' ? 3000 : 0;
     const page = Number(params.page || 1);
     const all = Array.from({ length: count }, (_, i) => tile(offset + i + 1, params.group ? 'group' : 'generation'));
     const tiles = all.slice((page - 1) * 100, page * 100);
     return { success: true, tiles, more: page * 100 < count, scope: { count },
-             state: { total: count, filtered: count, hidden_nsfw: params.hide_nsfw_images === 'false' ? 0 : 5, nsfw_count: 5 } };
+             state: { total: count, filtered: count, hidden_nsfw: params.nsfw_images === 'all' ? 0 : 5, nsfw_count: 5 } };
 }
 let grid = 'Fast';
 const browsed = [];
@@ -145,7 +145,7 @@ async function run(choice) {
     view({ top: 0, height: 100000 });
     window.scrollY = 0;
     const seen = [];
-    const asked = () => browsed.splice(0).map(({ page, search, group, hide_nsfw_images: nsfw, expand }) =>
+    const asked = () => browsed.splice(0).map(({ page, search, group, nsfw_images: nsfw, expand }) =>
         JSON.stringify({ page, search, group, nsfw, expand }));
     // What a control asked and drew, once its level is loaded whole - or,
     // for one that asks nothing, once it has had its turn: the comparison
@@ -168,8 +168,8 @@ async function run(choice) {
     });
     await look('Group by', () => call('generations.groupBy', 'prompt'));
     await look('Group by nothing', () => call('generations.groupBy', ''));
-    await look('Show NSFW', () => tick('generations.showNsfw', true));
-    await look('Show NSFW off', () => tick('generations.showNsfw', false));
+    await look('Show NSFW', () => tick('generations.nsfwMode', true, { mode: 'all' }));
+    await look('Show NSFW off', () => tick('generations.nsfwMode', true, { mode: 'safe' }));
     await look('Expand generations', () => tick('generations.expand', true));
     await look('Expand off', () => tick('generations.expand', false));
     await look('Rate', () => tick('generations.rating', true));
@@ -221,7 +221,7 @@ for (const [label, first, count, step] of [
         box.dispatchEvent(new window.Event('change', { bubbles: true }));
     }],
     ['Group by', 1, 40, () => call('generations.groupBy', 'prompt')],
-    ['Show NSFW', 3001, 255, () => tick('generations.showNsfw', true)],
+    ['Show NSFW', 3001, 255, () => tick('generations.nsfwMode', true, { mode: 'all' })],
     ['Expand generations', 2001, 260, () => tick('generations.expand', true)],
 ]) {
     // Back to the 250, scrolled down.
@@ -229,7 +229,7 @@ for (const [label, first, count, step] of [
     box.value = '';
     box.dispatchEvent(new window.Event('search'));
     await call('generations.groupBy', '');
-    await tick('generations.showNsfw', false);
+    await tick('generations.nsfwMode', true, { mode: 'safe' });
     await tick('generations.expand', false);
     await settled('the 250 again', () => loaded(250));
     await scrolledTo(6000);
@@ -252,7 +252,7 @@ for (const [label, first, count, step] of [
     box.value = '';
     box.dispatchEvent(new window.Event('search'));
     await call('generations.groupBy', '');
-    await tick('generations.showNsfw', false);
+    await tick('generations.nsfwMode', true, { mode: 'safe' });
     await tick('generations.expand', false);
     await settled('the 250 again', () => loaded(250));
 }

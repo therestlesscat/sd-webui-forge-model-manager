@@ -647,27 +647,32 @@ export function checker(label = '') {
  */
 export function browserGalleryAnswer(href, images, extra = {}, { more = false, size = 100 } = {}) {
     const params = new URL(href, 'http://webui').searchParams;
-    const hideNsfw = params.get('hide_nsfw_images') === 'true';
+    // The NSFW switch's mode (#363): safe, all or nsfw - every image unless named.
+    const mode = params.get('nsfw_images') || 'all';
     const hidePromptless = params.get('hide_promptless_images') === 'true';
     const number = Number(params.get('page') || 1);
     const safe = (img) => typeof img.mm_level === 'number' && img.mm_level <= 3;
     const readable = (img) => ((img.meta || {}).prompt || '').trim().length >= 4;
     const count = (list) => {
-        const nsfwKept = list.filter((img) => safe(img) || !hideNsfw);
+        const kept = (img) => mode === 'all' || safe(img) === (mode === 'safe');
+        const nsfwKept = list.filter(kept);
         const shown = nsfwKept.filter((img) => readable(img) || !hidePromptless);
         // Hidden by both filters: counted apart, in neither's number.
-        const both = hideNsfw && hidePromptless ? list.filter((img) => !safe(img) && !readable(img)).length : 0;
+        const both = hidePromptless ? list.filter((img) => !kept(img) && !readable(img)).length : 0;
+        const hiddenByNsfw = list.length - nsfwKept.length - both;
         return {
             shown,
             counts: {
                 total: list.length,
                 filtered: shown.length,
-                hidden_nsfw: list.length - nsfwKept.length - both,
+                hidden_nsfw: mode === 'safe' ? hiddenByNsfw : 0,
+                hidden_safe: mode === 'nsfw' ? hiddenByNsfw : 0,
                 hidden_both: both,
                 promptless_total: list.filter((img) => !readable(img)).length,
                 hidden_promptless: nsfwKept.length - shown.length,
                 hidden: list.length - shown.length,
                 nsfw_count: list.filter((img) => !safe(img) && (readable(img) || !hidePromptless)).length,
+                safe_count: list.filter((img) => safe(img) && (readable(img) || !hidePromptless)).length,
                 promptless_count: nsfwKept.filter((img) => !readable(img)).length,
             },
         };
@@ -680,8 +685,10 @@ export function browserGalleryAnswer(href, images, extra = {}, { more = false, s
         images: page.shown,
         next_cursor: hasMore ? String(number * size) : null,
         page: { number, size, count: rows.length, shown: page.counts.filtered,
-                hidden_nsfw: page.counts.hidden_nsfw, hidden_promptless: page.counts.hidden_promptless,
+                hidden_nsfw: page.counts.hidden_nsfw, hidden_safe: page.counts.hidden_safe,
+                hidden_promptless: page.counts.hidden_promptless,
                 hidden_both: page.counts.hidden_both, nsfw_count: page.counts.nsfw_count,
+                safe_count: page.counts.safe_count,
                 promptless_count: page.counts.promptless_count, promptless_total: page.counts.promptless_total,
                 more: hasMore, error: null },
         ...extra,
@@ -711,7 +718,7 @@ export function withGalleryPages(fetch) {
         if (lastPath !== null) details.searchParams.set('path', lastPath);
         // So a stub counting the details it was asked for can leave these out.
         details.searchParams.set('via_page', '1');
-        for (const key of ['hide_nsfw_images', 'hide_promptless_images']) {
+        for (const key of ['nsfw_images', 'hide_promptless_images']) {
             if (asked.get(key) !== null) details.searchParams.set(key, asked.get(key));
         }
         const body = await (await fetch(details.pathname + details.search, init)).json();

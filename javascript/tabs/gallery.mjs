@@ -31,7 +31,7 @@ const { apiCall, escapeHtml, safeId, setText } = await shared('core.mjs');
 const { tabWork, open } = await shared('loading.mjs');
 const { galleryDefaults, nsfwModelNoteHtml, asUploaded } = await shared('ui_options.mjs');
 const { showNotes } = await shared('notes.mjs');
-const { renderFilterBanner } = await shared('gallery.mjs');
+const { nsfwSwitch, renderFilterBanner } = await shared('gallery.mjs');
 const {
     setupLazyMedia, sizedMediaUrl, IMAGE_PLACEHOLDER_SVG, isVideoUrl, videoPosterUrl, originalMediaUrl,
     mediaFallback, mediaShape, viewerVideoUrl,
@@ -110,7 +110,8 @@ const TYPE_NAMES = { TextualInversion: 'Embedding', Controlnet: 'ControlNet' };
 
 let groupBy = chainOf(readSetting(GROUP_BY_KEY, ''), GROUP_NAMES).length ? readSetting(GROUP_BY_KEY, '') : '';
 let search = '';
-let hideNsfw = true;
+// The NSFW switch's mode (shared/gallery.mjs, NSFW_MODES): Safe until the setting is read.
+let nsfwMode = 'safe';
 // How the grid is placed, as the settings say (#240): Fast, by the tab - its
 // placement, from start() - or Classic, by the browser.
 let fast = true;
@@ -206,7 +207,7 @@ async function loadNext() {
     const asked = ++request;
     try {
         const data = await apiCall({ endpoint: '/model-manager/gallery/browse', params: {
-            page: part + 1, hide_nsfw_images: hideNsfw, group: groupBy,
+            page: part + 1, nsfw_images: nsfwMode, group: groupBy,
             in_group: at.in_group ?? '', in_subgroup: at.in_subgroup ?? '', search,
         } });
         if (asked !== request) return;
@@ -486,11 +487,10 @@ function renderBanner() {
         word: search ? 'found by the search' : 'stored',
         bannerClass: 'mm-nsfw-warning',
         labelClass: 'mm-show-all-label',
-        switches: [{
-            id: 'gal_show_nsfw', label: 'Show NSFW', reason: 'NSFW filter',
-            showing: !hideNsfw, hidden: state.hidden_nsfw || 0, count: state.nsfw_count || 0,
-            action: 'gallery.showNsfw', noteHtml: nsfwModelNoteHtml(),
-        }],
+        switches: [nsfwSwitch({
+            id: 'gal_show_nsfw', mode: nsfwMode, counts: state,
+            action: 'gallery.nsfwMode', noteHtml: nsfwModelNoteHtml(),
+        })],
     });
 }
 
@@ -735,8 +735,8 @@ function setSearch(value) {
     return toTop();
 }
 
-function showNsfw(checked) {
-    hideNsfw = !checked;
+function setNsfwMode(mode) {
+    nsfwMode = mode;
     return reload();
 }
 
@@ -746,7 +746,7 @@ work.provide('gallery.seed', (data, box) => typedSeed(box));
 work.provide('gallery.newSeed', () => keepSeed(null));
 work.provide('gallery.refresh', () => reload());
 work.provide('gallery.search', (data, box) => setSearch(box.value));
-work.provide('gallery.showNsfw', (data, box) => showNsfw(box.checked));
+work.provide('gallery.nsfwMode', (data, box) => setNsfwMode(box.value));
 work.provide('gallery.back', () => goBack());
 work.provide('gallery.open', ({ tile }) => openTile(Number(tile)));
 work.provide('gallery.view', ({ tile }) => viewTile(Number(tile)));
@@ -783,7 +783,7 @@ export async function start(startScope) {
     });
     try {
         const defaults = await galleryDefaults();
-        hideNsfw = defaults.hideNsfw;
+        nsfwMode = defaults.hideNsfw ? 'safe' : 'all';
         fast = defaults.galleryFast;
     } catch (e) { /* the gallery's default: hidden; the grid Fast */ }
     // The grid setting saved, in the settings window or on the Settings page.

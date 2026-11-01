@@ -330,14 +330,21 @@ class ImagesOps:
                                require_prompt=require_prompt)
 
     def get_image_counts(self, version_id: int, max_nsfw_level: Optional[int] = None,
-                         require_prompt: bool = False) -> Dict[str, int]:
+                         require_prompt: bool = False,
+                         min_nsfw_level: Optional[int] = None) -> Dict[str, int]:
         """
         Get total and filtered image counts for a version.
 
+        Args:
+            max_nsfw_level: If set, the NSFW filter keeps only images at most this level.
+            min_nsfw_level: If set instead, it keeps only those above it, a
+                missing level included - the switch's NSFW mode (#363).
+
         Returns:
             Dict with 'total' and 'filtered' counts, and 'hidden' (total - filtered):
-            'hidden_nsfw' and 'hidden_promptless', what each filter alone hides,
-            and 'hidden_both', what both do - the three adding up to 'hidden';
+            'hidden_nsfw' (or 'hidden_safe', the safe images NSFW mode hides)
+            and 'hidden_promptless', what each filter alone hides, and
+            'hidden_both', what both do - the three adding up to 'hidden';
             and 'promptless_total', every image with an unusable prompt.
         """
         def count(*conditions, args=()):
@@ -351,8 +358,11 @@ class ImagesOps:
 
             # What each filter hides on its own, so the panel can say which
             # one is responsible rather than reporting one number for both.
-            nsfw = () if max_nsfw_level is None else ("g.effective_nsfw_level <= ?",)
-            nsfw_args = () if max_nsfw_level is None else (max_nsfw_level,)
+            if min_nsfw_level is not None:
+                nsfw, nsfw_args = ("NOT COALESCE(g.effective_nsfw_level <= ?, 0)",), (min_nsfw_level,)
+            else:
+                nsfw = () if max_nsfw_level is None else ("g.effective_nsfw_level <= ?",)
+                nsfw_args = () if max_nsfw_level is None else (max_nsfw_level,)
             prompt = (_READABLE,) if require_prompt else ()
 
             filtered = count(*(nsfw + prompt), args=nsfw_args)
@@ -365,6 +375,7 @@ class ImagesOps:
             # and it moves when the other switch does. It is not 0 when the
             # switch is showing everything: it is then how many it is showing.
             nsfw_count = count("g.effective_nsfw_level > ?", *prompt, args=(SFW_MAX,))
+            safe_count = count("g.effective_nsfw_level <= ?", *prompt, args=(SFW_MAX,))
             promptless_count = count(*nsfw, _UNREADABLE, args=nsfw_args)
 
             # Every image with an unusable prompt, whatever the NSFW filter
@@ -378,19 +389,24 @@ class ImagesOps:
             # for their prompt. So each switch's number is what it alone
             # hides, and stays put when it is flipped.
             both = 0
-            if max_nsfw_level is not None and require_prompt:
+            if min_nsfw_level is not None and require_prompt:
+                both = count("COALESCE(g.effective_nsfw_level <= ?, 0)", _UNREADABLE, args=(min_nsfw_level,))
+            elif max_nsfw_level is not None and require_prompt:
                 # Not kept by the NSFW filter - a missing level included,
                 # as its "<= ?" hides that too.
                 both = count("NOT COALESCE(g.effective_nsfw_level <= ?, 0)", _UNREADABLE, args=(max_nsfw_level,))
+            hidden_by_nsfw = total - nsfw_kept - both
 
             return {
                 "total": total,
                 "filtered": filtered,
-                "hidden_nsfw": total - nsfw_kept - both,
+                "hidden_nsfw": 0 if min_nsfw_level is not None else hidden_by_nsfw,
+                "hidden_safe": hidden_by_nsfw if min_nsfw_level is not None else 0,
                 "hidden_promptless": nsfw_kept - filtered,
                 "hidden_both": both,
                 "hidden": total - filtered,
                 "nsfw_count": nsfw_count,
+                "safe_count": safe_count,
                 "promptless_count": promptless_count,
                 "promptless_total": promptless_total,
             }

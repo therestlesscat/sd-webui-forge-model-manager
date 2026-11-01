@@ -40,7 +40,7 @@ globalThis.fetch = async (url, init = {}) => {
         // Grouped, the top level is groups; inside one, its batches.
         const grouped = params.get('group') === 'size' && !params.get('in_group');
         return reply({ success: true, tiles: grouped ? [GROUP] : tiles, more: false,
-                       state: { total: 9, filtered: 8, hidden_nsfw: 1, nsfw_count: 1, hide_nsfw_images: true,
+                       state: { total: 9, filtered: 8, hidden_nsfw: 1, nsfw_count: 1, nsfw_images: 'safe',
                                 stored_generations: 3 },
                        scope: { count: 8 } });
     }

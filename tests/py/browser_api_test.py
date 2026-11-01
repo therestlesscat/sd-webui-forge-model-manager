@@ -723,7 +723,7 @@ check('with no switch sent, nothing is hidden',
       ([i['id'] for i in body['images']], body['page']['count'], body['page']['more']),
       ([95000 + n for n in range(100)], 100, True))
 status, body = get('/model-manager/civitai/versions/90140/images', page=2, cursor='100',
-                   hide_nsfw_images='true', hide_promptless_images='true')
+                   nsfw_images='safe', hide_promptless_images='true')
 kept = [95000 + n for n in range(100, 150) if n % 4 and n % 3]
 check('page 2 is the rest, through the switches', [i['id'] for i in body['images']], kept)
 check('its note counts what each switch hid, and each kind it holds, for the banner to add up',
@@ -734,6 +734,23 @@ check('its note counts what each switch hid, and each kind it holds, for the ban
       {'number': 2, 'count': 50, 'shown': len(kept), 'hidden_nsfw': 9,
        'hidden_promptless': 50 - 13 - len(kept), 'hidden_both': 4, 'nsfw_count': 9,
        'promptless_count': 50 - 13 - len(kept), 'more': False})
+
+# NSFW only (#363): the page's explicit images alone, the safe ones counted as
+# hidden for being safe - those without a prompt by both - and each kind's
+# number for its button, the page's counts added up by the page.
+status, body = get('/model-manager/civitai/versions/90140/images', page=2, cursor='100',
+                   nsfw_images='nsfw', hide_promptless_images='true')
+explicit = [n for n in range(100, 150) if n % 4 == 0]
+safe = [n for n in range(100, 150) if n % 4]
+check('NSFW only: page 2\'s explicit images with a prompt, alone',
+      [i['id'] for i in body['images']], [95000 + n for n in explicit if n % 3])
+check('its note counts the safe ones hidden as safe, apart from those both switches hide',
+      {k: body['page'][k] for k in ('shown', 'hidden_nsfw', 'hidden_safe', 'hidden_both', 'hidden_promptless',
+                                    'nsfw_count', 'safe_count')},
+      {'shown': len([n for n in explicit if n % 3]), 'hidden_nsfw': 0,
+       'hidden_safe': len([n for n in safe if n % 3]), 'hidden_both': len([n for n in safe if n % 3 == 0]),
+       'hidden_promptless': len([n for n in explicit if n % 3 == 0]),
+       'nsfw_count': len([n for n in explicit if n % 3]), 'safe_count': len([n for n in safe if n % 3])})
 
 # Failures: the first request is the whole page; a later one leaves a part.
 shared_opts.model_manager_cb_images_per_page = 2

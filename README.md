@@ -14,6 +14,10 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.72 - Show the NSFW images alone.** Every gallery's NSFW switch is now three buttons, Safe,
+All and NSFW, each with how many images it holds. NSFW shows the explicit images alone, in the
+Generations tab, the Civitai Images tab and every model's gallery.
+
 **0.71 - What a download fetches, said first.** A LoRA chip or a Resources row for a version
 Civitai has deleted says so before you press, and names the newer version a download takes in its
 place; the Resources dialog's Download otherwise fetches the image's own version. A new setting,
@@ -180,7 +184,8 @@ to txt2img, with the sampler, scheduler and VAE matched against what you have in
 and the image's LoRAs and embeddings laid out as chips under the prompts: click one to
 put it in the prompt or take it out, or to download it if you do not have it. A banner
 says how many images are hidden as NSFW, for having no usable prompt, or both, with a
-switch for each.
+switch for each: the NSFW one is three buttons, Safe, All and NSFW, the last showing the
+explicit images alone.
 
 ![Image gallery with generation parameters](docs/images/mm-gallery.png)
 
@@ -485,12 +490,12 @@ first under **Settings -> Model Manager** too.
 
 | Setting | Default | What it does |
 |---------|---------|--------------|
-| Hide explicit images by default | on | Whether explicit images are hidden when a gallery of Civitai's images opens: a model's gallery in the Model Manager or the Civitai Browser, and the Civitai Images tab. A model's Your generations follows it too; the Generations tab has its own setting. The Show NSFW switch above the images shows them in that gallery. The Civitai Browser's Include NSFW models is separate: it decides which models are listed, not which of their images are shown. |
+| Hide explicit images by default | on | Whether explicit images are hidden when a gallery of Civitai's images opens: a model's gallery in the Model Manager or the Civitai Browser, and the Civitai Images tab. A model's Your generations follows it too; the Generations tab has its own setting. The Safe, All and NSFW buttons above the images change it in that gallery: All shows every image, and NSFW only the explicit ones. The Civitai Browser's Include NSFW models is separate: it decides which models are listed, not which of their images are shown. |
 | How to catch explicit images rated PG | Trained model | Civitai rates some explicit images PG or PG-13. This chooses how the extension finds them. The trained model reads each image's prompts and the resources it used, and catches most of them, but it judges by what it has learned: now and then it flags an image that is fine, or misses one that is not. The word list treats an image as X only when its prompt uses one of the listed words, so every decision can be checked. When this changes, your stored images are judged again in the background. |
 | PG images the model may flag, in % | 2.0 | How readily the trained model flags images. The number is the percentage of PG and PG-13 images the model may treat as X, measured on the images it was trained on. A higher number catches more explicit images, and wrongly hides more that are fine; a lower one hides fewer, and misses more. At 2, the default, it caught about 94 in 100 X and XXX prompts in a library it had never seen, and flagged 2.2% of that library's PG and PG-13 images. 0 turns the model off, and only the word list is used. When this changes, your stored images are judged again in the background. |
 | Additional words to detect NSFW prompts | empty | Words that mark a prompt as explicit, separated by commas. An image Civitai rates PG or PG-13 whose prompt uses one of them is treated as X everywhere: hidden from grid previews, galleries and the SFW filters. Words match whole, in any case. They add to the list that comes with the extension, in model_manager/data/nsfw_prompt_words.txt. When this changes, your stored images are judged again in the background. |
 | Hide images with no prompt by default | on | Whether images with no prompt are hidden when a model's gallery opens, in the Model Manager and the Civitai Browser. About a tenth of Civitai's images carry no prompt at all, so they cannot be read or made again. You can show them for one model with the switch above its images. The Civitai Images tab always shows every image. |
-| Hide explicit images by default (Generations Tab) | on | Whether explicit images are hidden when the Generations tab opens. The Show NSFW switch above the images shows them until the tab is opened again. A model's Your generations, in the Model Manager, follows the other Hide explicit images by default, under Shared across tabs. |
+| Hide explicit images by default (Generations Tab) | on | Whether explicit images are hidden when the Generations tab opens. The Safe, All and NSFW buttons above the images change it until the tab is opened again: All shows every image, and NSFW only the explicit ones. A model's Your generations, in the Model Manager, follows the other Hide explicit images by default, under Shared across tabs. |
 | How many images with a prompt a model needs to count as usable (Civitai Browser Tab) | 1 | Used by the Civitai Browser's Only with usable prompts filter. A model is listed only if at least this many of its first 20 images have a usable prompt: a prompt with its steps, sampler and CFG scale. |
 | Fill each page with models when hiding NSFW models (Civitai Browser Tab) *Not recommended* | off | Used when Only Show Models with SFW images is ticked in the Civitai Browser. Normally a page stops after checking a few dozen models, and can come back with fewer than a full page. When this is on, it keeps searching until the page is full. Most Civitai models have NSFW images, so one page can take hundreds of requests and several minutes, and Civitai is likely to start turning requests away. A page still stops when Civitai does. |
 | Mark on-site-only versions (Civitai Browser Tab) | off | Some creators allow a version only for generating on Civitai's site, and Civitai refuses to download it. When this is on, the Civitai Browser marks those versions on its cards and in a model's panel. To know them, it asks Civitai once per page and once per model you open; the answer is often under a megabyte, sometimes a few. The Model Manager marks them whatever this says, from what a sync stored. |

@@ -25,7 +25,7 @@ from ..db import get_models_db
 from ..db.generations_ops import PROMPT_GROUPINGS, Scope, group_id, group_key, tidy
 from ..forge_host import setting
 from ..nsfw import PG, SFW_MAX, user_level
-from ..gallery import gallery_page_size, generations_page_size, switch_counts
+from ..gallery import ALL, SAFE, gallery_page_size, generations_page_size, nsfw_mode, switch_counts
 from ..tile_reading import SINGLE_PASS, reading
 from .images import gallery_switches
 from . import levels
@@ -39,20 +39,20 @@ from .. import generation_inputs, thumbnails
 PREVIEW_IMAGES = 4
 
 
-def generations_hide_nsfw() -> bool:
-    """Whether the Generations tab opens with explicit images hidden: its own setting."""
+def generations_nsfw() -> str:
+    """The NSFW switch's mode the Generations tab opens with: its own setting, hiding explicit images or not."""
     from ..generations import GENERATIONS_HIDE_NSFW
-    return bool(setting(GENERATIONS_HIDE_NSFW))
+    return nsfw_mode(bool(setting(GENERATIONS_HIDE_NSFW)))
 
 
-def _filtered(rows: List[Dict[str, Any]], hide_nsfw: bool,
+def _filtered(rows: List[Dict[str, Any]], nsfw: Any,
               hide_promptless: bool) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
     """Your generations through the switches: their stored level, their prompt's length."""
     return switch_counts(
         rows,
         [r["level"] is not None and r["level"] <= SFW_MAX for r in rows],
         [r["prompt_length"] >= MIN_PROMPT_LENGTH for r in rows],
-        hide_nsfw, hide_promptless)
+        nsfw, hide_promptless)
 
 
 def _hash_list(value: Any) -> Dict[str, str]:
@@ -185,7 +185,7 @@ def _image(row: Dict[str, Any], kept: Optional[Dict[int, Dict[str, Any]]] = None
     }
 
 
-def generation_page(db, path: str, hide_nsfw: bool, hide_promptless: bool,
+def generation_page(db, path: str, nsfw: Any, hide_promptless: bool,
                     page: int = 1) -> Dict[str, Any]:
     """
     Page `page` of a gallery's generations, as every gallery pages
@@ -207,8 +207,8 @@ def generation_page(db, path: str, hide_nsfw: bool, hide_promptless: bool,
     files = db.generation_gallery_files(path)
     on_page, total = db.generation_scope_generations(Scope(files=files), (page - 1) * size, size)
     page_rows = db.generation_scope_rows(Scope(files=files, generations=on_page)) if on_page else []
-    shown, page_counts = _filtered(page_rows, hide_nsfw, hide_promptless)
-    counts = _switches(db.generation_scope_counts(Scope(files=files), hide_nsfw, hide_promptless))
+    shown, page_counts = _filtered(page_rows, nsfw, hide_promptless)
+    counts = _switches(db.generation_scope_counts(Scope(files=files), nsfw, hide_promptless))
 
     by_generation: Dict[int, List[Dict[str, Any]]] = {}
     for row in shown:
@@ -237,6 +237,7 @@ def generation_page(db, path: str, hide_nsfw: bool, hide_promptless: bool,
             "count": len(page_rows),
             "shown": page_counts["filtered"],
             "hidden_nsfw": page_counts["hidden_nsfw"],
+            "hidden_safe": page_counts["hidden_safe"],
             "hidden_promptless": page_counts["hidden_promptless"],
             "hidden_both": page_counts["hidden_both"],
             "more": total > page * size,
@@ -246,7 +247,7 @@ def generation_page(db, path: str, hide_nsfw: bool, hide_promptless: bool,
             "generation_count": total,
             # Every generation filed here, filtered or not: the tab's label.
             "stored_generations": db.count_generations(files),
-            "hide_nsfw_images": hide_nsfw,
+            "nsfw_images": nsfw_mode(nsfw),
             "hide_promptless_images": hide_promptless,
             **counts,
         },
@@ -254,8 +255,8 @@ def generation_page(db, path: str, hide_nsfw: bool, hide_promptless: bool,
 
 
 # The counts gallery.switch_counts() gives, of a scope's counts.
-_SWITCH_COUNTS = ("total", "filtered", "hidden_nsfw", "hidden_both", "hidden_promptless", "hidden",
-                  "nsfw_count", "promptless_count", "promptless_total")
+_SWITCH_COUNTS = ("total", "filtered", "hidden_nsfw", "hidden_safe", "hidden_both", "hidden_promptless",
+                  "hidden", "nsfw_count", "safe_count", "promptless_count", "promptless_total")
 
 
 def _switches(counts: Dict[str, Any]) -> Dict[str, int]:
@@ -425,9 +426,9 @@ def _tiles(db, level, kind: str, by: Optional[str], section: Optional[str],
 
 
 def _level_info(db, scope: Scope, chain: List[str], generation: Optional[int],
-                hide_nsfw: bool) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+                nsfw: Any) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """The banner's totals and the level's header, for `scope`: (state, scope)."""
-    counts = db.generation_scope_counts(scope, hide_nsfw, False)
+    counts = db.generation_scope_counts(scope, nsfw, False)
     scope_info: Dict[str, Any] = {"count": counts["filtered"], "first": counts["oldest"],
                                   "last": counts["newest"]}
     if chain:
@@ -447,13 +448,13 @@ def _level_info(db, scope: Scope, chain: List[str], generation: Optional[int],
     state = {
         "generation_count": counts["generation_count"],
         "stored_generations": db.count_generations(None),
-        "hide_nsfw_images": hide_nsfw,
+        "nsfw_images": nsfw_mode(nsfw),
         **_switches(counts),
     }
     return state, scope_info
 
 
-def rated_batch(db, hide_nsfw: bool, generation: int, group: str = "", in_group: str = "",
+def rated_batch(db, nsfw: Any, generation: int, group: str = "", in_group: str = "",
                 in_subgroup: str = "", search: str = "") -> Dict[str, Any]:
     """
     After a batch's rating in the Generations tab (#239): its tile as the level
@@ -467,13 +468,13 @@ def rated_batch(db, hide_nsfw: bool, generation: int, group: str = "", in_group:
     one = dataclasses.replace(level, generations=[generation])
     # Classic, whatever the setting: one batch is found by index in about a
     # millisecond, and a table of it would cost more than it saves.
-    with db.generation_scope_level(one, "generation", None, hide_nsfw, single_pass=False) as batch:
+    with db.generation_scope_level(one, "generation", None, nsfw, single_pass=False) as batch:
         tiles = _tiles(db, batch, "generation", None, None, batch.units(0, 1))
-    state, scope_info = _level_info(db, level, chain, None, hide_nsfw)
+    state, scope_info = _level_info(db, level, chain, None, nsfw)
     return {"tile": tiles[0] if tiles else None, "state": state, "scope": scope_info}
 
 
-def browse_page(db, hide_nsfw: bool, page: int = 1, group: str = "",
+def browse_page(db, nsfw: Any, page: int = 1, group: str = "",
                 in_group: str = "", generation: Optional[int] = None,
                 in_subgroup: str = "", search: str = "", expand: bool = False) -> Dict[str, Any]:
     """
@@ -530,12 +531,12 @@ def browse_page(db, hide_nsfw: bool, page: int = 1, group: str = "",
         kind, unit = "generation", "generation"
     section = chain[0] if sectioned else None
 
-    with db.generation_scope_level(scope, unit, section, hide_nsfw, reading() == SINGLE_PASS) as level:
+    with db.generation_scope_level(scope, unit, section, nsfw, reading() == SINGLE_PASS) as level:
         units = level.units((page - 1) * size, size + 1)
         more = len(units) > size
         units = units[:size]
         tiles = _tiles(db, level, kind, by, section, units)
-    state, scope_info = _level_info(db, scope, chain, generation, hide_nsfw)
+    state, scope_info = _level_info(db, scope, chain, generation, nsfw)
     return {"tiles": tiles, "more": more, "state": state, "scope": scope_info}
 
 
@@ -692,13 +693,14 @@ def _register(app: FastAPI):
 
     @app.get("/model-manager/generations/browse")
     @gate("generations")
-    def get_browse_page(page: int = 1, hide_nsfw_images: Optional[bool] = None,
+    def get_browse_page(page: int = 1, nsfw_images: Optional[str] = None,
                               group: str = "", in_group: str = "",
                               generation: Optional[int] = None, in_subgroup: str = "",
                               search: str = "", expand: bool = False):
         """
-        Part `page` of a level of the Generations tab, through the NSFW switch
-        - the tab's own setting decides it when not sent. See browse_page().
+        Part `page` of a level of the Generations tab, through the NSFW switch's
+        mode (gallery.NSFW_MODES) - the tab's own setting decides it when not
+        sent. See browse_page().
 
         Args:
             group: what images are grouped by (GROUPINGS), or two of them
@@ -710,38 +712,37 @@ def _register(app: FastAPI):
             expand: a tile per image where the level lists generations (#252).
         """
         try:
-            hide_nsfw = generations_hide_nsfw() if hide_nsfw_images is None else hide_nsfw_images
+            nsfw = generations_nsfw() if nsfw_images is None else nsfw_mode(nsfw_images)
             return JSONResponse({"success": True, **browse_page(
-                get_models_db(), hide_nsfw, page, group, in_group, generation, in_subgroup, search, expand)})
+                get_models_db(), nsfw, page, group, in_group, generation, in_subgroup, search, expand)})
         except Exception as e:
             return failed(e, "Generations page error")
 
     @app.get("/model-manager/generations/page")
     @gate("generations")
     def get_generation_page(path: str, page: int = 1,
-                                  hide_nsfw_images: Optional[bool] = None,
+                                  nsfw_images: Optional[str] = None,
                                   hide_promptless_images: Optional[bool] = None):
         """
         Page `page` of the open model's generations, through the gallery's
-        two switches - the settings decide either one not sent. See
-        generation_page().
+        two switches - the NSFW switch's mode, and the prompt switch; the
+        settings decide either one not sent. See generation_page().
 
         Args:
             path: The open model's file; its version's files make the gallery.
             page: Which page, from 1.
         """
         try:
-            hide_nsfw, hide_promptless = gallery_switches(hide_nsfw_images,
-                                                          hide_promptless_images)
+            nsfw, hide_promptless = gallery_switches(nsfw_images, hide_promptless_images)
             return JSONResponse({"success": True, **generation_page(
-                get_models_db(), path, hide_nsfw, hide_promptless, page)})
+                get_models_db(), path, nsfw, hide_promptless, page)})
         except Exception as e:
             return failed(e, "Generation page error")
 
     @app.get("/model-manager/generations/{generation_id}/images")
     @gate("generations")
     def get_generation_all_images(generation_id: int, path: str = "",
-                                        hide_nsfw_images: Optional[bool] = None,
+                                        nsfw_images: Optional[str] = None,
                                         hide_promptless_images: Optional[bool] = None):
         """
         Every image of one generation a gallery shows, for "Show images" - or,
@@ -749,11 +750,10 @@ def _register(app: FastAPI):
         """
         try:
             db = get_models_db()
-            hide_nsfw, hide_promptless = gallery_switches(hide_nsfw_images,
-                                                          hide_promptless_images)
+            nsfw, hide_promptless = gallery_switches(nsfw_images, hide_promptless_images)
             files = db.generation_gallery_files(path) if path else None
             rows = db.generation_scope_rows(Scope(files=files, generation=generation_id))
-            shown, _ = _filtered(rows, hide_nsfw, hide_promptless)
+            shown, _ = _filtered(rows, nsfw, hide_promptless)
             images = db.get_generation_images([r["id"] for r in shown])
             kept = _kept_views(db, [generation_id])
             return JSONResponse({"success": True,
@@ -838,7 +838,7 @@ def _register(app: FastAPI):
                               group: str = Form(default=""), in_group: str = Form(default=""),
                               in_subgroup: str = Form(default=""),
                               generation: Optional[int] = Form(default=None), path: str = Form(default=""),
-                              hide_nsfw_images: bool = Form(default=True),
+                              nsfw_images: str = Form(default=SAFE),
                               hide_promptless_images: bool = Form(default=False),
                               search: str = Form(default="")):
         """
@@ -862,6 +862,7 @@ def _register(app: FastAPI):
         """
         try:
             db = get_models_db()
+            nsfw = nsfw_mode(nsfw_images)
             try:
                 chosen = user_level(level)
             except ValueError as e:
@@ -871,23 +872,24 @@ def _register(app: FastAPI):
             elif path and generation is not None:
                 rows = db.generation_scope_rows(Scope(files=db.generation_gallery_files(path),
                                                       generation=generation))
-                ids = [r["id"] for r in _filtered(rows, hide_nsfw_images, hide_promptless_images)[0]]
+                ids = [r["id"] for r in _filtered(rows, nsfw, hide_promptless_images)[0]]
             elif generation is not None:
                 rows = db.generation_scope_rows(_scope(group, in_group, generation, in_subgroup, search))
-                ids = [r["id"] for r in _filtered(rows, hide_nsfw_images, False)[0]]
+                ids = [r["id"] for r in _filtered(rows, nsfw, False)[0]]
             else:
                 return JSONResponse({"success": False, "error": "Nothing to rate"}, status_code=400)
             rated = db.set_generation_image_levels(ids, chosen)
             answer = {"success": True, "rated": rated}
             if image_id is None and not path:
                 # A Generations batch: its tile, as the level now draws it (#239).
-                answer.update(rated_batch(db, hide_nsfw_images, generation, group, in_group, in_subgroup, search))
+                answer.update(rated_batch(db, nsfw, generation, group, in_group, in_subgroup, search))
             if image_id is not None:
                 row = db.get_generation_images([image_id]).get(image_id)
                 if row:
                     answer["image"] = stamp_readings([_image(row)])[0]
                     level_now = answer["image"]["mm_level"]
-                    answer["visible"] = not hide_nsfw_images or (level_now is not None and level_now <= SFW_MAX)
+                    safe_now = level_now is not None and level_now <= SFW_MAX
+                    answer["visible"] = nsfw == ALL or safe_now == (nsfw == SAFE)
             return JSONResponse(answer)
         except Exception as e:
             say(f"Rate images error: {e}")

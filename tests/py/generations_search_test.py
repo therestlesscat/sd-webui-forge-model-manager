@@ -71,7 +71,7 @@ db.link_task_generation(task, fox)
 def found(search, **params):
     """The image ids the Generations tab shows, ungrouped, for a search."""
     answer = client.get('/model-manager/generations/browse',
-                        params={'search': search, 'hide_nsfw_images': 'false', **params}).json()
+                        params={'search': search, 'nsfw_images': 'all', **params}).json()
     assert answer['success'], answer
     return sorted(i['id'] for t in answer['tiles'] for i in t['images'])
 
@@ -130,14 +130,14 @@ check('and with words, those of them that match', found(f'task:{task} snake_case
 check('a task that made nothing finds nothing', found('task:999999'), [])
 
 grouped = client.get('/model-manager/generations/browse', params={
-    'search': 'lighthouse', 'group': 'prompt_written', 'hide_nsfw_images': 'false'}).json()
+    'search': 'lighthouse', 'group': 'prompt_written', 'nsfw_images': 'all'}).json()
 check('a grouped level is narrowed too',
       sorted(t['group']['value'] for t in grouped['tiles']), ['a lighthouse at dusk', 'a sleeping cat'])
 check('and counted as narrowed', grouped['state']['total'], 3)
 
 # --------------------------------------------------------------- rating
 answer = client.post('/model-manager/generations/rate', data={
-    'level': '4', 'generation': str(lighthouse), 'search': 'storm', 'hide_nsfw_images': 'false'}).json()
+    'level': '4', 'generation': str(lighthouse), 'search': 'storm', 'nsfw_images': 'all'}).json()
 check('rating a batch rates only what the search shows', answer['rated'], 1)
 levels = {r['id']: r['user_level'] for r in db.generation_scope_rows(Scope(generation=lighthouse))}
 check('the image the search found', [levels[i] for i in images_of(lighthouse)], [None, 4])
@@ -183,7 +183,7 @@ check('a key and a word: both', found(f'version:{CK} hay'), images_of(barn)[1:])
 check('two keys: both', found(f'model:{model_of[CK]} version:{LORA}'), images_of(barn)[:1])
 check('a version nothing used finds nothing', found('version:99999999'), [])
 by_id = client.get('/model-manager/generations/browse', params={
-    'search': f'model:{model_of[CK]}', 'group': 'prompt_written', 'hide_nsfw_images': 'false'}).json()
+    'search': f'model:{model_of[CK]}', 'group': 'prompt_written', 'nsfw_images': 'all'}).json()
 check('a key narrows a grouped level: only the groups holding a match, each counting its matches',
       sorted((t['group']['value'], t['matching_count']) for t in by_id['tiles']),
       [('a red barn', 2), ('an old mill', 1)])

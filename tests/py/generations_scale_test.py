@@ -72,11 +72,28 @@ def thumbs_aside(answer):
     return answer
 
 
+def modes_aside(answer):
+    """An answer with what the NSFW switch's third mode added taken out (#363):
+    its name for the switch's state, and the safe images' counts, which v36
+    never had - 0 hidden as safe, as neither of its two states hides them; any
+    other number is left in, to fail the comparison. The frozen reads count
+    through today's gallery.switch_counts, so theirs are taken out too."""
+    for holder in (answer.get('state'), answer.get('page')):
+        if not holder:
+            continue
+        if 'nsfw_images' in holder:
+            holder['hide_nsfw_images'] = {'safe': True, 'all': False}.get(holder.pop('nsfw_images'))
+        if holder.get('hidden_safe') == 0:
+            holder.pop('hidden_safe')
+        holder.pop('safe_count', None)
+    return answer
+
+
 def ids_aside(answer):
     """An answer with the groups' and sections' ids taken out: v37 names a
     group by its prompt's number or its value, v36 by a hash of its value -
     and the thumbnails' addresses (thumbs_aside)."""
-    answer = thumbs_aside(answer)
+    answer = modes_aside(thumbs_aside(answer))
     for tile in answer.get('tiles', []):
         for part in ('group', 'section'):
             if tile.get(part):
@@ -93,7 +110,9 @@ def browse_both(label, **params):
     olds, news = [], []
     for page in range(1, 40):
         o = v36.browse_page(old, page=page, **{k: v[0] if isinstance(v, tuple) else v for k, v in params.items()})
-        n = api.browse_page(new, page=page, **{k: v[1] if isinstance(v, tuple) else v for k, v in params.items()})
+        # The frozen v36 reads take a yes or no to hiding; today's, the NSFW switch's mode (#363).
+        n = api.browse_page(new, page=page, **{'nsfw' if k == 'hide_nsfw' else k: v[1] if isinstance(v, tuple) else v
+                                              for k, v in params.items()})
         olds.append(o)
         news.append(n)
         if not o['more'] or not n['more']:
@@ -182,7 +201,7 @@ for name in ('a', 'b', 'a2', 'x', 'vae', 'te', 'l', 'm', 'p'):
                 o = v36.generation_page(old, model, hide_nsfw, hide_promptless, page)
                 n = api.generation_page(new, model, hide_nsfw, hide_promptless, page)
                 check(f'Your generations of {name}, page {page}, switches {hide_nsfw}/{hide_promptless}',
-                      thumbs_aside(n), o)
+                      modes_aside(thumbs_aside(n)), modes_aside(copy.deepcopy(o)))
                 if not o['page']['more']:
                     break
 

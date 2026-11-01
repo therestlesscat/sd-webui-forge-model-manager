@@ -44,7 +44,7 @@ const { sendInfotext, IMG2IMG_SENDS } = await shared('send.mjs');
 const { showImageResources, resourceButtonLabel, resourcesMenuItem } = await shared('resources.mjs');
 const { nsfwModelNoteHtml, galleryDefaults, shownPath } = await shared('ui_options.mjs');
 const { showNotes } = await shared('notes.mjs');
-const { renderFilterBanner } = await shared('gallery.mjs');
+const { nsfwSwitch, renderFilterBanner } = await shared('gallery.mjs');
 const { setupLazyMedia, IMAGE_PLACEHOLDER_SVG } = await shared('media.mjs');
 // The grid both this tab and the Civitai Images tab draw (#209).
 const {
@@ -157,7 +157,8 @@ let selecting = false;
 const selected = new Set();
 let lastPicked = -1;
 let groupBy = groupChain(readSetting(GROUP_BY_KEY, '')).length ? readSetting(GROUP_BY_KEY, '') : '';
-let hideNsfw = true;
+// The NSFW switch's mode (shared/gallery.mjs, NSFW_MODES): Safe until the tab's setting is read.
+let nsfwMode = 'safe';
 // What the images must match: words in their prompts, ids (image:, version:, model:), or task:<id>. Not remembered.
 let search = '';
 // The level shown: its tiles, as loaded, and where it is. The levels above it
@@ -226,7 +227,7 @@ async function loadNext() {
     const asked = ++request;
     try {
         const data = await apiCall({ endpoint: '/model-manager/generations/browse', params: {
-            page: part + 1, hide_nsfw_images: hideNsfw, group: groupBy,
+            page: part + 1, nsfw_images: nsfwMode, group: groupBy,
             in_group: at.in_group, in_subgroup: at.in_subgroup, generation: at.generation, search, expand,
         } });
         if (asked !== request) return;
@@ -588,18 +589,17 @@ function renderBanner() {
         word: search ? 'found by the search' : 'stored',
         bannerClass: 'mm-nsfw-warning',
         labelClass: 'mm-show-all-label',
-        switches: [{
-            id: 'gen_show_nsfw', label: 'Show NSFW', reason: 'NSFW filter',
-            showing: !hideNsfw, hidden: state.hidden_nsfw || 0, count: state.nsfw_count || 0,
-            action: 'generations.showNsfw', noteHtml: nsfwModelNoteHtml(),
-        }],
+        switches: [nsfwSwitch({
+            id: 'gen_show_nsfw', mode: nsfwMode, counts: state,
+            action: 'generations.nsfwMode', noteHtml: nsfwModelNoteHtml(),
+        })],
     });
 }
 
 // ------------------------------------------------------------- the tiles' actions
 /** Ask the server to rate: the switch this tab counts under goes with it (shared/generations.mjs). */
 function postRating(fields) {
-    return requestRating({ hide_nsfw_images: hideNsfw, ...fields }, setStatus);
+    return requestRating({ nsfw_images: nsfwMode, ...fields }, setStatus);
 }
 
 // An image a sync brought with no generation text (#233) has nothing for
@@ -1273,7 +1273,7 @@ function removeTile(index) {
 async function refreshTotals() {
     try {
         const data = await apiCall({ endpoint: '/model-manager/generations/browse', params: {
-            page: 1, hide_nsfw_images: hideNsfw, group: groupBy, in_group: at.in_group,
+            page: 1, nsfw_images: nsfwMode, group: groupBy, in_group: at.in_group,
             in_subgroup: at.in_subgroup, generation: at.generation, search, expand,
         } });
         if (data.success) {
@@ -1358,8 +1358,8 @@ async function showSearch(text) {
     return setSearch(text);
 }
 
-function showNsfw(checked) {
-    hideNsfw = !checked;
+function setNsfwMode(mode) {
+    nsfwMode = mode;
     markAboveChanged();
     window.scrollTo?.(0, 0);
     return reload();
@@ -1379,7 +1379,7 @@ work.provide('generations.rating', (data, box) => switchRating(box.checked));
 work.provide('generations.selecting', (data, box) => switchSelecting(box.checked));
 work.provide('generations.refresh', () => refresh());
 work.provide('generations.search', (data, box) => setSearch(box.value));
-work.provide('generations.showNsfw', (data, box) => showNsfw(box.checked));
+work.provide('generations.nsfwMode', (data, box) => setNsfwMode(box.value));
 work.provide('generations.rate', ({ tile, level }) => rateTile(Number(tile), Number(level)));
 work.provide('generations.rateInViewer', ({ level }) => rateInViewer(Number(level)));
 work.provide('generations.selectAll', () => selectAll());
@@ -1802,7 +1802,7 @@ export async function start(scope) {
     });
     try {
         const defaults = await galleryDefaults();
-        hideNsfw = defaults.generationsHideNsfw;
+        nsfwMode = defaults.generationsHideNsfw ? 'safe' : 'all';
         fast = defaults.generationsFast;
     } catch (e) { /* the gallery's default: hidden; the grid Fast */ }
     // The grid setting saved, in the settings window or on the Settings page.

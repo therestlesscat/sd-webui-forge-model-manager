@@ -40,7 +40,7 @@ const {
 const { tickList } = await shared('tick_list.mjs');
 const {
     showGalleryLoading, dimGalleryWhileLoading, sayGalleryLoading, statusSayer, pageSeparator, pageNoteHtml,
-    renderFilterBanner, createPagedGallery, scrollToImagesTop,
+    renderFilterBanner, nsfwSwitch, createPagedGallery, scrollToImagesTop,
 } = await shared('gallery.mjs');
 const {
     renderThumbs, balanceGridRows, renderModelCard, renderGridPagination, renderModelGrid: renderSharedGrid,
@@ -155,6 +155,7 @@ let hidePromptlessInitialised = false;
 // number, so they cannot disagree. It comes from the server, because the
 // filtering happens there and a hidden image never reaches the page.
 let nsfwImageCount = 0;
+let safeImageCount = 0;
 let promptlessImageCount = 0;
 // The images the prompt filter alone is hiding right now - the other half of
 // the banner's "hidden due to" split - and those both filters hide, counted in
@@ -191,10 +192,12 @@ let generationPageError = '';   // why the last page asked for did not come
 let generationsRequest = 0;
 
 // NSFW image filtering state
-let hideNsfwImages = true;  // Default to hide, will be set from setting on first load
-let hideNsfwImagesInitialized = false;
+// The NSFW switch's mode (shared/gallery.mjs, NSFW_MODES): Safe until the setting is read, on first load.
+let nsfwMode = 'safe';
+let nsfwModeInitialized = false;
 let totalImageCount = 0;
 let hiddenImageCount = 0;
+let hiddenSafeCount = 0;
 
 // NSFW level order for "use max" mode
 const NSFW_LEVEL_ORDER = NSFW_LEVELS.map(([, name]) => name);
@@ -731,7 +734,7 @@ async function selectModel(index) {
     resetGenerations();
     // Each model's gallery starts from the settings; its switches then last
     // while this model is open - as in the Civitai Browser.
-    hideNsfwImagesInitialized = false;
+    nsfwModeInitialized = false;
     hidePromptlessInitialised = false;
     // At once: the last model's gallery stayed up while this one's versions
     // and details were asked for, as if the click had done nothing.
@@ -788,7 +791,7 @@ async function loadVersionDetails(filePath) {
         // meant the settings were never read at all.
         const params = {
             path: filePath,
-            hide_nsfw_images: hideNsfwImagesInitialized ? hideNsfwImages : undefined,
+            nsfw_images: nsfwModeInitialized ? nsfwMode : undefined,
             hide_promptless_images: hidePromptlessInitialised ? hidePromptlessImages : undefined,
         };
         const request = ++imagesRequest;
@@ -819,11 +822,11 @@ async function loadVersionDetails(filePath) {
                 hidePromptlessInitialised = true;
             }
 
-            // Initialize hideNsfwImages from setting on first load
-            if (!hideNsfwImagesInitialized && imagesState.hide_nsfw_images !== undefined) {
-                hideNsfwImages = imagesState.hide_nsfw_images;
-                hideNsfwImagesInitialized = true;
-                console.log(`[ModelManager] Initialized hideNsfwImages: ${hideNsfwImages}`);
+            // The NSFW switch's mode from the setting, on first load
+            if (!nsfwModeInitialized && imagesState.nsfw_images !== undefined) {
+                nsfwMode = imagesState.nsfw_images;
+                nsfwModeInitialized = true;
+                console.log(`[ModelManager] Initialized the NSFW switch: ${nsfwMode}`);
             }
 
             updateImagesCountCell();
@@ -848,9 +851,11 @@ function applyImagesState(state) {
     totalImageCount = state.total_count || 0;
     filteredImageCount = state.filtered_count || 0;
     hiddenImageCount = state.hidden_nsfw ?? state.hidden_count ?? 0;
+    hiddenSafeCount = state.hidden_safe || 0;
     hiddenPromptlessCount = state.hidden_promptless || 0;
     hiddenByBothCount = state.hidden_both || 0;
     nsfwImageCount = state.nsfw_count || 0;
+    safeImageCount = state.safe_count || 0;
     promptlessImageCount = state.promptless_count || 0;
     promptlessImageTotal = state.promptless_total ?? null;
 }
@@ -880,7 +885,7 @@ async function loadGalleryPage(number, { append = false } = {}) {
     try {
         const data = await apiCallTelling({ endpoint: '/model-manager/images/gallery-page', params: {
             version_id: versionId, page: number,
-            hide_nsfw_images: hideNsfwImages, hide_promptless_images: hidePromptlessImages,
+            nsfw_images: nsfwMode, hide_promptless_images: hidePromptlessImages,
         }, onStatus: status.say });
         status.done();
         if (request !== imagesRequest || versionId !== currentVersionId) return false;
@@ -944,13 +949,11 @@ async function toggleShowPromptless(showPromptless) {
     await reloadGalleryForSwitch();
 }
 
-// The gallery's NSFW switch. It reads "Show NSFW", as every other NSFW switch
-// in both tabs does, while the server is still asked whether to *hide* them -
-// hide_nsfw_images, and hideNsfwImages here. This is the one place the two
-// meet, so the inversion is done here and nowhere else.
-async function toggleShowNsfwImages(showNsfw) {
-    hideNsfwImages = !showNsfw;
-    hideNsfwImagesInitialized = true;
+// The gallery's NSFW switch, its three buttons (#363): the mode pressed, for
+// both of a model's galleries.
+async function setNsfwMode(mode) {
+    nsfwMode = mode;
+    nsfwModeInitialized = true;
     await reloadGalleryForSwitch();
 }
 
@@ -1993,9 +1996,11 @@ function imagesBannerHtml() {
         labelClass: 'mm-show-all-label',
         both: hiddenByBothCount,
         switches: [
-            { id: 'mm_show_nsfw_images', label: 'Show NSFW', reason: 'NSFW filter',
-              showing: !hideNsfwImages, hidden: hiddenImageCount, count: nsfwImageCount,
-              action: 'modelManager.showNsfwImages', noteHtml: nsfwModelNoteHtml() },
+            nsfwSwitch({
+                id: 'mm_show_nsfw_images', mode: nsfwMode, action: 'modelManager.nsfwMode', noteHtml: nsfwModelNoteHtml(),
+                counts: { hidden_nsfw: hiddenImageCount, hidden_safe: hiddenSafeCount,
+                          nsfw_count: nsfwImageCount, safe_count: safeImageCount },
+            }),
             { id: 'mm_show_promptless_images', label: 'Show unusable prompts',
               reason: 'unusable prompt',
               showing: !hidePromptlessImages, hidden: hiddenPromptlessCount,
@@ -2200,7 +2205,7 @@ async function rateGeneration(id, value, imageId = null) {
     const image = imageId !== null ? (card.all || card.images || []).find((i) => Number(i.id) === Number(imageId))
         : card.matching_count <= 1 ? card.images?.[0] : null;
     const mine = image ? image.user_level : card.user_level;
-    const fields = { level: mine === value ? '' : value, hide_nsfw_images: hideNsfwImages,
+    const fields = { level: mine === value ? '' : value, nsfw_images: nsfwMode,
                      hide_promptless_images: hidePromptlessImages };
     if (image) fields.image_id = image.id;
     else Object.assign(fields, { path: currentModelPath, generation: card.id });
@@ -2252,7 +2257,7 @@ async function loadGenerationsPage(number, { append = false } = {}) {
     try {
         const data = await apiCall({ endpoint: '/model-manager/generations/page', params: {
             path, page: number,
-            hide_nsfw_images: hideNsfwImages, hide_promptless_images: hidePromptlessImages,
+            nsfw_images: nsfwMode, hide_promptless_images: hidePromptlessImages,
         } });
         if (request !== generationsRequest || path !== currentModelPath) return false;
         if (!data.success) {
@@ -2396,7 +2401,7 @@ async function refreshGenerationTotals() {
     try {
         const data = await apiCall({ endpoint: '/model-manager/generations/page', params: {
             path, page: 1,
-            hide_nsfw_images: hideNsfwImages, hide_promptless_images: hidePromptlessImages,
+            nsfw_images: nsfwMode, hide_promptless_images: hidePromptlessImages,
         } });
         if (!data.success || path !== currentModelPath) return;
         generationsState = data.state || generationsState;
@@ -2432,9 +2437,8 @@ function generationsBannerHtml() {
         labelClass: 'mm-show-all-label',
         both: state.hidden_both || 0,
         switches: [
-            { id: 'mm_show_nsfw_images', label: 'Show NSFW', reason: 'NSFW filter',
-              showing: !hideNsfwImages, hidden: state.hidden_nsfw, count: state.nsfw_count,
-              action: 'modelManager.showNsfwImages', noteHtml: nsfwModelNoteHtml() },
+            nsfwSwitch({ id: 'mm_show_nsfw_images', mode: nsfwMode, counts: state,
+                         action: 'modelManager.nsfwMode', noteHtml: nsfwModelNoteHtml() }),
             { id: 'mm_show_promptless_images', label: 'Show unusable prompts',
               reason: 'unusable prompt',
               showing: !hidePromptlessImages, hidden: state.hidden_promptless,
@@ -2695,7 +2699,7 @@ async function showAllGeneration(id) {
     try {
         const data = await apiCall({ endpoint: `/model-manager/generations/${card.id}/images`, params: {
             path: currentModelPath,
-            hide_nsfw_images: hideNsfwImages, hide_promptless_images: hidePromptlessImages,
+            nsfw_images: nsfwMode, hide_promptless_images: hidePromptlessImages,
         } });
         if (data.success) {
             card.all = data.images || [];
@@ -3401,7 +3405,7 @@ work.provide('modelManager.goToPage', ({ page }) => goToPage(Number(page)));
 work.provide('modelManager.prevPage', () => prevPage());
 work.provide('modelManager.nextPage', () => nextPage());
 work.provide('modelManager.togglePin', ({ index }) => togglePin(Number(index)));
-work.provide('modelManager.showNsfwImages', (data, box) => toggleShowNsfwImages(box.checked));
+work.provide('modelManager.nsfwMode', (data, box) => setNsfwMode(box.value));
 work.provide('modelManager.showPromptless', (data, box) => toggleShowPromptless(box.checked));
 work.provide('modelManager.loadMoreImages', () => loadMoreImages());
 work.provide('modelManager.selectAllGenerations', () => selectAllGenerations());

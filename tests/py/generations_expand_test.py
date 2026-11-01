@@ -73,7 +73,7 @@ def ids(*generations):
 
 
 def browse(**params):
-    answer = client.get('/model-manager/generations/browse', params={'hide_nsfw_images': 'false', **params}).json()
+    answer = client.get('/model-manager/generations/browse', params={'nsfw_images': 'all', **params}).json()
     assert answer['success'], answer
     return answer
 
@@ -132,7 +132,7 @@ check('a batch opened shows its images, expanded or not',
 
 # ---------------------------------------------------------------- NSFW
 explicit = record('a red dress', ['a red dress, explicit'], '2026-10-06T08:00:00', level=X)
-hidden = client.get('/model-manager/generations/browse', params={'hide_nsfw_images': 'true', 'expand': 'true'}).json()
+hidden = client.get('/model-manager/generations/browse', params={'nsfw_images': 'safe', 'expand': 'true'}).json()
 check('NSFW hidden, expanded: the explicit image is no tile, and the banner counts the tiles shown',
       (ids(explicit)[0] in [i for _, imgs in shape(hidden) for i in imgs], len(hidden['tiles']),
        hidden['state']['filtered']), (False, 6, 6))

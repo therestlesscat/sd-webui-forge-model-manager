@@ -589,7 +589,7 @@
   },
   "model_manager_gallery_hide_nsfw": {
    "label": "Hide explicit images when a gallery opens",
-   "info": "Whether explicit images are hidden when a gallery of Civitai's images opens: a model's gallery in the Model Manager or the Civitai Browser, and the Civitai Images tab. A model's Your generations follows it too; the Generations tab has its own setting. The Show NSFW switch above the images shows them in that gallery. The Civitai Browser's Include NSFW models is separate: it decides which models are listed, not which of their images are shown.",
+   "info": "Whether explicit images are hidden when a gallery of Civitai's images opens: a model's gallery in the Model Manager or the Civitai Browser, and the Civitai Images tab. A model's Your generations follows it too; the Generations tab has its own setting. The Safe, All and NSFW buttons above the images change it in that gallery: All shows every image, and NSFW only the explicit ones. The Civitai Browser's Include NSFW models is separate: it decides which models are listed, not which of their images are shown.",
    "kind": "bool",
    "default": true,
    "name": "Hide explicit images by default",
@@ -726,7 +726,7 @@
   },
   "model_manager_generations_hide_nsfw": {
    "label": "Hide explicit images when the Generations Tab opens",
-   "info": "Whether explicit images are hidden when the Generations tab opens. The Show NSFW switch above the images shows them until the tab is opened again. A model's Your generations, in the Model Manager, follows the other Hide explicit images by default, under Shared across tabs.",
+   "info": "Whether explicit images are hidden when the Generations tab opens. The Safe, All and NSFW buttons above the images change it until the tab is opened again: All shows every image, and NSFW only the explicit ones. A model's Your generations, in the Model Manager, follows the other Hide explicit images by default, under Shared across tabs.",
    "kind": "bool",
    "default": true,
    "name": "Hide explicit images by default",

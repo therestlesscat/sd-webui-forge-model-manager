@@ -34,7 +34,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
 
 from ..console import say_failure
-from ..gallery import switch_counts_sql
+from ..gallery import nsfw_kept_sql, switch_counts_sql
 from ..nsfw import SFW_MAX
 from ..prompt_rules import MIN_PROMPT_LENGTH
 from .library import LIBRARY
@@ -326,9 +326,9 @@ _LEVEL_TABLE = "mm_level"
 class _ClassicLevel:
     """A level as Classic reads it: each read finds the level's images again."""
 
-    def __init__(self, ops: "GenerationsOps", scope: Scope, unit: str, section: Optional[str], hide_nsfw: bool):
+    def __init__(self, ops: "GenerationsOps", scope: Scope, unit: str, section: Optional[str], nsfw: Any):
         self._ops = ops
-        self._level = (scope, unit, section, hide_nsfw)
+        self._level = (scope, unit, section, nsfw)
 
     def units(self, offset: int, limit: int) -> List[Dict[str, Any]]:
         return self._ops.scope_units(*self._level, offset, limit)
@@ -709,7 +709,7 @@ class GenerationsOps:
             cursor.execute("SELECT file_path FROM files WHERE version_id = ?", (row[0],))
             return [r[0] for r in cursor.fetchall()]
 
-    def _rows_sql(self, scope: Scope, keys: Iterable[str], hide_nsfw: Optional[bool] = None,
+    def _rows_sql(self, scope: Scope, keys: Iterable[str], nsfw: Any = None,
                   needs: Iterable[str] = ()) -> Tuple[str, List[Any]]:
         """
         The scope's images as `rows` - one each, with its generation, place,
@@ -717,7 +717,7 @@ class GenerationsOps:
         order every list shows them (`sk`, highest first), the key of each
         grouping in `keys`, and what `needs` names: whether its prompt is worth
         reading ("readable"), its checkpoint ("checkpoint") - and, given
-        `hide_nsfw`, those the NSFW switch lets through as `shown`. WITH
+        `nsfw`, the NSFW switch's mode, those it lets through as `shown`. WITH
         clauses, with their arguments in order. A join is made only where
         something reads it: at 76,000 images the prompts' cost 30 ms, the
         checkpoints' 70 (#231).
@@ -815,21 +815,20 @@ class GenerationsOps:
         ctes.append(f"rows AS (SELECT {', '.join(columns)} FROM generation_images gi {' '.join(joins)}"
                     + (f" WHERE {' AND '.join(where)}" if where else "") + ")")
         args += args_where
-        if hide_nsfw is not None:
-            ctes.append("shown AS (SELECT * FROM rows WHERE safe OR NOT ?)")
-            args.append(1 if hide_nsfw else 0)
+        if nsfw is not None:
+            ctes.append(f"shown AS (SELECT * FROM rows WHERE {nsfw_kept_sql(nsfw)})")
         return "WITH " + ", ".join(ctes), args
 
-    def scope_counts(self, scope: Scope, hide_nsfw: bool, hide_promptless: bool) -> Dict[str, Any]:
+    def scope_counts(self, scope: Scope, nsfw: Any, hide_promptless: bool) -> Dict[str, Any]:
         """
         The scope's counts through the two switches, in the meanings every
         gallery's switches keep (gallery.switch_counts), and of what they let
         through: how many generations, and its first and last date.
         """
         sql, args = self._rows_sql(scope, (), needs=("readable",))
-        shown = (f"(safe OR NOT {1 if hide_nsfw else 0}) AND (readable OR NOT {1 if hide_promptless else 0})")
+        shown = f"{nsfw_kept_sql(nsfw)} AND (readable OR NOT {1 if hide_promptless else 0})"
         with self._cursor() as cursor:
-            cursor.execute(f"""{sql} SELECT {switch_counts_sql(hide_nsfw, hide_promptless)},
+            cursor.execute(f"""{sql} SELECT {switch_counts_sql(nsfw, hide_promptless)},
                 COUNT(DISTINCT CASE WHEN {shown} THEN generation_id END) AS generation_count,
                 MIN(CASE WHEN {shown} THEN created_at END) AS oldest,
                 MAX(CASE WHEN {shown} THEN created_at END) AS newest
@@ -861,7 +860,7 @@ class GenerationsOps:
             cursor.execute(f"{sql} SELECT COUNT(DISTINCT generation_id) FROM rows", args)
             return [], int(cursor.fetchone()[0])
 
-    def scope_units(self, scope: Scope, unit: str, section: Optional[str], hide_nsfw: bool,
+    def scope_units(self, scope: Scope, unit: str, section: Optional[str], nsfw: Any,
                     offset: int, limit: int) -> List[Dict[str, Any]]:
         """
         A part of a level of the Generations tab: `limit` of its units from
@@ -874,7 +873,7 @@ class GenerationsOps:
         section, the section's image and group counts.
         """
         keys = [k for k in (unit, section) if k and k in GROUP_KEYS]
-        sql, args = self._rows_sql(scope, keys, hide_nsfw)
+        sql, args = self._rows_sql(scope, keys, nsfw)
         names = _unit_columns(unit, section)
         own = names[-1]
         by = ", ".join(names)
@@ -898,11 +897,11 @@ class GenerationsOps:
                            args + [int(limit), int(offset)])
             return [dict(r) for r in cursor.fetchall()]
 
-    def _part_sql(self, scope: Scope, unit: str, section: Optional[str], hide_nsfw: bool,
+    def _part_sql(self, scope: Scope, unit: str, section: Optional[str], nsfw: Any,
                   part: Sequence[Tuple[Any, ...]]) -> Tuple[str, List[Any], List[str]]:
         """`shown`, and the units of a part as `part` (s, u) or (u)."""
         keys = [k for k in (unit, section) if k and k in GROUP_KEYS]
-        sql, args = self._rows_sql(scope, keys, hide_nsfw)
+        sql, args = self._rows_sql(scope, keys, nsfw)
         names = _unit_columns(unit, section)
         width = len(names)
         values = ", ".join("(" + ", ".join("?" * width) + ")" for _ in part)
@@ -910,13 +909,13 @@ class GenerationsOps:
         args += [value for key in part for value in key]
         return sql, args, names
 
-    def scope_previews(self, scope: Scope, unit: str, section: Optional[str], hide_nsfw: bool,
+    def scope_previews(self, scope: Scope, unit: str, section: Optional[str], nsfw: Any,
                        part: Sequence[Tuple[Any, ...]], count: int) -> List[Dict[str, Any]]:
         """The first `count` images of each unit of a part, each with its unit's
         key (`s`, `u`) and its checkpoint, in the order the tab shows them."""
         if not part:
             return []
-        sql, args, names = self._part_sql(scope, unit, section, hide_nsfw, part)
+        sql, args, names = self._part_sql(scope, unit, section, nsfw, part)
         on = " AND ".join(f"part.{p} = shown.{n}" for p, n in zip(["s", "u"][-len(names):], names))
         with self._cursor() as cursor:
             cursor.execute(f"""{sql} SELECT pv.*, {_CHECKPOINT.format(generation='pv.generation_id')}
@@ -928,7 +927,7 @@ class GenerationsOps:
                 WHERE place <= ? ORDER BY sk DESC""", args + [int(count)])
             return [dict(r) for r in cursor.fetchall()]
 
-    def scope_unit_checkpoints(self, scope: Scope, unit: str, section: Optional[str], hide_nsfw: bool,
+    def scope_unit_checkpoints(self, scope: Scope, unit: str, section: Optional[str], nsfw: Any,
                                part: Sequence[Tuple[Any, ...]]) -> Dict[Tuple[Any, ...], Optional[str]]:
         """The checkpoint every image of each unit of a part was made with, if
         they share one, where it is now; None if they do not.
@@ -940,7 +939,7 @@ class GenerationsOps:
         own - grouped by model, `shown` already has a `ck`."""
         if not part:
             return {}
-        sql, args, names = self._part_sql(scope, unit, section, hide_nsfw, part)
+        sql, args, names = self._part_sql(scope, unit, section, nsfw, part)
         cols = ["s", "u"][-len(names):]
         on = " AND ".join(f"part.{p} = shown.{n}" for p, n in zip(cols, names))
         found: Dict[Tuple[Any, ...], Optional[str]] = {tuple(key): None for key in part}
@@ -962,13 +961,13 @@ class GenerationsOps:
                 found[tuple(row[:len(cols)])] = row[len(cols)]
         return found
 
-    def scope_unit_loras(self, scope: Scope, unit: str, section: Optional[str], hide_nsfw: bool,
+    def scope_unit_loras(self, scope: Scope, unit: str, section: Optional[str], nsfw: Any,
                          part: Sequence[Tuple[Any, ...]]) -> Dict[Tuple[Any, ...], List[str]]:
         """Every LoRA file each unit of a part used, where it is now, once each,
         in the order its images show and loaded them."""
         if not part:
             return {}
-        sql, args, names = self._part_sql(scope, unit, section, hide_nsfw, part)
+        sql, args, names = self._part_sql(scope, unit, section, nsfw, part)
         cols = ["s", "u"][-len(names):]
         on = " AND ".join(f"part.{p} = shown.{n}" for p, n in zip(cols, names))
         found: Dict[Tuple[Any, ...], List[str]] = {tuple(key): [] for key in part}
@@ -985,7 +984,7 @@ class GenerationsOps:
         return found
 
     @contextmanager
-    def scope_level(self, scope: Scope, unit: str, section: Optional[str], hide_nsfw: bool,
+    def scope_level(self, scope: Scope, unit: str, section: Optional[str], nsfw: Any,
                     single_pass: bool = True) -> Iterator[Any]:
         """
         A level of the Generations tab, to pick a part of and read its tiles
@@ -1004,10 +1003,10 @@ class GenerationsOps:
         table a failed drop left is dropped first.
         """
         if not single_pass:
-            yield _ClassicLevel(self, scope, unit, section, hide_nsfw)
+            yield _ClassicLevel(self, scope, unit, section, nsfw)
             return
         keys = [k for k in (unit, section) if k and k in GROUP_KEYS]
-        sql, args = self._rows_sql(scope, keys, hide_nsfw)
+        sql, args = self._rows_sql(scope, keys, nsfw)
         names = _unit_columns(unit, section)
         cols = ["s", "u"][-len(names):]
         with self._cursor() as cursor:

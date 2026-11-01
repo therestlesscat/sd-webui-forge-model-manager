@@ -44,7 +44,8 @@ document.dispatchEvent(new window.Event('DOMContentLoaded'));
 const $ = (id) => document.getElementById(id);
 const shown = () => Array.from(document.querySelectorAll('#cb_images .mm-image-card img'))
     .map((img) => (img.getAttribute('data-src') || img.getAttribute('src') || '').split('/').pop());
-const ticked = () => [$('cb_show_all_images')?.checked ?? null,
+// The NSFW switch's mode pressed (#363), and whether the prompt switch is ticked.
+const ticked = () => [document.querySelector('#cb_show_all_images input:checked')?.value ?? null,
                       $('cb_show_promptless_images')?.checked ?? null];
 
 async function open(index) {
@@ -63,25 +64,25 @@ await waitFor('the grid', () => $('cb_status').textContent.startsWith('Showing')
 await open(0);
 check('hiding both, the gallery opens with only the safe image with a prompt',
       shown(), ['1.jpeg']);
-check('whatever Include NSFW models and Only with usable prompts say', ticked(), [false, false]);
+check('whatever Include NSFW models and Only with usable prompts say', ticked(), ['safe', false]);
 
-await tick('civitaiBrowser.showAllImages', true);
+await tick('civitaiBrowser.nsfwMode', true, { mode: 'all' });
 await tick('civitaiBrowser.showPromptless', true);
 check('the switches show everything for this model', shown(), ['1.jpeg', '2.jpeg', '3.jpeg']);
 
 await open(1);
 check('the next model starts from the settings again, not from the switches',
-      [shown(), ticked()], [['1.jpeg'], [false, false]]);
+      [shown(), ticked()], [['1.jpeg'], ['safe', false]]);
 
 // Changed on the Settings page, with this page left open.
 settings.gallery_hide_nsfw = false;
 settings.hide_promptless_images = false;
 await open(0);
 check('a change to the settings reaches the next model opened, without a reload',
-      [shown(), ticked()], [['1.jpeg', '2.jpeg', '3.jpeg'], [true, true]]);
+      [shown(), ticked()], [['1.jpeg', '2.jpeg', '3.jpeg'], ['all', true]]);
 
 settings.gallery_hide_nsfw = true;
 await open(1);
-check('each setting on its own', [shown(), ticked()], [['1.jpeg', '3.jpeg'], [false, true]]);
+check('each setting on its own', [shown(), ticked()], [['1.jpeg', '3.jpeg'], ['safe', true]]);
 
 done();

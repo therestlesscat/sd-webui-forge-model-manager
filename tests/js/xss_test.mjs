@@ -59,7 +59,7 @@ globalThis.fetch = withGalleryPages(async (url) => {
         return { ok: true, json: async () => ({ success: true, model: {
             ...MODEL, images: IMAGES, civitai_model: { description: DESCRIPTION },
             images_state: { version_id: 5001, total_count: 2, hidden_nsfw: 0,
-                            hidden_promptless: 0, hide_nsfw_images: false,
+                            hidden_promptless: 0, nsfw_images: 'all',
                             hide_promptless_images: false } } }) };
     }
     if (href.includes('/models/versions')) {

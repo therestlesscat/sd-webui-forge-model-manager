@@ -269,8 +269,8 @@ SETTINGS: Tuple[Setting, ...] = (
             "Hide explicit images when a gallery opens",
             "Whether explicit images are hidden when a gallery of Civitai's images opens: a model's gallery in the "
             "Model Manager or the Civitai Browser, and the Civitai Images tab. A model's Your generations follows "
-            "it too; the Generations tab has its own setting. The Show NSFW switch above the images shows them in "
-            "that gallery. The Civitai Browser's Include NSFW models is separate: it decides which models are "
+            "it too; the Generations tab has its own setting. The Safe, All and NSFW buttons above the images "
+            "change it in that gallery: All shows every image, and NSFW only the explicit ones. The Civitai Browser's Include NSFW models is separate: it decides which models are "
             "listed, not which of their images are shown.", (MM, CB, CI)),
     Setting("model_manager_nsfw_detection", "hidden", "radio", "How to catch explicit images rated PG",
             "How to catch explicit images rated PG",
@@ -306,8 +306,9 @@ SETTINGS: Tuple[Setting, ...] = (
             "always shows every image.", (MM, CB)),
     Setting("model_manager_generations_hide_nsfw", "hidden", "checkbox", "Hide explicit images by default",
             "Hide explicit images when the Generations Tab opens",
-            "Whether explicit images are hidden when the Generations tab opens. The Show NSFW switch above the "
-            "images shows them until the tab is opened again. A model's Your generations, in the Model Manager, "
+            "Whether explicit images are hidden when the Generations tab opens. The Safe, All and NSFW buttons "
+            "above the images change it until the tab is opened again: All shows every image, and NSFW only the "
+            "explicit ones. A model's Your generations, in the Model Manager, "
             "follows the other Hide explicit images by default, under Shared across tabs.", (GEN,)),
     Setting("model_manager_civitai_min_prompt_images", "hidden", "slider",
             "How many images with a prompt a model needs to count as usable",

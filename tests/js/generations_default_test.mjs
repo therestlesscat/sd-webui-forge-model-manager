@@ -15,7 +15,7 @@ globalThis.fetch = async (url) => {
                        gallery_hide_nsfw: true, generations_hide_nsfw: false, generations_enabled: true });
     }
     if (href.includes('/model-manager/generations/browse')) {
-        browsed.push(new URL(href, 'http://webui').searchParams.get('hide_nsfw_images'));
+        browsed.push(new URL(href, 'http://webui').searchParams.get('nsfw_images'));
         return reply({ success: true, tiles: [], groups: [], more: false,
                        state: { total: 0, filtered: 0, hidden_nsfw: 0, nsfw_count: 0 } });
     }
@@ -26,6 +26,6 @@ await startTab('generations');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 await waitFor('the first page', () => browsed.length);
 check('the Generations tab asks for its explicit images shown, as its own setting says',
-      browsed[0], 'false');
+      browsed[0], 'all');
 
 done();

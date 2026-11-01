@@ -131,7 +131,7 @@ const lastBrowse = () => browses.at(-1);
 await waitFor('the first two parts', () => tileEls().length === 5);
 
 check('the first part asked for, ungrouped, the NSFW switch as the galleries\' setting says',
-      [browses[0]?.get('page'), browses[0]?.get('group'), browses[0]?.get('hide_nsfw_images')], ['1', null, 'true']);
+      [browses[0]?.get('page'), browses[0]?.get('group'), browses[0]?.get('nsfw_images')], ['1', null, 'safe']);
 check('the end in view: the next part asked for, and added after the first',
       [browses[1]?.get('page'), tileEls().length], ['2', 5]);
 check('the seed the server used, in the toolbar', $('gal_seed')?.value, '123');
@@ -192,10 +192,19 @@ await waitFor('its seed in the box', () => box.value === '999');
 check('New seed asks for one, and shows it', [seeds[1], box.value], [null, '999']);
 
 // ------------------------------------------------------------- the NSFW switch
-await waitFor('the banner', () => !!document.querySelector('[data-action="gallery.showNsfw"]'));
-tick('gallery.showNsfw', true);
-await waitFor('the grid with NSFW shown', () => lastBrowse()?.get('hide_nsfw_images') === 'false');
-check('Show NSFW: asked again without hiding', lastBrowse()?.get('hide_nsfw_images'), 'false');
+await waitFor('the banner', () => !!document.querySelector('[data-action="gallery.nsfwMode"]'));
+tick('gallery.nsfwMode', true, { mode: 'all' });
+await waitFor('the grid with NSFW shown', () => lastBrowse()?.get('nsfw_images') === 'all');
+check('All: asked again for every image', lastBrowse()?.get('nsfw_images'), 'all');
+// NSFW only (#363): the press goes through the page's listener, and the next request names it.
+await waitFor('the banner again', () => !!document.querySelector('[data-action="gallery.nsfwMode"][data-mode="nsfw"]'));
+tick('gallery.nsfwMode', true, { mode: 'nsfw' });
+await waitFor('the grid with NSFW only', () => lastBrowse()?.get('nsfw_images') === 'nsfw');
+check('NSFW: asked again for the explicit images alone, from the first part',
+      [lastBrowse()?.get('nsfw_images'), lastBrowse()?.get('page')], ['nsfw', '1']);
+await waitFor('the banner again', () => !!document.querySelector('[data-action="gallery.nsfwMode"][data-mode="all"]'));
+tick('gallery.nsfwMode', true, { mode: 'all' });
+await waitFor('the grid with every image again', () => lastBrowse()?.get('nsfw_images') === 'all');
 
 // ------------------------------------------------------------- Group by
 call('gallery.groupBy', 'model');
