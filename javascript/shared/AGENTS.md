@@ -80,7 +80,11 @@ is module state: the tabs share one copy of the module (see
 the notes, the update notice, the Your generations switch
 and the settings window - none of them on `window` since #93. The list's order is the server's - the order downloads were added in, which ↑/↓
 change - and a state never moves a row; the page keeps that order apart
-(`sequence`), as an object's number keys come out sorted. It asks for the list
+(`sequence`), as an object's number keys come out sorted. Its rows are kept
+by file id (#374), and a key below 0 - a stand-in for a kept download whose
+file its turn has not named - is a key too: `downloadKey` reads one, never
+`safeId`, whose null for it would make that row's Cancel send 0, which
+cancels every download. It asks for the list
 when the page loads, and draws it again once Gradio has drawn the panel: a
 paused download polls nothing, and the panel used to stay hidden after a
 restart.

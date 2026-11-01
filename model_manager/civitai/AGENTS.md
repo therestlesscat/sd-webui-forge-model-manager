@@ -79,3 +79,9 @@ because that would mean the assumption no longer holds.
   drawn through a lookup"). The 2 deleted files that were Civitai's own
   bytes - their record beside them lists their SHA-256 - belong to models
   deleted whole, and their hash lookups answered 404 (2026-10-31).
+- **A version can list the same bytes twice, under two names.** Of 1,467
+  LoRA versions in three searches, 59 list two or more files with a
+  SHA-256, and 5 of those repeat one (2026-11-01). A match by hash then takes
+  the first file for both (#375). Check a test version's hashes before a live
+  check of two files: #374's first one picked such a version, and showed
+  #375 instead of the change.

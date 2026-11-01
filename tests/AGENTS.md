@@ -50,6 +50,12 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   time limit, left a break in the copy's `forge.mjs` - `cmp` showed it - and
   the next run would have taken the break for the fix. From WSL, `timeout`
   stops neither a Windows `node.exe` nor a `python.exe`.
+- **Two kinds of id equal in a fixture cannot tell which one the code
+  reads.** Before #374 the download suites gave every test version file id
+  1; once downloads were found by file, their downloads merged. Giving each
+  file its version's number would pass whether the code read the file or the
+  version. Each file now has an id of its own (`download_test`'s `F(v)`,
+  100000 + the version). A side agent's note made it so.
 - **The checker compares values as JSON.** `check()` (`harness.mjs`) compares
   `JSON.stringify` of both, and a function becomes nothing: `check(label,
   globalThis.fetch, standIn)` passes whatever `fetch` is. #321's two such

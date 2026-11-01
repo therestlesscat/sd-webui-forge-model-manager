@@ -243,11 +243,17 @@ no total, what a cancel still waits for, errors, and how it ended - never a
 as the setting says (How many downloads in parallel, 2 unless changed, #279) - a change
 applies at once, and a lower number stops nothing - and when a place frees up
 starts the first waiting one from the top; Start now runs one over the limit.
-A version asked for again while on its way - queued, coming, being added,
-paused - is answered with the download it has, never
-started over (`ON_ITS_WAY`); a finished one is queued afresh. The page keeps
-the same rule (`onItsWay` in `downloads.mjs`): a Resources row or a chip for
-a version already coming follows it, and asks nothing (#119). Pause keeps the `.partial` and frees the place;
+A download is one file, found by its Civitai file id (#374): a file asked
+for again while on its way - queued, coming, being added, paused - is
+answered with the download it has, never started over (`ON_ITS_WAY`); a
+finished one is queued afresh. Another file of the same version is a
+download of its own; one file several versions list - a shared VAE, 13 file
+ids in one library's stored lists, one under 26 versions - is one. The page
+keeps the same rule (`onItsWay(fileId)` in `downloads.mjs`): a Resources row
+or a chip whose file its hash names follows the one coming and asks nothing;
+with no file, the server names it and answers with the one coming (#119).
+Until 0.73.0 every download was found by its version: once one file of a
+version had finished, every other file's Download read Downloaded. Pause keeps the `.partial` and frees the place;
 Resume asks Civitai's download address again (its storage link is signed and
 expires) with `Range: bytes=<size>-`, carries the SHA-256 on from what is
 there, and checks the finished file as ever. A large file comes in parts
@@ -262,8 +268,10 @@ for the rest; after three, a download with bytes kept pauses, saying why,
 and a 416 starts it over (#291). Civitai's storage holds
 each connection to 55-69 MB/s (four runs), and its signed link lasts 24
 hours (`X-Amz-Expires=86400`). What is not over - running,
-paused or waiting - is kept in the `downloads` table, one row each in the
-list's order, under this install's key (`INSTALL_KEY`): a restart or a crash
+paused or waiting - is kept in the `downloads` table, one row per file in the
+list's order, keyed `(install, file_id)` since v47, under this install's key
+(`INSTALL_KEY`) - a row with no file there goes by a stand-in, its version id
+negated, until its turn names it (`stand_in`): a restart or a crash
 leaves it paused, and a WebUI sharing the database never takes it up. Each
 save replaces the install's rows whole (`_save`), so the table cannot miss a
 change: from 0.43.0 (7a01e81) only a download with a `.partial` was kept, in
@@ -278,9 +286,11 @@ version's other file is not this one.
 (`_fetch_job`): paid, no file and gone are Error rows there, with Retry,
 which waits again at the end of the queue and asks afresh. Asking first cost
 each press 333 to 484 ms, median 416: ten queued in 4.2 s, now 129 ms. Only
-the Resources dialog's `newer_if_gone`, and a version without its model,
-still ask first: the page follows a row by its version id, and a substitute's
-is known only once Civitai answers. The library check alone stays at the
+the Resources dialog's `newer_if_gone`, a version without its model, and a
+press naming no file whose version the library's stored list
+(`models.versions`) does not name still ask first: a download is queued under
+its file (#374), so with no file sent the route takes the stored list's
+primary, a database read. The library check alone stays at the
 press - it reads the database. While its turn fetches, 0.3 to 0.7 s, a
 running download still reads `pending`, with no place in the queue: its row
 says "Waiting...".
