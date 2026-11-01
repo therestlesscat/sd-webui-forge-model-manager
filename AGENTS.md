@@ -863,6 +863,11 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   button, not Send, which writes; the owner then hit a Send crash and asked
   "did you test this". It was old (#266), but the report had not said Send
   went untested.
+- **Opening a model's gallery can write to the database.** Its page is
+  fetched from Civitai and stored first when fewer than a page of images are
+  stored and Civitai has more (`gallery_page`, `api/images.py`). A read-only
+  live check opens a version with a page stored: #363's opened one with 784
+  at a page of 100, and pressed no Load More.
 - **A generation recorded with its press is replayed, not pasted.** #328's
   plan sent, in the original Forge, a generation its Neo check had made, to
   see the paste read Neo's names; the generation had kept its press, so Send

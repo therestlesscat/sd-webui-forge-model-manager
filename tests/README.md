@@ -308,3 +308,8 @@ git-ignored: a probe is local, and written again when needed.
   of its own: one chained before a full run hung for seven minutes, and the
   run then overlapped a second one. If one hangs, find it by its command line
   and stop only that process - other programs run `node.exe` too.
+- **Radios on one page share their pressed state by name.** A probe that draws
+  several copies of one radio group shows only the last copy pressed: #363's
+  bar, drawn once per tab and mode, measured right as each copy was added,
+  and the screenshot showed Safe unpressed in light mode. Name each copy's
+  radios apart.

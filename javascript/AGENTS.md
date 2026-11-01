@@ -204,6 +204,12 @@ send this info back?"
   `shared/send.mjs`). A check that sends again sooner and reads the newest
   notice reads the previous Send's: in the rc test of 0.68.10, Clip skip's
   notices came one Send behind until the check waited for the old one to go.
+- **A gallery's page comes as a stream when the page asks for its status**
+  (#132). The Model Manager's gallery page and the Civitai Browser's images
+  answer `application/x-ndjson` - status lines, then the answer - and a test
+  browser's `response.json()` throws ("Unexpected non-whitespace character
+  after JSON at position 73"). Read the last line, or the page: #363's live
+  check lost both answers and read the banners instead.
 
 ## Kept elsewhere, and true here too
 

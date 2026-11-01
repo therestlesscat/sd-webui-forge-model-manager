@@ -153,6 +153,10 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   library stand-in returned every version whatever the page asked, so #205's
   break - the substitute left out of the lookup - failed 1 check; answering
   the ids asked, it failed 7.
+- **A suite's subject is in its docstring, not its name.** #363's plan put
+  NSFW checks in `generations_switch_test` (the Your generations on/off
+  switch, #27) and `gallery_count_test` (a refresh's size, #103), going by
+  their names; they went into `generations_test` and `api_test`.
 
 ### The code
 
