@@ -37,6 +37,14 @@ carries the notes kept on p. So each hook acts only on the run its notes were
 made for (_notes): a copy's end once wrote the press early, and again at the
 real end (#241).
 
+A script may also run a generation of its own inside the press - ADetailer's
+face pass, a new run with saving off, carries every script when its "Apply
+only selected scripts" is off - under the press's Forge id. The first run
+started under an id owns the press (_owners): only it takes what the press
+holds, its named inputs and the pictures it started from. A run inside it
+once took the pictures at its own end, saved nothing, and dropped them
+(#373).
+
 Nothing is recorded when the setting is off, when Forge saved nothing ("Always
 save all generated images" off), or for a video - Forge Neo's Wan writes one
 file per iteration and says only where the last went.
@@ -59,6 +67,7 @@ from .forge_host import (available, closest_checkpoint, current_job, forge_name,
                          main_infotext, parse_generation_parameters)
 from .nsfw import generated_level
 from .console import say
+from .remembered import Remembered
 from .scheduler.capture import pressed_images, pressed_inputs
 from .scheduler.runner import queued_task
 from .tabs import TABS, on
@@ -95,6 +104,11 @@ _RUNTIME_FIELDS = frozenset({
 
 _lock = threading.Lock()
 
+# Forge's id for a press, to the run that owns it: the first started under
+# the id. A press that never reached its end stays until the bound drops
+# it; ids are never used again, so it holds up no other press.
+_owners = Remembered(most=32)
+
 
 class _Generation(object):
     """What the hooks gather for one generation, kept on p."""
@@ -105,6 +119,7 @@ class _Generation(object):
         self.run = id(run)
         self.created_at = datetime.now().isoformat(timespec="seconds")
         self.job: Optional[str] = None               # Forge's id for the run
+        self.owner = True                            # not a run inside another's press
         self.typed: Dict[str, Any] = {}
         self.loaded: Dict[str, Any] = {}
         self.loras: Dict[int, List[Dict[str, Any]]] = {}
@@ -121,6 +136,10 @@ def before_process(p) -> None:
         return
     generation = _Generation(p)
     generation.job = current_job()
+    if generation.job is not None:
+        generation.owner = generation.job not in _owners
+        if generation.owner:
+            _owners[generation.job] = generation.run
     generation.typed = {
         "prompt": _text(getattr(p, "prompt", None)),
         "negative_prompt": _text(getattr(p, "negative_prompt", None)),
@@ -215,14 +234,19 @@ def postprocess(p, processed) -> Optional[int]:
         delattr(p, _ATTR)
     except AttributeError:
         pass
-    # Taken whether or not this run is recorded: a run that saves nothing
-    # holds no images after it (#34).
-    held = pressed_images(generation.job)
+    # Taken by the owner whether or not this run is recorded: a run that
+    # saves nothing holds no images after it (#34).
+    held: Dict[str, Any] = {}
+    if generation.owner:
+        _owners.pop(generation.job)
+        held = pressed_images(generation.job)
     try:
         if getattr(processed, "video_path", None):
             say("Generation not recorded: videos are not, yet")
             return None
         if not generation.saved:
+            if not generation.owner:
+                return None     # a face pass, say: nothing the user pressed for
             say(f"Generation not recorded: none of its "
                   f"{len(generation.results)} results was saved to disk")
             return None
@@ -520,7 +544,8 @@ def _write(p, processed, generation: _Generation, held: Optional[Dict[str, Any]]
         "prompt_nsfw_level": max(image["prompt_nsfw_level"] for image in images),
     })
 
-    inputs, sources = _inputs_and_sources(db, row["mode"], generation.job, held)
+    inputs, sources = (_inputs_and_sources(db, row["mode"], generation.job, held)
+                       if generation.owner else (None, {}))
     with generation_inputs.LOCK, _lock:
         # The images the press started from (#34): a file already in the
         # store is not written again, and none is deleted until this row

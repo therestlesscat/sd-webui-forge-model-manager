@@ -380,6 +380,102 @@ adetailer_id = attempt(lambda: run('task(adetailer)', adetailer=True))
 check('a press ADetailer ran in keeps its picture: its end hook on a copy of the run takes nothing',
       attempt(lambda: sorted(kept_rows(adetailer_id))), ['init_img'])
 
+# ============= 17. ADetailer's face passes, runs of their own inside the press (#373)
+from model_manager import console                                   # noqa: E402
+
+
+def save_result(p, image, text):
+    """Forge saving one result of p, as on_image_saved reports it."""
+    os.makedirs(OUT, exist_ok=True)
+    path = os.path.join(OUT, '%05d.png' % counter[0])
+    counter[0] += 1
+    image.save(path)
+    image.already_saved_as = path
+    generations.image_saved(types.SimpleNamespace(image=image, p=p, filename=path,
+                                                  pnginfo={'parameters': text}))
+
+
+def face_pass(saves=False):
+    """
+    ADetailer's face pass with "Apply only selected scripts" off: a new run,
+    not a copy of the press, carrying every always-on script, run with
+    process_images inside the press's job - saving off unless saves.
+    """
+    inner = Processing(prompt='a face')
+    generations.before_process(inner)
+    inner.all_prompts, inner.all_negative_prompts, inner.all_seeds, inner.all_subseeds = ['a face'], [''], [7], [8]
+    generations.process(inner)
+    inner.iteration = 0
+    generations.process_batch(inner)
+    pp = PP(Image.new('RGB', (64, 48), (4, 5, 6)), 0)
+    generations.result_ready(inner, pp)
+    if saves:
+        save_result(inner, pp.image, 'a face\nSteps: 20')
+    return generations.postprocess(inner, types.SimpleNamespace(video_path=None))
+
+
+def run_with_passes(job, passes, inner_saves=False):
+    """A press of len(passes) images; before each is handed out, as many
+    face passes as passes names. Its id, and the face passes' answers."""
+    progress.current_task = job
+    p = Processing(batch_size=len(passes))
+    generations.before_process(p)
+    p.all_prompts = ['a lighthouse'] * len(passes)
+    p.all_negative_prompts = [''] * len(passes)
+    p.all_seeds, p.all_subseeds = list(range(1, len(passes) + 1)), list(range(11, len(passes) + 11))
+    generations.process(p)
+    p.iteration = 0
+    generations.process_batch(p)
+    inner = []
+    for index, count in enumerate(passes):
+        pp = PP(Image.new('RGB', (64, 48), (index, 2, 3)), index)
+        inner += [face_pass(inner_saves) for _ in range(count)]
+        generations.result_ready(p, pp)
+        save_result(p, pp.image, 'a lighthouse\nSteps: 20')
+    answer = generations.postprocess(p, types.SimpleNamespace(video_path=None))
+    progress.current_task = None
+    return answer, inner
+
+
+def pair(answer):
+    """run_with_passes' answer, or Nones where it raised: a check fails, not the suite."""
+    return answer if isinstance(answer, tuple) else (None, [None])
+
+
+said_from = console.said()
+attempt(lambda: record(*press_values('task(face)', 0, init_img=picture((60, 30, 90, 255)))))
+face_id, face_inner = pair(attempt(lambda: run_with_passes('task(face)', [1])))
+check('an img2img press with a face pass inside it keeps its picture: the pass takes nothing',
+      attempt(lambda: sorted(kept_rows(face_id))), ['init_img'])
+attempt(lambda: record(*press_values('task(faces)', 2, init_img_with_mask=picture((70, 20, 50, 255)),
+                                     init_img_with_mask_fg=stroke(y=30))))
+faces_id, faces_inner = pair(attempt(lambda: run_with_passes('task(faces)', [2, 1])))
+check('an Inpaint press with three face passes over two images keeps its picture and its mask',
+      attempt(lambda: sorted(kept_rows(faces_id))), ['init_img_with_mask', 'init_img_with_mask_fg'])
+check('and nothing of either press is held after it: no picture, no run owning its job',
+      attempt(lambda: (len(capture._held), len(generations._owners))), (0, 0))
+lines = [line['text'] for line in console.since(said_from)[0]]
+check('the face passes say nothing: one "Recorded generation" line a press, no "not recorded"',
+      (sum(t.startswith('Recorded generation') for t in lines), sum(t.startswith('Generation not recorded') for t in lines)),
+      (2, 0))
+
+# A press that never reached its end hook leaves its job behind; the next press is not held up by it.
+progress.current_task = 'task(stale)'
+attempt(lambda: generations.before_process(Processing()))
+progress.current_task = None
+attempt(lambda: record(*press_values('task(after-stale)', 0, init_img=picture((80, 80, 10, 255)))))
+after_stale_id, _ = pair(attempt(lambda: run_with_passes('task(after-stale)', [0])))
+check('a press after one that never ended keeps its picture',
+      attempt(lambda: sorted(kept_rows(after_stale_id))), ['init_img'])
+
+attempt(lambda: record(*press_values('task(inner-saves)', 0, init_img=picture((90, 10, 10, 255)))))
+own_id, own_inner = pair(attempt(lambda: run_with_passes('task(inner-saves)', [1], inner_saves=True)))
+check('a run inside the press that saves an image is recorded with none of the press\'s inputs or pictures',
+      attempt(lambda: (db.get_generation(own_inner[0])['inputs'], kept_rows(own_inner[0]))), (None, {}))
+check('and the press keeps its picture and its named inputs, which its Send replays',
+      attempt(lambda: (sorted(kept_rows(own_id)), 'fixed' in (db.get_generation(own_id)['inputs'] or {}))),
+      (['init_img'], True))
+
 # =========================================== 9. the switch, and the folder
 opts.model_manager_generations_keep_inputs = False
 attempt(lambda: record(*press_values('task(off)', 0, init_img=picture((3, 3, 3, 255)))))
