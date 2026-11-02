@@ -23,7 +23,13 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   its check, and the check is seen to fail on a break. And a guard is run on
   the old code before a plan calls it one: #291's plan listed its 416
   situation as a guard the old code passes, and run there half of it failed
-  - the old code never set `started_over` on that path.
+  - the old code never set `started_over` on that path. So is a break's
+  target: #373's plan said removing the owner's release would fail its
+  situation 4; run, it failed situation 2's "nothing held after the press",
+  and situation 4 needed a fifth break of its own ("one owner at a time").
+  Its guard failed on the old code too: the press it ran held a face pass,
+  the bug's own trigger, so it became a press with none. A plan's break
+  list and guards are run on the old code and the new before it goes out.
 - **A new check has to fail on the old code.** A check that has never failed
   has not been shown to check anything: three separate attempts at one fix
   passed a suite that could not have caught the bug. Swap the file for
