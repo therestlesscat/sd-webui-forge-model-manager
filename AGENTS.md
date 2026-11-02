@@ -66,6 +66,27 @@ the code (2026-10-16).
   and edit sections. #136's Restart WebUI offer was added to its plan that
   way and approved; 0.54.1 was built from an older read without it, and
   0.54.2 followed (2026-10-08).
+- **A plan round is read by a fresh agent before it goes to the owner.**
+  One agent, handed the doc and pointed at the code and the AGENTS.md
+  files - never the conversation, nor the plan's author's conclusions -
+  looks for what the plan assumes without saying. What it finds is
+  surveyed, and dealt with in the round's one write; the message to the
+  owner names it, and the agent's cost. Side agents caught faults only
+  after building: #259's "unchanged" reads moved into shared helpers,
+  v37's check written as a subset, #269's planned check replaced
+  (2026-11-02, after google/elephant-goldfish-model's "goldfish"
+  reviewers; the plugin, which writes plans to local markdown, was not
+  installed).
+- **A build is read against its plan by a fresh agent before the commit.**
+  Once `--all` passes, one agent is handed the plan as posted - the Final
+  tab, and any later comment on its issue - and the staged diff, never the
+  conversation, and reads each against the other: what the plan calls
+  unchanged, what it names as a check, a rule it keeps. What it finds is
+  surveyed and fixed in the same commit, and the commit is asked for with
+  what it found and its cost. A fix whose plan the owner waived has nothing
+  to be read against, and skips it. Every such fault in this file was caught
+  by a side agent asked for by chance: #259's moved reads, v37's subset
+  check, #269's replaced check, #287's rule changed mid-build (2026-11-02).
 - **A plan doc says what before it says where.** Technical, but not
   overdone: what a part does in plain words first, its code name after - or
   in a closing "Code:" line. More than a few
