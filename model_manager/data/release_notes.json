@@ -1,5 +1,21 @@
 [
     {
+        "id": "twin-files-0-73-1",
+        "version": "0.73.1",
+        "kind": "action",
+        "audience": "update",
+        "when": "twin_files",
+        "tabs": [
+            "model_manager"
+        ],
+        "title": "Some files are recorded under another file's Civitai id",
+        "text": "Some files were recorded under another file's Civitai id. When a version lists the same file twice under two names, the second was recorded as the first, so the Civitai Browser showed it as not downloaded and offered it again. Run Sync with Civitai once, with All models chosen and nothing else ticked, to put them right.",
+        "action": {
+            "id": "sync",
+            "label": "Open Sync"
+        }
+    },
+    {
         "id": "shared-database-0-73-0",
         "version": "0.73.0",
         "kind": "warning",

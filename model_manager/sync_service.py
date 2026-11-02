@@ -893,7 +893,8 @@ class SyncService:
 
     def _update_database(self, model_path: str, civitai_data: Dict, hashes: HashResult,
                          hashes_checked: Optional[str] = None,
-                         write_hashes: bool = True) -> Optional[str]:
+                         write_hashes: bool = True, held: Optional[int] = None,
+                         names: Optional[Dict[int, str]] = None) -> Optional[str]:
         """
         Update the database with model and version data from Civitai response.
 
@@ -905,6 +906,8 @@ class SyncService:
                 (hashing.fingerprint), if they were.
             write_hashes: False when the hashes are the ones already stored:
                 they are kept, and whether they are the file's own with them.
+            held, names: the file id the row holds, and the lookup by hash's
+                names of the version's files - payload_rows.file_row (#375).
 
         Returns:
             None on success, or an error message describing the failure.
@@ -936,7 +939,7 @@ class SyncService:
                 if matched_version:
                     version_data = {
                         **version_row(matched_version, model_id),
-                        **file_row(matched_version, file_name, self._hashes_to_dict(hashes)),
+                        **file_row(matched_version, file_name, self._hashes_to_dict(hashes), held, names),
                         "file_path": model_path,
                         "file_name": file_name,
                         "file_size": file_size,
@@ -961,7 +964,7 @@ class SyncService:
                 # Version-only response (model fetch failed)
                 version_data = {
                     **version_row(civitai_data, civitai_data.get("modelId")),
-                    **file_row(civitai_data, file_name, self._hashes_to_dict(hashes)),
+                    **file_row(civitai_data, file_name, self._hashes_to_dict(hashes), held, names),
                     "file_path": model_path,
                     "file_name": file_name,
                     "file_size": file_size,
@@ -1388,6 +1391,8 @@ class SyncService:
                 f"{len([m for m in alone if m in fetched])} found, "
                 f"{len([m for m in alone if m in gone])} gone, {len(unasked)} could not be asked")
 
+        names = get_models_db().looked_up_file_names(v["id"] for v in versions)
+
         def process(version: Dict[str, Any]) -> None:
             if self._cancel_requested:
                 return
@@ -1422,8 +1427,11 @@ class SyncService:
                 if not write_civitai_info(path, payload):
                     raise RuntimeError("could not write civitai.info")
 
+                # Its answer for many models can name a twin otherwise than the
+                # file on disk: the lookup's names, and the id held, decide (#375).
                 db_error = self._update_database(
-                    path, payload, HashResult.from_stored(version["file_hashes"]), write_hashes=False
+                    path, payload, HashResult.from_stored(version["file_hashes"]), write_hashes=False,
+                    held=version.get("civitai_file_id"), names=names.get(version["id"]),
                 )
                 if db_error:
                     raise RuntimeError(db_error)

@@ -29,7 +29,8 @@ A note is:
               "repair" opens the window of the repair `repair` names
     when      optional: a condition of this install the note is only for, of
               CONDITIONS - "custom_database", the database file set in the
-              settings, which two WebUIs sharing one database need - or
+              settings, which two WebUIs sharing one database need;
+              "twin_files", a file recorded under its twin's Civitai id - or
               "repair:<name>", while that repair has work here (repairs/)
     important optional true: shown first, headed [Important] - for what
               everyone should read, not only what needs doing
@@ -62,8 +63,15 @@ def _custom_database() -> bool:
     return bool(str(setting("model_manager_database_path") or "").strip())
 
 
+def _twin_files() -> bool:
+    """Whether a file is recorded under its twin's Civitai id (#375), which a
+    metadata sync puts right."""
+    from .db import get_models_db
+    return bool(get_models_db().files_under_twin_ids())
+
+
 # Conditions a note can be for, by the name its "when" gives.
-CONDITIONS = {"custom_database": _custom_database}
+CONDITIONS = {"custom_database": _custom_database, "twin_files": _twin_files}
 
 
 def _holds(when: str) -> bool:

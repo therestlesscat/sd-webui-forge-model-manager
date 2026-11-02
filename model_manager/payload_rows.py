@@ -73,7 +73,8 @@ FILE_FIELDS = ("civitai_file_id", "civitai_file_type", "fp", "size", "format", "
 
 
 def file_row(version: Dict[str, Any], file_name: Optional[str],
-             hashes: Any = None) -> Dict[str, Any]:
+             hashes: Any = None, held: Optional[int] = None,
+             names: Optional[Dict[int, str]] = None) -> Dict[str, Any]:
     """
     One file of a version as Civitai lists it - its id, its type there
     (Model, VAE, Pruned Model...), fp / size / format, whether primary - as
@@ -81,6 +82,10 @@ def file_row(version: Dict[str, Any], file_name: Optional[str],
     a download's - sure), else the one of its name, its case aside (a sidecar
     beside a file nobody has hashed). Nothing, for a file the list does not
     name: renamed on disk, or replaced on Civitai since.
+
+    `held`, the file id the row holds, and `names`, {file id: name} from
+    Civitai's lookup by hash: the metadata sync's, whose answer for many
+    models at once can name a file otherwise than the file on disk (#375).
     """
     files = [f for f in version.get("files") or [] if isinstance(f, dict)]
     ours = read_hashes(hashes)
@@ -89,9 +94,22 @@ def file_row(version: Dict[str, Any], file_name: Optional[str],
         theirs = read_hashes(listed.get("hashes"))
         return any(ours.get(kind) == value for kind, value in theirs.items())
 
-    found = next((f for f in files if ours and same_hash(f)), None)
-    if found is None and file_name:
-        found = next((f for f in files if str(f.get("name") or "").lower() == file_name.lower()), None)
+    def named(listed: Dict[str, Any], name: Any = None) -> bool:
+        name = listed.get("name") if name is None else name
+        return bool(file_name) and str(name or "").lower() == file_name.lower()
+
+    # A version can list the same bytes twice, under two names (#375): both
+    # match, and the first alone used to win, so the second file on disk was
+    # recorded under the first's id and read as not held. Its name says which,
+    # as the lookup by hash names it where it was asked; else the id the row
+    # holds, if one of them, so a right one is not written back to the first;
+    # else - a renamed copy, whose name the list lacks - the first.
+    matching = [f for f in files if ours and same_hash(f)]
+    found = (next((f for f in matching if named(f, (names or {}).get(f.get("id")))), None)
+             or next((f for f in matching if held is not None and f.get("id") == held), None)
+             or (matching[0] if matching else None))
+    if found is None:
+        found = next((f for f in files if named(f)), None)
     if found is None:
         return {}
     meta = found.get("metadata") or {}

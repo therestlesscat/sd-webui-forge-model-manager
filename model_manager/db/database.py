@@ -431,6 +431,14 @@ class ModelsDatabase:
         """Store each file's path as a walk finds it. See ModelsOps.normalize_version_paths()."""
         return self._models.normalize_version_paths()
 
+    def files_under_twin_ids(self) -> List[str]:
+        """Files recorded under their twin's Civitai id (#375). See ModelsOps.files_under_twin_ids()."""
+        return self._models.files_under_twin_ids()
+
+    def looked_up_file_names(self, version_ids) -> Dict[int, Dict[int, str]]:
+        """Each version's files as the lookup by hash named them (#375). See ModelsOps.looked_up_file_names()."""
+        return self._models.looked_up_file_names(version_ids)
+
     def library_files(self, model_ids=None, version_ids=None, file_ids=None) -> List[Dict[str, Any]]:
         """The library's files of these models, versions or Civitai files. See ModelsOps.library_files()."""
         return self._models.library_files(model_ids, version_ids, file_ids)

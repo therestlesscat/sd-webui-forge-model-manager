@@ -14,6 +14,7 @@ extension refusing a database newer than it knows.
 import hashlib
 import json
 import os
+import shutil
 import sqlite3
 import sys
 
@@ -38,7 +39,10 @@ from model_manager.sync_service import SyncService       # noqa: E402
 WORK = os.path.join(TESTS, 'work', 'version_files_test')
 os.makedirs(WORK, exist_ok=True)
 for name in os.listdir(WORK):
-    os.remove(os.path.join(WORK, name))
+    if os.path.isdir(os.path.join(WORK, name)):
+        shutil.rmtree(os.path.join(WORK, name))
+    else:
+        os.remove(os.path.join(WORK, name))
 
 fails = []
 def check(label, got, want=True):
@@ -148,6 +152,126 @@ one = gallery_refresh_options(db, [VERSION])
 check('the estimate costs a version named twice once',
       gallery_refresh_options(db, [VERSION, VERSION]), one)
 db.close()
+
+
+# ------------------------------------------------------------- twin files
+# A version listing the same bytes twice, under two names (#375): both files
+# match by hash, and the first always won - the second file on disk was
+# recorded under the first's id, read as not held, and offered again.
+from model_manager.payload_rows import file_row          # noqa: E402
+from model_manager.hashing import HashResult             # noqa: E402
+from model_manager.api.annotations import ownership      # noqa: E402
+from modules import paths                                # noqa: E402  (webui_stub's)
+
+TWIN_MODEL, TWIN_VERSION = 60, 6001
+TWIN_BYTES = b'the same bytes twice'
+TWIN_SHA = hashlib.sha256(TWIN_BYTES).hexdigest().upper()
+OTHER_SHA = hashlib.sha256(b'other bytes').hexdigest().upper()
+TWIN_VERSION_PAYLOAD = {'id': TWIN_VERSION, 'modelId': TWIN_MODEL, 'name': 'v1', 'baseModel': 'SDXL 1.0', 'files': [
+    {'id': 81, 'name': 'twin_a.safetensors', 'type': 'Model', 'primary': True, 'hashes': {'SHA256': TWIN_SHA}},
+    {'id': 82, 'name': 'twin_b.safetensors', 'type': 'Model', 'hashes': {'SHA256': TWIN_SHA}},
+    {'id': 83, 'name': 'other.safetensors', 'type': 'Model', 'hashes': {'SHA256': OTHER_SHA}}]}
+TWIN_MODEL_PAYLOAD = {'id': TWIN_MODEL, 'name': 'Twins', 'type': 'LORA', 'modelVersions': [TWIN_VERSION_PAYLOAD]}
+picked = lambda name, hashes: file_row(TWIN_VERSION_PAYLOAD, name, hashes).get('civitai_file_id')
+twin_hashes = {'sha256': TWIN_SHA}
+
+check("twins: the second's name picks the second's id", picked('twin_b.safetensors', twin_hashes), 82)
+check("twins: the first's name, the first's id", picked('twin_a.safetensors', twin_hashes), 81)
+check("twins: the name's case aside", picked('TWIN_B.safetensors', twin_hashes), 82)
+check('a renamed copy, a name the list does not have, keeps the first hash match',
+      picked('renamed.safetensors', twin_hashes), 81)
+check("a name never beats a hash: named as a twin, the bytes of another file, that file's id",
+      picked('twin_b.safetensors', {'sha256': OTHER_SHA}), 83)
+check('no hashes known: by name, as before', picked('twin_b.safetensors', None), 82)
+
+
+class TwinCivitai(Civitai):
+    """Civitai, knowing the twins' version, its lookup by hash included."""
+
+    def get_model_by_hash(self, value):
+        return TWIN_VERSION_PAYLOAD
+
+    def get_model(self, model_id):
+        return TWIN_MODEL_PAYLOAD
+
+    def get_models_by_ids(self, ids):
+        return {TWIN_MODEL: TWIN_MODEL_PAYLOAD}
+
+    def get_model_images(self, version_id, cursor=None, limit=100):
+        return {'images': [], 'next_cursor': None}
+
+    def get_versions_by_hashes(self, hashes):
+        return [TWIN_VERSION_PAYLOAD]
+
+
+paths.models_path = os.path.join(WORK, 'models')
+os.makedirs(os.path.join(paths.models_path, 'Lora'), exist_ok=True)
+twin_db = ModelsDatabase(WORK, custom_db_path=os.path.join(WORK, 'twins.db'))
+dbmod._db_instance = twin_db
+TWINS = {}
+for name in ('twin_a.safetensors', 'twin_b.safetensors'):
+    TWINS[name] = os.path.join(paths.models_path, 'Lora', name)
+    with open(TWINS[name], 'wb') as f:
+        f.write(TWIN_BYTES)
+    # As a download's sync is handed them: its file's hashes from Civitai's list.
+    SyncService(client=TwinCivitai()).sync_model(TWINS[name], force=True, known={
+        'hashes': HashResult.from_stored(twin_hashes), 'version': TWIN_VERSION_PAYLOAD,
+        'model': TWIN_MODEL_PAYLOAD})
+file_ids = lambda: [twin_db.get_version(TWINS[n])['civitai_file_id'] for n in sorted(TWINS)]
+check('both twins downloaded: each under its own id', file_ids(), [81, 82])
+check('and the Civitai Browser holds both',
+      ownership(twin_db, [TWIN_MODEL], [TWIN_VERSION])['versions'][TWIN_VERSION]['files'], [81, 82])
+
+# A row an earlier version wrote: the second twin under the first's id.
+import model_manager.release_notes as release_notes     # noqa: E402
+check('nothing recorded wrong: no note', release_notes._holds('twin_files'), False)
+with twin_db._cursor() as cursor:
+    cursor.execute("UPDATE files SET civitai_file_id = 81 WHERE file_path = ?", (TWINS['twin_b.safetensors'],))
+check('a twin under the other twin\'s id: the note is for this library', release_notes._holds('twin_files'), True)
+check('the files it names', getattr(twin_db, 'files_under_twin_ids', lambda: None)(),
+      [TWINS['twin_b.safetensors']])
+SyncService(client=TwinCivitai()).sync_metadata(include_images=False, max_workers=2)
+check('a metadata sync writes each twin its own id', file_ids(), [81, 82])
+check('and the note is no longer for this library', release_notes._holds('twin_files'), False)
+
+
+# Civitai's answer for many models at once - the metadata sync's - can name a
+# file otherwise than its answer for one version, and the lookup by hash,
+# which every sync stores; the file on disk has the latter's name (#375,
+# round 3: 717 of 5,653 listed files on one library).
+BATCH_VERSION = dict(TWIN_VERSION_PAYLOAD, files=[
+    dict(f, name='twin_b_bf16.safetensors') if f['id'] == 82 else f for f in TWIN_VERSION_PAYLOAD['files']])
+BATCH_MODEL = dict(TWIN_MODEL_PAYLOAD, modelVersions=[BATCH_VERSION])
+
+
+class BatchNamesCivitai(TwinCivitai):
+    def get_models_by_ids(self, ids):
+        return {TWIN_MODEL: BATCH_MODEL}
+
+
+check("the lookup's name breaks the tie the batch's cannot",
+      file_row(BATCH_VERSION, 'twin_b.safetensors', twin_hashes, names={82: 'twin_b.safetensors'})
+      .get('civitai_file_id') if 'names' in file_row.__code__.co_varnames else None, 82)
+check('no name decides: the id the file holds',
+      file_row(BATCH_VERSION, 'renamed.safetensors', twin_hashes, held=82).get('civitai_file_id')
+      if 'held' in file_row.__code__.co_varnames else None, 82)
+check('no name decides, no matching id held: the first',
+      file_row(BATCH_VERSION, 'renamed.safetensors', twin_hashes, held=99).get('civitai_file_id')
+      if 'held' in file_row.__code__.co_varnames else None, 81)
+
+with twin_db._cursor() as cursor:
+    cursor.execute("UPDATE files SET civitai_file_id = 81 WHERE file_path = ?", (TWINS['twin_b.safetensors'],))
+SyncService(client=BatchNamesCivitai()).sync_metadata(include_images=False, max_workers=2)
+check("a metadata sync whose list names the twin otherwise: the stored lookup's name puts it right",
+      file_ids(), [81, 82])
+
+# No lookup stored to name it: a right id is kept, not written back to the first.
+with twin_db._cursor() as cursor:
+    cursor.execute("UPDATE version_records SET looked_up = NULL WHERE version_id = ?", (TWIN_VERSION,))
+SyncService(client=BatchNamesCivitai()).sync_metadata(include_images=False, max_workers=2)
+check('no lookup stored: each twin keeps the right id it holds', file_ids(), [81, 82])
+twin_db.close()
+paths.models_path = ''
 
 
 # ----------------------------------------------------- the file Send uses

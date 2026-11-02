@@ -856,6 +856,7 @@ class ModelsOps:
 
         Returns:
             One dict per file, each with its version id, its stored hashes,
+            its Civitai file id (#375),
             when it was downloaded, when its model was last refreshed
             (None if never), and when Civitai answered 404 for the model
             (None if it has not). A version with two files is in it twice.
@@ -872,7 +873,7 @@ class ModelsOps:
 
         with self._cursor() as cursor:
             cursor.execute(f"""
-                SELECT v.id, v.model_id, v.file_path, v.file_hashes,
+                SELECT v.id, v.model_id, v.file_path, v.file_hashes, v.civitai_file_id,
                        v.downloaded_at,
                        m.civitai_synced_at AS model_synced_at,
                        m.civitai_gone_at AS model_gone_at
@@ -886,6 +887,7 @@ class ModelsOps:
                     "model_id": row["model_id"],
                     "file_path": row["file_path"],
                     "file_hashes": json.loads(row["file_hashes"]) if row["file_hashes"] else {},
+                    "civitai_file_id": row["civitai_file_id"],
                     "downloaded_at": row["downloaded_at"],
                     "model_synced_at": row["model_synced_at"],
                     "model_gone_at": row["model_gone_at"],
@@ -1292,6 +1294,61 @@ class ModelsOps:
             cursor.execute(f"SELECT file_path, model_id, id AS version_id, civitai_file_id FROM {LIBRARY} "
                            f"WHERE {where}", args)
             return [dict(row) for row in cursor.fetchall()]
+
+    def files_under_twin_ids(self) -> List[str]:
+        """
+        The files recorded under another file's Civitai id because their
+        version lists both with one SHA-256 (#375): its stored lookup by hash
+        names a file of this one's name and SHA-256 under another id. Until
+        0.73.1 the first of such twins always won; a metadata sync writes each
+        its own. Only versions listing two or more files are read: 89 rows of
+        one library's 1,526, 12 to 14 ms.
+        """
+        with self._cursor() as cursor:
+            cursor.execute("SELECT f.file_path, f.file_name, f.civitai_file_id, f.file_hashes, "
+                           "json_extract(r.looked_up, '$.files') AS listed "
+                           "FROM files f JOIN version_records r ON r.version_id = f.version_id "
+                           "WHERE f.civitai_file_id IS NOT NULL "
+                           "AND json_array_length(r.looked_up, '$.files') > 1")
+            rows = cursor.fetchall()
+        found = []
+        for row in rows:
+            sha256 = read_hashes(row["file_hashes"]).get("sha256")
+            name = str(row["file_name"] or "").lower()
+            try:
+                listed = json.loads(row["listed"] or "[]")
+            except ValueError:
+                continue
+            if sha256 and any(isinstance(f, dict) and f.get("id") != row["civitai_file_id"]
+                              and str(f.get("name") or "").lower() == name
+                              and read_hashes(f.get("hashes")).get("sha256") == sha256 for f in listed):
+                found.append(row["file_path"])
+        return sorted(found)
+
+    def looked_up_file_names(self, version_ids) -> Dict[int, Dict[int, str]]:
+        """
+        {version id: {file id: name}} as Civitai's lookup by hash last named
+        the files, for these versions listing two or more: the names on disk,
+        where its answer for many models at once can carry others - 717 of
+        one library's 5,653 listed files (#375). A version never looked up is
+        left out.
+        """
+        ids = sorted({int(v) for v in version_ids if v})
+        names: Dict[int, Dict[int, str]] = {}
+        with self._cursor() as cursor:
+            for start in range(0, len(ids), 500):
+                chunk = ids[start:start + 500]
+                cursor.execute("SELECT version_id, json_extract(looked_up, '$.files') AS listed "
+                               "FROM version_records WHERE json_array_length(looked_up, '$.files') > 1 "
+                               f"AND version_id IN ({','.join('?' * len(chunk))})", chunk)
+                for row in cursor.fetchall():
+                    try:
+                        listed = json.loads(row["listed"] or "[]")
+                    except ValueError:
+                        continue
+                    names[row["version_id"]] = {f["id"]: str(f.get("name") or "") for f in listed
+                                                if isinstance(f, dict) and isinstance(f.get("id"), int)}
+        return names
 
     def local_versions_by_name(self, names: List[str]) -> Dict[str, List[Dict[str, Any]]]:
         """
