@@ -1039,6 +1039,13 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
 
 Test what a change needs, not everything.
 
+- **`python` below is the WebUI's venv Python** - Neo's
+  `venv\Scripts\python.exe` - never WSL's `python3`, which has no FastAPI.
+  Under it a docs change's `--changed` passed its 7 static checks, and
+  `--all` failed `api_common_test` ("No module named 'fastapi'") and
+  `architecture_test`, and was stopped at its 60 s limit with 12 suites
+  run (#373's round). From WSL here, a bare `python` is pyenv-win's shim,
+  which does not start. `tests/AGENTS.md`, "The environment", says why.
 - **While working:** `python tests/run.py --changed` runs only the suites the
   uncommitted changes need, chosen from a record of which files each suite
   uses, and says why it chose each. Add words to narrow it further
