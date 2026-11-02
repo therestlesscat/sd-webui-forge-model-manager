@@ -265,6 +265,13 @@ the code (2026-10-16).
   tried syncing images". It was relayed as their Sync images being unusable
   and kept closed, until the owner asked "where does user said they had to
   wait 15mins?" (2026-10-29). Quote it.
+- **A number a reporter is asked to compare is checked against the page's
+  own.** #340's reply set the grid's total, every filter cleared, beside a
+  query of the Lora folder's cards. The grid counts every type (1,703
+  against 991 on one library), so a shortfall could never show. A side agent
+  caught it after posting. With Type set to the six LoRA kinds, the grid and
+  a query by each file's own type agree (986 against 986), and a follow-up
+  corrected it (2026-11-02).
 - **An approved check is never weakened in code.** v37's plan said the
   files each image used must come out of the migration the same set as
   `generation_files`; it was written as a subset - every old row found,

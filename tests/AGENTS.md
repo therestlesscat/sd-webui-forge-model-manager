@@ -158,7 +158,11 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   the stand-in's. And it answers only what it is asked: `forge_preset_test`'s
   library stand-in returned every version whatever the page asked, so #205's
   break - the substitute left out of the lookup - failed 1 check; answering
-  the ids asked, it failed 7.
+  the ids asked, it failed 7. And a Civitai stand-in answers each route as
+  Civitai does: #375's gave one payload to every route, so the metadata
+  sync's batch named files as the one-model answer does. The suite passed;
+  on 7880 the note's Sync left the wrong id, because the batch names a file
+  otherwise (`model_manager/civitai/AGENTS.md`).
 - **A suite's subject is in its docstring, not its name.** #363's plan put
   NSFW checks in `generations_switch_test` (the Your generations on/off
   switch, #27) and `gallery_count_test` (a refresh's size, #103), going by

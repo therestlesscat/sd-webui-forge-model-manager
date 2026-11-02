@@ -81,7 +81,16 @@ because that would mean the assumption no longer holds.
   deleted whole, and their hash lookups answered 404 (2026-10-31).
 - **A version can list the same bytes twice, under two names.** Of 1,467
   LoRA versions in three searches, 59 list two or more files with a
-  SHA-256, and 5 of those repeat one (2026-11-01). A match by hash then takes
-  the first file for both (#375). Check a test version's hashes before a live
+  SHA-256, and 5 of those repeat one (2026-11-01). A match by hash took the
+  first file for both until 0.73.1; the file's name decides now
+  (`payload_rows.file_row`, #375). Check a test version's hashes before a live
   check of two files: #374's first one picked such a version, and showed
   #375 instead of the change.
+- **Civitai's answer for many models at once can name a file otherwise.**
+  `/models?ids=`, which the metadata sync asks, gave a version's second file
+  an older name (made up: `b_bf16.safetensors` for `b.safetensors`), where
+  `/models/{id}`, `/model-versions/{id}` and the lookup by hash gave the name
+  a download saves it under (2026-11-02). One library's two stored answers
+  (`version_records`' `listed` and `looked_up`) disagree on the name of 717
+  of 5,653 listed files. So a match by name in the metadata sync reads the
+  stored lookup's names (#375).

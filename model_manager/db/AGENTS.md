@@ -130,6 +130,9 @@ neither with the showcase images. A list written again keeps the other half
 until it is asked afresh; a version the list no longer names loses its row,
 and a forgotten model takes its rows (`prune_orphans`). On one library, 4,498
 rows in 15.4 MB, about 3.6 KB each: both halves carry the version's notes.
+Only the lookup half keeps each listed file's hashes and the name on disk;
+the model's stored list (`models.versions`) keeps no hashes, 0 of 5,750
+listed files on one library: count files by hash from `looked_up`.
 
 ### Civitai's images
 
