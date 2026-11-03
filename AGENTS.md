@@ -41,8 +41,9 @@ the code (2026-10-16).
   stored; what each change does, function by function, before and after; the
   alternatives, with their pros and cons side by side; what is old and what
   this work makes new; what it costs - a migration, the other WebUI, the live
-  database; how it is tested, each check failing on the old code first; and
-  the version. A plan that adds a setting says what changing it does to work
+  database; how it is tested, each check failing on the old code first; the
+  commits it lands as, in build order ("Commits, pushes and issues"); and the
+  version of each. A plan that adds a setting says what changing it does to work
   already under way - running, paused, queued: #282's added a connections
   setting with no answer, and the owner asked "what if user change either of
   settings during an download or during paused download?" (2026-10-17).
@@ -207,6 +208,23 @@ the code (2026-10-16).
 
 ### Commits, pushes and issues
 
+- **A change lands as commits of 200 to 400 lines, tests included, each a
+  part that works on its own.** The plan lists them in build order - each
+  part, its files, its checks, its rough size and its version - and what a
+  part needs built first (a route before the page that reads it). Each is
+  built, `--all` run and its checks proven on the code before it, and
+  committed on the owner's yes before the next is started. A part over about
+  600 lines says in the plan why it cannot be cut further, and the owner
+  decides. A change that moves or renames without changing what anything
+  does is a commit of its own. A round found while building - a review's
+  fixes, a redesign - is planned as commits too. #377 (0.74.0) was built as
+  one: its first round alone was over 2,000 lines, then a redesign, a
+  review's fixes and a live check's were staged on top, and nothing kept the
+  code between them, so it could not be split after - one commit of 61
+  files, +3,535 -791 (2026-11-03). The size follows Google's guidance on
+  small changes ("100 lines is usually a reasonable size … 1000 lines is
+  usually too large"), widened for this project's checks: 1,482 of those
+  3,535 lines.
 - **A commit is prepared at each logical checkpoint, and made only on the
   owner's yes.** Prepared means `--all` passed, in its own call ("Testing");
   the version bumped if a user can see the change ("Versions"); and a message
