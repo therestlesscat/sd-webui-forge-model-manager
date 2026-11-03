@@ -598,6 +598,9 @@ what it does to the box it sits in: #218's New version badge measured the
 type badge's size in both modes and both tabs, while on a card of fixed
 height it pushed the badge row to a second line, 39 px against 18, and cut
 the stats off on most cards that had it. The owner's screenshot found it.
+And a probe of a row's fit gives the row the width the live tab does: #377's
+toolbar probe measured one line at 1280 px on a 1,236 px toolbar, while Neo's
+tab gives it 1,170, and live it was two (59 px against 48).
 
 ## Conventions
 
@@ -612,7 +615,11 @@ the stats off on most cards that had it. The owner's screenshot found it.
   line - states only what was seen: "wrapped line after line" was never
   looked at, and was taken out; 0.65.0's changelog first said the old Send
   made Generate "inpaint with a canvas out of sight", read in the code, never
-  seen, until a side agent caught it before the commit.
+  seen, until a side agent caught it before the commit. So is a count of what
+  a review found: 0.74.0's message first said two reviews "found eight
+  faults", each fixed; their reports said six (five fixed, one kept) and
+  four. Amended before the push, the issue's comment corrected by a
+  follow-up.
 - Tests assert what the code does, never what someone's library happens to
   contain. Four suites had to be fixed for exactly this.
 - **A stop needs a way back.** A dialog that blocks an action offers that
@@ -914,6 +921,11 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   stored and Civitai has more (`gallery_page`, `api/images.py`). A read-only
   live check opens a version with a page stored: #363's opened one with 784
   at a page of 100, and pressed no Load More.
+- **So can opening a Resources dialog.** Its hash lookups ask Civitai
+  through `/model-manager/resolve-hashes`, which keeps each answer in
+  `resource_hashes`: #377's live run on 7870 opened six dialogs and wrote 4
+  rows. A live check that must write nothing opens dialogs whose hashes are
+  already answered, or says it wrote them.
 - **A generation recorded with its press is replayed, not pasted.** #328's
   plan sent, in the original Forge, a generation its Neo check had made, to
   see the paste read Neo's names; the generation had kept its press, so Send
@@ -938,7 +950,13 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   So does loading a fresh page (#322): Forge's saved preset went from `xl` to
   `krea`, the one the process started with, after 3 of the 5 runs that loaded
   fresh pages on 2026-10-20, and the page showed `krea`. Read `config.json`
-  after a check that loads pages, too.
+  after a check that loads pages, too. And the checkpoint each UI preset last
+  loaded (`forge_checkpoint_sd`, `forge_checkpoint_xl`): #377's live run left
+  `forge_checkpoint_sd` on another file, found only by comparing
+  `config.json` key by key with a copy taken before. Putting it back by Send
+  means sending an image of that checkpoint: wait for the search's own
+  answer, and check the tile is that image, before pressing - two sends after
+  a fixed 2.5 s wait sent the image the grid still showed.
 - **A whole-tab fingerprint is not stable across a restart.** ADetailer's
   checkpoint box on each tab takes a value per process, and ForgeCanvas names
   its elements with a uuid per process. #307's old-against-new run differed
@@ -966,7 +984,8 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   `CLAUDE.md` are one file, and deleting the "duplicate" deletes the
   original - which is how `CLAUDE.md` once had to be written twice.
 - The WebUI may not be on the default port. From WSL it cannot be reached
-  directly; Windows' own `curl.exe` can.
+  directly; Windows' own `curl.exe` can. So is a script that asks it: WSL's
+  `node` got ECONNREFUSED from 7870, Windows' `node.exe` reached it.
 - The project's hook ("Testing") reads the text of every Bash command, so it
   also refuses one that ends in the runner's path - a `cat`, a `grep`, a line
   of a commit message. Put the path in a variable (`F=tests/ru; F=${F}n.py`),

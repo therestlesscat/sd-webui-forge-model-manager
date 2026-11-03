@@ -168,7 +168,12 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   Civitai does: #375's gave one payload to every route, so the metadata
   sync's batch named files as the one-model answer does. The suite passed;
   on 7880 the note's Sync left the wrong id, because the batch names a file
-  otherwise (`model_manager/civitai/AGENTS.md`).
+  otherwise (`model_manager/civitai/AGENTS.md`). And it never hands the page
+  a verdict the server works out: `resources_other_versions_test.mjs`
+  answered the plan route with `pick: 'same'`, so the suite passed while
+  `pick_kind` could never answer `same` for an image named by version alone
+  (#377). A review reading the code found it; a check on the server's own
+  path (`other_versions_test.py`) now covers it.
 - **A suite's subject is in its docstring, not its name.** #363's plan put
   NSFW checks in `generations_switch_test` (the Your generations on/off
   switch, #27) and `gallery_count_test` (a refresh's size, #103), going by
