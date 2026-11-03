@@ -165,9 +165,10 @@ SPEC = {
     ('POST', '/model-manager/resolve-hashes'): 'send',
     ('POST', '/model-manager/missing-resources'): 'send',
     ('GET', '/model-manager/image-resources'): 'send',
-    ('GET', '/model-manager/other-versions'): 'send',
     ('GET', '/model-manager/forge-modules/current'): 'send',
     ('GET', '/model-manager/send/plan'): 'send',
+    # The Resources dialog's list of your checkpoints (#377), which /other-versions gave way to.
+    ('GET', '/model-manager/send/checkpoints'): 'send',
     ('GET', '/model-manager/queue/status'): 'queue',
     ('POST', '/model-manager/queue/start'): 'queue',
     ('POST', '/model-manager/queue/stop'): 'queue',

@@ -40,9 +40,11 @@ const { TIMING, apiCall, escapeHtml, setText } = await shared('core.mjs');
 const { ready, call } = await shared('calls.mjs');
 const { tabWork, available, open, unavailableReason } = await shared('loading.mjs');
 const { showTab } = await shared('tabs.mjs');
-const { sendInfotext, IMG2IMG_SENDS } = await shared('send.mjs');
+const { sendInfotext, generationResourcesLine, IMG2IMG_SENDS } = await shared('send.mjs');
 const { showImageResources, resourceButtonLabel, resourcesMenuItem } = await shared('resources.mjs');
-const { nsfwModelNoteHtml, galleryDefaults, shownPath } = await shared('ui_options.mjs');
+const {
+    nsfwModelNoteHtml, galleryDefaults, shownPath, CHOOSE_CHECKPOINT_SETTING, keptChooseCheckpoint, keepChooseCheckpoint,
+} = await shared('ui_options.mjs');
 const { showNotes } = await shared('notes.mjs');
 const { nsfwSwitch, renderFilterBanner } = await shared('gallery.mjs');
 const { setupLazyMedia, IMAGE_PLACEHOLDER_SVG } = await shared('media.mjs');
@@ -144,6 +146,10 @@ function emptyGroupValue(by) {
 
 let preserveOrder = readFlag(PRESERVE_ORDER_KEY);
 let expand = readFlag(EXPAND_KEY);
+// "Choose the checkpoint at every Send" (#377): every Send in the tab opens
+// the Resources dialog with the list. Kept in this browser; with nothing
+// kept, as the setting says - read in start().
+let chooseCheckpoint = false;
 let rating = false;      // "Rate": a row of levels under every image - not remembered
 // How the grid is placed, as the settings say (#240): Fast, by the tab - its
 // placement, from start() - or Classic, by the browser.
@@ -625,9 +631,23 @@ async function sendTile(index) {
 async function sendImage(tile, image, mode = null) {
     if (!await sendInfotext({ infotext: image.infotext, mode: tile.generation.mode, meta: image.meta,
                               generationId: tile.generation.id, imageId: image.id,
-                              into: mode === null ? null : { mode, width: image.width, height: image.height } })) {
+                              into: mode === null ? null : { mode, width: image.width, height: image.height },
+                              choose: chooseCheckpoint }) && !chooseCheckpoint) {
         console.error('[ModelManager] Could not send generated image', image.id);
     }
+}
+
+/** The Resources dialog's Send line for an image of a tile (#377): Send's, with the list a box away. */
+function sendLineOf(tile, image) {
+    return generationResourcesLine({ infotext: image.infotext, mode: tile.generation?.mode, meta: image.meta,
+                                     generationId: tile.generation?.id, imageId: image.id });
+}
+
+/** The toolbar's box, set: as pressed, or as the setting starts or changes it. */
+function showChooseCheckpoint(value) {
+    chooseCheckpoint = Boolean(value);
+    const box = byId('gen_choose_checkpoint');
+    if (box) box.checked = chooseCheckpoint;
 }
 
 // ------------------------------------------------------------- rating
@@ -939,7 +959,8 @@ function singleImage(tile) {
 function resourcesItems(tile) {
     const image = singleImage(tile);
     if (!image) return [];
-    return [resourcesMenuItem(image, null, { leaving: () => previousPlace.remember(placeOf(tile, image)) })];
+    return [resourcesMenuItem(image, null, { leaving: () => previousPlace.remember(placeOf(tile, image)),
+                                             send: () => sendLineOf(tile, image) })];
 }
 
 /**
@@ -1086,7 +1107,8 @@ const viewerSource = {
             return true;
         }
         if (event.target.closest?.('[data-gen-resources]')) {
-            showImageResources(image, null, { leaving: () => previousPlace.remember(placeOf(tile, image)) });
+            showImageResources(image, null, { leaving: () => previousPlace.remember(placeOf(tile, image)),
+                                              send: sendLineOf(tile, image) });
             return true;
         }
         if (event.target.closest?.('[data-gen-model]')) {
@@ -1375,6 +1397,10 @@ const refresh = () => {
 // in data-action, and carries what it needs in data-* (shared/calls.mjs, #95).
 work.provide('generations.preserveOrder', (data, box) => switchPreserveOrder(box.checked));
 work.provide('generations.expand', (data, box) => switchExpand(box.checked));
+work.provide('generations.chooseCheckpoint', (data, box) => {
+    showChooseCheckpoint(box?.checked);
+    keepChooseCheckpoint('generations', chooseCheckpoint);
+});
 work.provide('generations.rating', (data, box) => switchRating(box.checked));
 work.provide('generations.selecting', (data, box) => switchSelecting(box.checked));
 work.provide('generations.refresh', () => refresh());
@@ -1804,11 +1830,17 @@ export async function start(scope) {
         const defaults = await galleryDefaults();
         nsfwMode = defaults.generationsHideNsfw ? 'safe' : 'all';
         fast = defaults.generationsFast;
-    } catch (e) { /* the gallery's default: hidden; the grid Fast */ }
-    // The grid setting saved, in the settings window or on the Settings page.
+        showChooseCheckpoint(keptChooseCheckpoint('generations') ?? defaults.chooseCheckpoint);
+    } catch (e) { /* the gallery's default: hidden; the grid Fast; the box unticked */ }
+    // The grid setting saved, in the settings window or on the Settings page;
+    // and the box's, which forgot the tick kept (settings.mjs) - the box takes it (#377).
     const followGrid = (changed) => {
-        if (!changed.includes(GRID_SETTING)) return;
-        galleryDefaults().then((defaults) => switchGrid(defaults.generationsFast)).catch(() => {});
+        if (changed.includes(GRID_SETTING)) {
+            galleryDefaults().then((defaults) => switchGrid(defaults.generationsFast)).catch(() => {});
+        }
+        if (changed.includes(CHOOSE_CHECKPOINT_SETTING)) {
+            galleryDefaults().then((defaults) => showChooseCheckpoint(defaults.chooseCheckpoint)).catch(() => {});
+        }
     };
     tabScope.listen(window, 'mm-settings-saved', (event) => followGrid(event.detail?.changed || []));
     tabScope.listen(window, 'mm-settings-page-applied', (event) => followGrid(event.detail?.changed || []));

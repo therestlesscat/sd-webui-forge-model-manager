@@ -29,7 +29,9 @@ SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const { apiCall, escapeHtml, safeId, setText } = await shared('core.mjs');
 const { tabWork, open } = await shared('loading.mjs');
-const { galleryDefaults, nsfwModelNoteHtml, asUploaded } = await shared('ui_options.mjs');
+const {
+    galleryDefaults, nsfwModelNoteHtml, asUploaded, CHOOSE_CHECKPOINT_SETTING, keptChooseCheckpoint, keepChooseCheckpoint,
+} = await shared('ui_options.mjs');
 const { showNotes } = await shared('notes.mjs');
 const { nsfwSwitch, renderFilterBanner } = await shared('gallery.mjs');
 const {
@@ -39,7 +41,7 @@ const {
 const { nsfwBadge } = await shared('nsfw.mjs');
 const { imageDetailsHtml, showImageMeta } = await shared('image_card.mjs');
 const { showImageResources, resourceButtonLabel, resourcesMenuItem } = await shared('resources.mjs');
-const { sendGalleryImage, cannotSend, IMG2IMG_SENDS } = await shared('send.mjs');
+const { sendGalleryImage, cannotSend, gallerySendLine, IMG2IMG_SENDS } = await shared('send.mjs');
 const { wide, aspect, layoutTiles, pathHtml, endIsNear, watchEnd: watchGridEnd, currentScroll, topOf, MAX_SPAN,
     placedGrid, showTile } = await shared('tiles.mjs');
 
@@ -109,6 +111,10 @@ const IMAGE_HEIGHT = 300;
 const TYPE_NAMES = { TextualInversion: 'Embedding', Controlnet: 'ControlNet' };
 
 let groupBy = chainOf(readSetting(GROUP_BY_KEY, ''), GROUP_NAMES).length ? readSetting(GROUP_BY_KEY, '') : '';
+// "Choose the checkpoint at every Send" (#377): every Send in the tab opens
+// the Resources dialog with the list. Kept in this browser; with nothing
+// kept, as the setting says - read in start().
+let chooseCheckpoint = false;
 let search = '';
 // The NSFW switch's mode (shared/gallery.mjs, NSFW_MODES): Safe until the setting is read.
 let nsfwMode = 'safe';
@@ -527,7 +533,19 @@ function sendTile(tile, mode = null) {
     // view, so the place is the image sent.
     previousPlace.remember(placeOf(tile, tile.image));
     return sendGalleryImage({ img: tile.image, model: tile.model, version: tile.version,
-                              into: mode === null ? null : { mode } });
+                              into: mode === null ? null : { mode }, choose: chooseCheckpoint });
+}
+
+/** The Resources dialog's Send line for a tile's image (#377): Send's, with the list a box away. */
+function sendLineOf(tile, image) {
+    return tile?.kind === 'image' ? gallerySendLine({ img: image, model: tile.model, version: tile.version }) : null;
+}
+
+/** The toolbar's box, set: as pressed, or as the setting starts or changes it. */
+function showChooseCheckpoint(value) {
+    chooseCheckpoint = Boolean(value);
+    const box = byId('gal_choose_checkpoint');
+    if (box) box.checked = chooseCheckpoint;
 }
 
 /** Its model in the Model Manager, at the version the image is of, through the loading module (#184). */
@@ -561,7 +579,8 @@ async function openTileMenu(index, button) {
     const image = tile.image;
     const top = [{ label: 'Show All', run: () => showImageMeta(image) },
                  resourcesMenuItem(image, tile.version?.id,
-                                   { leaving: () => previousPlace.remember(placeOf(tile, image)) })];
+                                   { leaving: () => previousPlace.remember(placeOf(tile, image)),
+                                     send: () => sendLineOf(tile, image) })];
     const first = [...top, ...(isVideoUrl({ url: image.url, type: image.type }) ? []
         : IMG2IMG_SENDS.map(({ mode, label }) => ({ label, run: () => sendTile(tile, mode) })))];
     if (!tile.menu) {
@@ -679,7 +698,8 @@ const viewerSource = {
         }
         if (event.target.closest?.('[data-gal-resources]')) {
             showImageResources(place.image, tile?.version?.id,
-                               { leaving: () => previousPlace.remember(placeOf(place.tile, place.image)) });
+                               { leaving: () => previousPlace.remember(placeOf(place.tile, place.image)),
+                                 send: sendLineOf(tile, place.image) });
             return true;
         }
         if (event.target.closest?.('[data-gal-model]')) {
@@ -751,6 +771,10 @@ work.provide('gallery.back', () => goBack());
 work.provide('gallery.open', ({ tile }) => openTile(Number(tile)));
 work.provide('gallery.view', ({ tile }) => viewTile(Number(tile)));
 work.provide('gallery.send', ({ tile }) => sendTile(tiles[Number(tile)]));
+work.provide('gallery.chooseCheckpoint', (data, box) => {
+    showChooseCheckpoint(box?.checked);
+    keepChooseCheckpoint('gallery', chooseCheckpoint);
+});
 work.provide('gallery.showModel', ({ tile }) => showModel(tiles[Number(tile)]));
 work.provide('gallery.menu', ({ tile }, button) => openTileMenu(Number(tile), button));
 work.provide('gallery.previousPosition', () => previousPlace.restore());
@@ -785,11 +809,17 @@ export async function start(startScope) {
         const defaults = await galleryDefaults();
         nsfwMode = defaults.hideNsfw ? 'safe' : 'all';
         fast = defaults.galleryFast;
-    } catch (e) { /* the gallery's default: hidden; the grid Fast */ }
-    // The grid setting saved, in the settings window or on the Settings page.
+        showChooseCheckpoint(keptChooseCheckpoint('gallery') ?? defaults.chooseCheckpoint);
+    } catch (e) { /* the gallery's default: hidden; the grid Fast; the box unticked */ }
+    // The grid setting saved, in the settings window or on the Settings page;
+    // and the box's, which forgot the tick kept (settings.mjs) - the box takes it (#377).
     const followGrid = (changed) => {
-        if (!changed.includes(GRID_SETTING)) return;
-        galleryDefaults().then((defaults) => switchGrid(defaults.galleryFast)).catch(() => {});
+        if (changed.includes(GRID_SETTING)) {
+            galleryDefaults().then((defaults) => switchGrid(defaults.galleryFast)).catch(() => {});
+        }
+        if (changed.includes(CHOOSE_CHECKPOINT_SETTING)) {
+            galleryDefaults().then((defaults) => showChooseCheckpoint(defaults.chooseCheckpoint)).catch(() => {});
+        }
     };
     tabScope.listen(window, 'mm-settings-saved', (event) => followGrid(event.detail?.changed || []));
     tabScope.listen(window, 'mm-settings-page-applied', (event) => followGrid(event.detail?.changed || []));

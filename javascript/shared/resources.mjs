@@ -5,7 +5,8 @@
  * library has each, and a Download into it for one it does not. The Model
  * Manager's gallery, your generations and the Civitai Browser open the same
  * dialog, each naming the version its gallery is of (`exclude`), which it
- * leaves out; and the chips under a sent prompt (chips.mjs) use the same
+ * leaves out - but a checkpoint's, kept as its first row (#377); and the
+ * chips under a sent prompt (chips.mjs) use the same
  * lookups and downloads.
  */
 
@@ -17,6 +18,8 @@ const { TIMING, apiCall, escapeHtml, dataAttributes, formatBytes, safeId, safeUr
 const { ON_ITS_WAY, downloads, downloadState, onItsWay, whenDownloading } = await shared('downloads.mjs');
 const { openMetaModal, closeMetaModal, closeViewer } = await shared('viewer.mjs');
 const { available, open } = await shared('loading.mjs');
+const { familyName, fetchUiOptions } = await shared('ui_options.mjs');
+const { afterRefreshes } = await shared('forge.mjs');
 
 // ------------------------------------------- an image's resources, looked up
 // Which Civitai versions an image's resource hashes are, and the downloads of
@@ -69,11 +72,61 @@ export async function resolveResourceHashes(hashes, onRound) {
 // it keeps them - so this only saves asking again within a page load.
 export const knownHashes = {};
 
-/** An image's legacy resource hashes, lower-cased and each once. */
+/** An image's legacy resource hashes, lower-cased and each once - those kept apart from their names too. */
 export function imageResourceHashes(img) {
-    const legacy = (img.meta || {}).resources || [];
-    return [...new Set(legacy.map(r => (r.hash || '').toLowerCase()).filter(Boolean))];
+    const meta = img.meta || {};
+    const legacy = meta.resources || [];
+    return [...new Set(legacy.map((r) => String(r.hash || resourceHash(meta, r) || '').toLowerCase()).filter(Boolean))];
 }
+
+// What Forge loads through <lora:...>, by the file's own type or Civitai's.
+const LORA_TYPES = new Set(['lora', 'locon', 'loha', 'lokr', 'dora', 'lycoris', 'lycoris full']);
+const EMBEDDING_TYPES = new Set(['textualinversion', 'embedding', 'embed']);
+
+/** A resource's kind as Forge loads it: 'lora' through <lora:...>, 'embedding' by its word, else null. */
+export function resourceKind(type) {
+    const value = String(type || '').toLowerCase();
+    if (LORA_TYPES.has(value)) return 'lora';
+    if (EMBEDDING_TYPES.has(value)) return 'embedding';
+    return null;
+}
+
+/**
+ * A resource's hash from the image's `hashes`, where its own entry has none:
+ * Forge writes {"lora:Ghibli_v6": "58549cc3d3"} there and leaves the
+ * resources list without them. Some write the kind in capitals - "LORA:",
+ * "EMBED:", 5,561 and 35 keys in one library - so its case is ignored; the
+ * name after it has to match as written. The chips and the Resources dialog
+ * both read it (#377, R4): read beside the name alone, six of one image's
+ * seven LoRAs were drawn again under "not found", each a row above.
+ */
+export function resourceHash(meta, resource) {
+    const hashes = (meta && meta.hashes) || {};
+    const kind = resourceKind(resource.type);
+    const prefixes = kind === 'lora' ? ['lora', 'lyco'] : kind === 'embedding' ? ['embed'] : [];
+    for (const [key, hash] of Object.entries(hashes)) {
+        const at = key.indexOf(':');
+        if (hash && at > 0 && key.slice(at + 1) === resource.name
+            && prefixes.includes(key.slice(0, at).toLowerCase())) return hash;
+    }
+    return '';
+}
+
+/** How the prompt names a legacy resource: a LoRA's tag with its weight, an embedding's word. */
+function promptTag(resource) {
+    const name = String(resource.name || '');
+    const kind = resourceKind(resource.type);
+    if (!name || !kind) return '';
+    if (kind === 'embedding') return name;
+    const weight = resource.weight === undefined || resource.weight === null ? '' : `:${resource.weight}`;
+    return `<lora:${name}${weight}>`;
+}
+
+// A row's kind as a person reads it: Civitai's types and the infotext's words, one spelling each.
+const KIND_NAMES = { lora: 'LoRA', locon: 'LoCon', lycoris: 'LyCORIS', dora: 'DoRA', textualinversion: 'Embedding',
+                     embed: 'Embedding', embedding: 'Embedding', checkpoint: 'Checkpoint', model: 'Checkpoint',
+                     vae: 'VAE', controlnet: 'ControlNet', upscaler: 'Upscaler', hypernetwork: 'Hypernetwork' };
+const rowKindName = (type) => KIND_NAMES[String(type || '').toLowerCase()] || String(type || 'Unknown');
 
 // Version id (as the image names it) -> what the downloads list cannot say
 // of its download: { modelId, asking, target, versionName, substituted,
@@ -138,15 +191,19 @@ export function substituteOf(versionId) {
  * Anything naming the version whose gallery this is (`exclude`) gets dropped.
  * An image is an example *of* that model, so listing it says nothing - and it
  * is a quarter of all the rows in this library. The Civitai Browser names its
- * own, the version it shows.
+ * own, the version it shows. But not a checkpoint's (#377): it stays, first,
+ * marked `own` - the Send line names it, and an image naming nothing else
+ * said "Nothing here has a Civitai model behind it".
  *
  * `finished` says whether every hash has had its answer. Until then a hash
  * with no answer yet is still being looked up, and is left out rather than
  * listed as unknown.
  *
- * Returns { known, unknown }: resources with a Civitai version behind them,
- * and the rest - a filename with no hash, a hash Civitai does not know, or one
- * that could not be checked. Those are shown as they are rather than guessed at.
+ * Returns { known, unknown, checkpointAside }: resources with a Civitai version
+ * behind them, and the rest - a filename with no hash, a hash Civitai does not
+ * know, or one that could not be checked. Those are shown as they are rather
+ * than guessed at. `checkpointAside`: the image's checkpoint's hash has had no
+ * answer yet.
  */
 export function mergeImageResources(img, resolved, finished, exclude) {
     const meta = img.meta || {};
@@ -154,9 +211,12 @@ export function mergeImageResources(img, resolved, finished, exclude) {
     const legacy = meta.resources || [];
 
     const byVersion = new Map();
+    // Whether a checkpoint's hash has no answer yet: the dialog draws no row for it as text
+    // (withNamedCheckpoint) - the row said "named only by its name" for a checkpoint it knew.
+    let checkpointAside = false;
     for (const resource of civitai) {
         const versionId = resource.modelVersionId;
-        if (!versionId || versionId === exclude) continue;
+        if (!versionId || (versionId === exclude && !isCheckpoint(resource.type))) continue;
         if (byVersion.has(versionId)) continue;
         byVersion.set(versionId, {
             versionId,
@@ -164,19 +224,24 @@ export function mergeImageResources(img, resolved, finished, exclude) {
             type: resource.type || 'Unknown',
             name: resource.name || 'Unknown',
             versionName: resource.modelVersionName || '',
+            own: versionId === exclude,
         });
     }
 
     const unknown = [];
     const seenUnknown = new Set();
     for (const resource of legacy) {
-        const hash = (resource.hash || '').toLowerCase();
+        const hash = String(resource.hash || resourceHash(meta, resource) || '').toLowerCase();
         const answered = hash && Object.prototype.hasOwnProperty.call(resolved, hash);
         const match = answered ? resolved[hash] : null;
 
         if (match && match.version_id) {
-            if (match.version_id === exclude) continue;
-            if (byVersion.has(match.version_id)) continue;   // Civitai named it already
+            if (match.version_id === exclude && !isCheckpoint(match.model_type || resource.type)) continue;
+            if (byVersion.has(match.version_id)) {   // Civitai named it already: its row takes the prompt's tag
+                const row = byVersion.get(match.version_id);
+                if (!row.tag) row.tag = promptTag(resource);
+                continue;
+            }
             byVersion.set(match.version_id, {
                 versionId: match.version_id,
                 modelId: match.model_id || null,
@@ -186,12 +251,17 @@ export function mergeImageResources(img, resolved, finished, exclude) {
                 // The file it names, not only its version: a version can hold
                 // an fp16 and an fp32 file, and only one made the image (#233).
                 hash,
+                tag: promptTag(resource),
+                own: match.version_id === exclude,
             });
             continue;
         }
 
         // Asked about, but its answer has not come back yet.
-        if (hash && !answered && !finished) continue;
+        if (hash && !answered && !finished) {
+            if (isCheckpoint(resource.type)) checkpointAside = true;
+            continue;
+        }
 
         // No hash, or Civitai has never heard of it, or the lookup failed.
         // Nothing more can be done with these, so they are shown rather than
@@ -202,13 +272,15 @@ export function mergeImageResources(img, resolved, finished, exclude) {
         unknown.push({
             type: resource.type || 'Unknown',
             name: resource.name || 'Unknown',
-            reason: !hash ? 'no hash recorded'
-                : answered ? 'not on Civitai'
-                : 'could not be checked',
+            hash: hash || null,
+            tag: promptTag(resource),
+            reason: !hash ? 'No hash recorded'
+                : answered ? 'Not on Civitai'
+                : 'Could not be checked',
         });
     }
 
-    return { known: [...byVersion.values()], unknown };
+    return { known: [...byVersion.values()], unknown, checkpointAside };
 }
 
 // Which resources panel is current. A slow one - many hashes, no API key -
@@ -220,7 +292,8 @@ let resourcesRequest = 0;
  *
  * The count is the panel's own - mergeImageResources() over the hashes
  * answered so far - so the button and the list it opens agree: duplicates
- * counted once, the model this gallery belongs to not at all. It used to add
+ * counted once, the model this gallery belongs to not at all - unless it is
+ * the image's checkpoint, which the list shows (#377). It used to add
  * the two lists up raw, and said 5 over a panel of 2, or appeared over an
  * empty one.
  *
@@ -247,9 +320,10 @@ export function resourceButtonLabel(img, exclude) {
  * button, opening the same dialog. Where the viewer draws no button, greyed,
  * saying why - a press that would do nothing.
  */
-export function resourcesMenuItem(img, exclude, { leaving = null } = {}) {
+export function resourcesMenuItem(img, exclude, { leaving = null, send = null } = {}) {
     const label = resourceButtonLabel(img, exclude);
-    if (label) return { label, run: () => showImageResources(img, exclude, { leaving }) };
+    // `send`: the Send line's, made when pressed (send.mjs resourcesSendLine, #377).
+    if (label) return { label, run: () => showImageResources(img, exclude, { leaving, send: send?.() || null }) };
     const meta = img.meta || {};
     const named = (meta.civitaiResources || []).length || (meta.resources || []).length;
     return { label: 'Resources', disabled: true,
@@ -287,26 +361,40 @@ let resourcesNote = '';
 // Previous Position (#250, #260). Replaced with each dialog.
 let resourcesLeaving = null;
 
-// A send stopped for its checkpoint (send.mjs), as the dialog's own Send:
-// { why, reason, waits, check, run, ready }. `reason` says why it waits -
-// `missing`, `not_listed`... - and `why` in words, from `waits`; `check()`
-// asks the server again, resolving to '' once the checkpoint can be loaded,
-// else the reason; `run()` sends. No `check`: nothing the dialog offers can
-// help. `gaveUp`: the dialog stopped asking, the checkpoint still not ready.
+// The dialog's Send line (#377), handed by Send (send.mjs) to every dialog
+// but the Civitai Browser's: { opened, why, reason, waits, check, run, pick,
+// button, list, goesOn, ready }. `opened` says why the dialog is open - a
+// send that `stop`ped for its checkpoint, one that asked to `choose` (the
+// tab's box, Send as…), or the `resources` button. `run()` sends with the
+// image's own checkpoint, `pick(name, model)` with one picked in the list, by
+// Forge's name. `reason` says why the image's own waits - `missing`,
+// `not_listed`... - and `why` in words, from `waits`; `check()` asks the
+// server again, resolving to '' once it can be loaded; no `check`: nothing
+// the dialog offers can help. `gaveUp`: the dialog stopped asking. `goesOn`:
+// a send into img2img, which goes with the loaded checkpoint (#299).
+// `choosing`: the box ticked; `chosen`: the name picked; `touched`: the box
+// pressed, which nothing then changes.
 let resourcesSend = null;
 // The dialog's resources, as last drawn: Send's line finds the checkpoint's row in them.
 let resourcesRows = [];
+// What it drew with no Civitai version, and whether a checkpoint's hash had no answer yet:
+// the Resources button's box reads a checkpoint Civitai does not know from them.
+let resourcesUnresolved = [];
+let checkpointPending = false;
 // Send's bar as last drawn, so a redraw that would change nothing writes nothing.
 let drawnSendBar = '';
+// Whether the library has said which of this dialog's resources it holds:
+// the Resources button's box waits on it (startBox).
+let installedAsked = false;
 
 /**
  * The Resources dialog for an image - a Civitai image, or one of your own.
  * `note`, if given, is said at the top: a send stopped for a checkpoint the
- * library lacks opens it, to download it there (#134) - or, with another
- * file of its version held, to send with that (`send.useInstalled`). `send` adds a Send
- * at the bottom, disabled until the checkpoint can be loaded - asked again
- * once downloads land, or at once with `recheck`. `leaving`, if given, is
- * called as View leaves for the Civitai Browser: the opener notes its place.
+ * library lacks opens it, to download it there (#134). `send` adds the Send
+ * line at the bottom (#377): a box that shows your checkpoints to pick from,
+ * and Send. `recheck` asks at once whether the image's own can be loaded,
+ * as a download landing does. `leaving`, if given, is called as View leaves
+ * for the Civitai Browser: the opener notes its place.
  *
  * @returns {Promise<boolean>} whether there was anything to show
  */
@@ -316,10 +404,12 @@ export async function showImageResources(img, exclude, { note = '', send = null,
 
     const civitai = img.meta.civitaiResources || [];
     const legacy = img.meta.resources || [];
-    if (civitai.length === 0 && legacy.length === 0) return false;
+    // A send opens it whatever the image lists: its Send line is the way on (#377).
+    if (civitai.length === 0 && legacy.length === 0 && !send) return false;
 
     resourcesNote = note;
-    resourcesSend = send ? { ...send, ready: false } : null;
+    installedAsked = false;
+    resourcesSend = send ? startSendLine(send) : null;
     resourcesLeaving = leaving;
     const request = ++resourcesRequest;
     const stillWanted = () => request === resourcesRequest
@@ -328,61 +418,159 @@ export async function showImageResources(img, exclude, { note = '', send = null,
     // Up straight away, with whatever needs no lookup, because an uncached
     // hash takes a moment and a dialog that opens late reads as a dead button.
     const hashes = imageResourceHashes(img);
-    const first = mergeImageResources(img, knownHashes, !hashes.length, exclude);
+    const first = withNamedCheckpoint(img, mergeImageResources(img, knownHashes, !hashes.length, exclude));
     renderResourcesModal(first, hashes.length);
-    checkInstalledResources(first.known);
+    checkInstalledResources(first.known, first.unknown);
     askCivitaiModels(first.known);
     if (recheck) recheckSend();
-    if (!hashes.length) return true;
+    if (!hashes.length) {
+        askPickList();
+        return true;
+    }
 
     const resolved = await resolveResourceHashes(hashes, (partial, remaining) => {
         Object.assign(knownHashes, partial);
         announceHashes();
-        if (stillWanted()) renderResourcesModal(mergeImageResources(img, partial, false, exclude), remaining);
+        if (stillWanted()) {
+            renderResourcesModal(withNamedCheckpoint(img, mergeImageResources(img, partial, false, exclude)), remaining);
+        }
     });
     Object.assign(knownHashes, resolved);
     announceHashes();
 
     if (stillWanted()) {
-        const merged = mergeImageResources(img, resolved, true, exclude);
+        const merged = withNamedCheckpoint(img, mergeImageResources(img, resolved, true, exclude));
         renderResourcesModal(merged, 0);
-        checkInstalledResources(merged.known);
+        checkInstalledResources(merged.known, merged.unknown);
         askCivitaiModels(merged.known);
+        askPickList();
     }
     return true;
 }
 
+/** A row's type, read as a checkpoint's: Civitai's "Checkpoint", the infotext's "model". */
+const isCheckpoint = (type) => /^(checkpoint|model)$/i.test(String(type || ''));
+
+/**
+ * The dialog's rows, with one for a checkpoint the image names only as text
+ * (`Model`, #377 case 1) where no row, found or not, is a checkpoint already:
+ * it drew none, and the stop pointed at nothing. Drawn by the dialog alone -
+ * not in mergeImageResources, which each tile's Resources button counts.
+ */
+function withNamedCheckpoint(img, resources) {
+    const name = String(img?.meta?.Model || '').trim();
+    // Not while its hash is still being looked up: the row said "named only by its name" for a
+    // checkpoint it knew - in a checkpoint's own gallery, where that version was then left out.
+    if (!name || resources.checkpointAside
+        || [...resources.known, ...resources.unknown].some((r) => isCheckpoint(r.type))) return resources;
+    return { known: resources.known,
+             unknown: [...resources.unknown, { type: 'Checkpoint', name, reason: 'Named only by its name' }] };
+}
+
+/**
+ * The Send line's state as a dialog opens: the box ticked when the dialog
+ * was opened to send - a stop, the tab's box, Send as… - and, opened with the
+ * Resources button, as the checkpoint's row and the setting say once known
+ * (startBox).
+ */
+function startSendLine(send) {
+    // Opened with the Resources button, `ready` stays unknown until the library has said (startBox).
+    const line = { ...send, ready: send.opened === 'resources' ? undefined : send.ready ?? false,
+                   choosing: send.opened !== 'resources',
+                   chosen: null, touched: false, pickList: null };
+    if (send.opened === 'resources') {
+        // The setting asked afresh as the dialog opens: Forge's Settings page
+        // does not refresh the page's copy (#377).
+        fetchUiOptions().then((data) => {
+            line.settingOn = data?.choose_checkpoint === true;
+            startBox(line);
+        });
+    }
+    return line;
+}
+
+/**
+ * The Resources button's dialog's box: unticked while the image's checkpoint
+ * row says Installed - the dialog's own answer, a database read, so opening
+ * it runs no send plan - ticked when it does not, or with the setting on. A
+ * box the person pressed stays as they left it.
+ */
+function startBox(line = resourcesSend) {
+    if (!line || line !== resourcesSend || line.opened !== 'resources') return;
+    const installed = checkpointInstalled();
+    // Whether its unticked Send can go follows the row, a download landing too.
+    if (installed !== null) line.ready = installed;
+    if (line.touched || (installed === null && !line.settingOn)) {
+        redrawSendBar();
+        return;
+    }
+    const choosing = Boolean(line.settingOn) || installed === false;
+    if (choosing !== line.choosing) {
+        line.choosing = choosing;
+        if (choosing) askPickList();
+    }
+    redrawSendBar();
+}
+
+/** Whether the image's checkpoint row reads Installed; null before the library has answered. */
+function checkpointInstalled() {
+    // A checkpoint's gallery sends its own file.
+    if (resourcesSend?.galleryOwn) return true;
+    const row = resourcesRows.find((r) => isCheckpoint(r.type));
+    if (!row) {
+        // Its hash not answered yet, it may still turn out a found row.
+        if (!installedAsked || checkpointPending) return null;
+        // One Civitai does not know - a merge of your own - is installed where the library holds its hash.
+        const unknown = resourcesUnresolved.find((r) => isCheckpoint(r.type) && r.hash);
+        return Boolean(unknown && installedResourceHashes.has(unknown.hash));
+    }
+    if (!installedAsked) return null;
+    return resourceDownloadCell(row).includes('mm-res-state installed');
+}
+
+/**
+ * The dialog (#377, R4, option F of its POC): a row in two lines, as the list of your
+ * checkpoints - the name, which opens the model as View did, and the version; under them the
+ * kind, the prompt's tag and the row's notes - its Download at the right. The image's
+ * checkpoint first, then the rest in the image's order; what has no Civitai version greyed in
+ * the same list. The Send line at the dialog's foot, outside what scrolls: 17 rows of one image
+ * put it at the bottom edge of a 1080 px screen, the list below the fold.
+ */
 function renderResourcesModal(resources, pending = 0) {
     resourcesRows = resources.known;
-    const rows = resources.known.map(resource => `
-            <tr>
-                <td class="mm-res-type">${escapeHtml(resource.type)}</td>
-                <td class="mm-res-name" data-res-name="${safeId(resource.versionId)}">${resourceNameHtml(resource)}</td>
-                <td class="mm-res-actions">
-                    <span data-res-view="${safeId(resource.versionId)}">${viewCell(resource)}</span>
-                    <span data-res-download="${safeId(resource.versionId)}">${resourceDownloadCell(resource)}</span>
-                </td>
-            </tr>
-        `).join('');
+    resourcesUnresolved = resources.unknown;
+    checkpointPending = Boolean(resources.checkpointAside);
+    const knownRow = (resource) => `
+            <div class="mm-res-row">
+                <div class="mm-res-name" data-res-name="${safeId(resource.versionId)}">${resourceNameHtml(resource)}</div>
+                <div class="mm-res-actions" data-res-download="${safeId(resource.versionId)}">${resourceDownloadCell(resource)}</div>
+                <div class="mm-res-open" data-res-open="${safeId(resource.versionId)}">${viewButton(resource)}</div>
+            </div>`;
+    const unknownRow = (resource) => `
+            <div class="mm-res-row mm-res-unresolved">
+                <div class="mm-res-name"><div class="mm-res-line"><span class="mm-res-title">${escapeHtml(resource.name)}</span></div>
+                    <div class="mm-res-sub"><span class="mm-res-type">${escapeHtml(rowKindName(resource.type))}</span>${
+                        resource.tag ? ` · <code class="mm-res-tag">${escapeHtml(resource.tag)}</code>` : ''}</div></div>
+                <div class="mm-res-actions"><span class="mm-res-no-hash">${escapeHtml(resource.reason)}</span></div>
+                <div class="mm-res-open"></div>
+            </div>`;
+    const checkpoints = [...resources.known.filter((r) => isCheckpoint(r.type)).map(knownRow),
+                         ...resources.unknown.filter((r) => isCheckpoint(r.type)).map(unknownRow)];
+    const others = [...resources.known.filter((r) => !isCheckpoint(r.type)).map(knownRow),
+                    ...resources.unknown.filter((r) => !isCheckpoint(r.type)).map(unknownRow)];
+    const head = (title, count) => `<div class="mm-res-head">${escapeHtml(title)}${
+        count ? ` <span class="mm-res-count">${count}</span>` : ''}</div>`;
+    const rows = checkpoints.length && others.length
+        ? head('Checkpoint') + checkpoints.join('') + head('Other resources', others.length) + others.join('')
+        : [...checkpoints, ...others].join('');
 
     // Still asking: say how many are left rather than claim there is nothing.
     const stillLooking = pending > 0
-        ? `<tr><td colspan="3" class="mm-res-loading">Looking up ${pending} more on Civitai...</td></tr>`
+        ? `<div class="mm-res-loading">Looking up ${pending} more on Civitai...</div>`
         : '';
 
     const nothingKnown = pending === 0 && resources.known.length === 0
-        ? '<tr><td colspan="3" class="mm-res-loading">Nothing here has a Civitai model behind it.</td></tr>'
-        : '';
-
-    const unknownRows = resources.unknown.length
-        ? '<tr><td colspan="3" class="mm-res-group">Named in the generation data, but not found on Civitai</td></tr>'
-          + resources.unknown.map(resource => `
-            <tr class="mm-res-unresolved">
-                <td class="mm-res-type">${escapeHtml(resource.type)}</td>
-                <td class="mm-res-name">${escapeHtml(resource.name)}</td>
-                <td class="mm-res-actions"><span class="mm-res-no-hash">${escapeHtml(resource.reason)}</span></td>
-            </tr>
-        `).join('')
+        ? '<div class="mm-res-loading">Nothing here has a Civitai model behind it.</div>'
         : '';
 
     drawnSendBar = sendAgainButton();
@@ -395,21 +583,10 @@ function renderResourcesModal(resources, pending = 0) {
                 </div>
                 <div class="mm-modal-body">
                     ${resourcesNote ? `<div class="mm-banner"><span class="mm-banner-icon">!</span>`
-                        + `<span data-res-note>${escapeHtml(noteText())}</span></div>` : ''}
-                    <table class="mm-resources-table">
-                        <thead>
-                            <tr>
-                                <th>Type</th>
-                                <th>Name</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${rows}${stillLooking}${nothingKnown}${unknownRows}
-                        </tbody>
-                    </table>
-                    ${drawnSendBar}
+                        + `<span data-res-note>${escapeHtml(resourcesNote)}</span></div>` : ''}
+                    <div class="mm-resources-list">${rows}${stillLooking}${nothingKnown}</div>
                 </div>
+                ${drawnSendBar ? `<div class="mm-modal-footer mm-resources-foot">${drawnSendBar}</div>` : ''}
             </div>
         </dialog>
     `;
@@ -417,48 +594,61 @@ function renderResourcesModal(resources, pending = 0) {
     openMetaModal(modalHtml);
 }
 
+// ------------------------------------------- the Send line, and the list
+// The image's own checkpoint, or one of yours picked from a list (#377, R4:
+// option A of its second POC) - a search, then Suggested, a tab per family
+// and All. Every pick is sent one way, by Forge's name for it.
+
+/** The picks that send the image as it was made. */
+const AS_MADE = ['this gallery\'s', 'the image\'s own', 'same file'];
+
 /**
- * The dialog's Send, for a send it stopped: disabled, saying why, until ready
- * - or until the person picks what the library has instead: a tick for
- * another file of the checkpoint's version (#233) or one other version of its
- * model, a dropdown for several versions (#278). One Send, whichever it sends with.
+ * The Send line: the box, the list once ticked, what Send will do, and Send -
+ * disabled, saying why, until there is something to send with.
  */
 function sendAgainButton() {
     if (!resourcesSend) return '';
-    const { ready, why, alternative, alternatives, useChecked, chosen, sameFile } = resourcesSend;
-    const canUse = !ready && resourcesSend.useInstalled;
-    const same = canUse && sameFile;
-    const offered = canUse && !same && alternative;
-    const listed = canUse && !same && !alternative && alternatives?.length > 1;
-    const enabled = ready || same || (offered && useChecked) || (listed && chosen);
-    const caution = 'the image may not come out exactly the same';
-    const tick = !offered ? ''
-        : `<label class="mm-res-use-installed"><input type="checkbox" data-action="resources.useInstalledTick"${
-            useChecked ? ' checked' : ''}> `
-          + (alternative.kind === 'version'
-              ? `Use ${escapeHtml(alternative.label)}, the version I have, instead: ${caution}</label>`
-              : `Use the ${escapeHtml(alternative.label)} file I have instead: ${caution}</label>`);
-    const pick = !listed ? ''
-        : '<label class="mm-res-use-installed mm-res-pick">Send with: <select class="mm-dialog-select" '
-          + `data-action="resources.chooseVersion" title="The image may not come out exactly the same.">`
-          + `<option value=""${chosen ? '' : ' selected'}>The image's own checkpoint - download it above</option>`
-          + alternatives.map((v) => `<option value="${safeId(v.version_id)}"${
-              Number(v.version_id) === chosen ? ' selected' : ''}>${escapeHtml(versionLabel(v))}</option>`).join('')
-          + '</select></label>';
-    const status = enabled ? null : sendStatus();
-    const held = [sameFile?.model_name, sameFile?.version_name].filter(Boolean).join(' / ');
-    const line = same
-        ? `<span class="mm-res-send-status">${escapeHtml(`You have this checkpoint's file, ${sameFile.file_name}, `
-                                                       + `${held ? `as ${held}` : 'in your library'}: Send uses it.`)}</span>`
-        : status?.text
-        ? `<span class="mm-res-send-status">${escapeHtml(status.text)}</span>`
-          + (status.again ? '<button type="button" class="mm-btn secondary mm-btn-small" '
-                            + 'data-action="resources.checkAgain">Check again</button>' : '')
-        : '';
-    return `<div class="mm-dialog-buttons mm-resources-send">${tick}${pick}${line}
+    const line = resourcesSend;
+    const box = `<label class="mm-res-choose"><input type="checkbox" data-action="resources.chooseTick"${
+        line.choosing ? ' checked' : ''}> Choose the checkpoint to send with</label>`;
+    const own = !line.choosing && (line.ready || line.goesOn);
+    const enabled = line.choosing ? Boolean(line.chosen) : own;
+    const status = sendLineStatus();
+    const text = status.text ? `<span class="mm-res-send-status">${escapeHtml(status.text)}</span>` : '';
+    const again = status.again ? '<button type="button" class="mm-btn secondary mm-btn-small" '
+                                 + 'data-action="resources.checkAgain">Check again</button>' : '';
+    return `<div class="mm-resources-send-wrap">
+            <div class="mm-dialog-buttons mm-resources-send">${box}${text}${again}
                 <button type="button" class="mm-btn primary" data-action="resources.sendAgain"${
-                    enabled ? '' : ` disabled title="${escapeHtml(why || '')}"`}>Send to txt2img</button>
-            </div>`;
+                    enabled ? '' : ` disabled title="${escapeHtml((line.choosing ? status.text : line.why) || status.text || '')}"`}>${
+                    escapeHtml(line.button || 'Send to txt2img')}</button>
+            </div>
+            ${line.choosing ? `<div class="mm-pick">${pickListHtml()}</div>` : ''}
+        </div>`;
+}
+
+/** What Send will do, said left of it; with `again`, Check again beside it. */
+function sendLineStatus() {
+    const line = resourcesSend;
+    if (line.choosing) {
+        const row = line.chosen && pickRows().find((r) => r.name === line.chosen);
+        if (!row) return { text: 'Pick a checkpoint to send with.' };
+        const asMade = (row.why || []).some((why) => AS_MADE.includes(why));
+        return { text: `Sends with ${pickRowName(row)}. ${asMade ? 'The image comes out as made.'
+                                                                  : 'It will not come out exactly as made.'}` };
+    }
+    if (line.goesOn && !line.ready) return { text: 'Sends with the checkpoint loaded now.' };
+    if (line.opened === 'resources' && !line.check) {
+        if (line.ready === undefined) return { text: '' };
+        if (line.ready) return { text: 'Sends with the image\'s own checkpoint.' };
+        // "Download it above" only where a Download is drawn: a checkpoint Civitai does not know has none.
+        const offered = resourcesRows.some((r) => isCheckpoint(r.type)
+                                                && resourceDownloadCell(r).includes('data-action="resources.download"'));
+        return { text: offered ? 'The checkpoint is not in your library yet: download it above, or pick one of yours.'
+                               : 'The checkpoint is not in your library: pick one of yours.' };
+    }
+    if (line.ready) return { text: '' };
+    return sendStatus();
 }
 
 /**
@@ -469,7 +659,7 @@ function sendAgainButton() {
  */
 function sendStatus() {
     const { reason, why, gaveUp } = resourcesSend;
-    const checkpoint = resourcesRows.find((r) => /checkpoint/i.test(r.type || ''));
+    const checkpoint = resourcesRows.find((r) => isCheckpoint(r.type));
     const job = checkpoint && resourceDownload(checkpoint.versionId);
     if (job && ON_ITS_WAY.has(job.status)) return { text: 'Waiting for the checkpoint\'s download to finish…' };
     // Landed, and the check it set off not answered yet: Forge is next. The
@@ -485,6 +675,183 @@ function sendStatus() {
         return { text: why, again: gaveUp };
     }
     return { text: why || '' };
+}
+
+/** A checkpoint the short way, as its row's first line and Send's line name it: "Anime Mix v12", else its file. */
+function pickRowName(row) {
+    return row.model ? [row.model, row.version].filter(Boolean).join(' ') : row.file;
+}
+
+// Why a row is suggested, as its second line says it (send.py's SUGGESTED_ORDER).
+const WHY_TEXT = {
+    'this gallery\'s': 'This gallery\'s', 'the image\'s own': 'The image\'s own', 'same file': 'Same file',
+    'same version, other file': 'Same version, other file', 'same model': 'Same model, other version',
+};
+
+/** Every checkpoint of the list's answer, each with why it is suggested, if it is. */
+function pickRows() {
+    const data = resourcesSend?.pickList?.data;
+    if (!data) return [];
+    const why = new Map((data.suggested || []).map((s) => [s.name, s.why || []]));
+    return (data.checkpoints || []).map((c) => ({ ...c, why: why.get(c.name) || [] }));
+}
+
+/** Whether a row can be picked: a family this WebUI has no UI preset for cannot (#377, question 12). */
+const pickable = (row) => row.supported || !row.read;
+
+/** Whether a row matches the search: any part of what it says. */
+function matches(row, words) {
+    if (!words.length) return true;
+    const text = [row.model, row.version, row.base_model, row.file, row.name, row.family,
+                  row.family ? familyName(row.family) : '', ...(row.why || []).map((why) => WHY_TEXT[why] || why)]
+        .join(' ').toLowerCase();
+    return words.every((word) => text.includes(word));
+}
+
+/** The list's markup: the search, a tab per family held, then the rows of the tab shown. */
+function pickListHtml() {
+    const list = resourcesSend?.pickList;
+    const search = (disabled) => `<input type="search" class="mm-pick-search" placeholder="Search your checkpoints"
+                   aria-label="Search your checkpoints" value="${escapeHtml(list?.search || '')}"${disabled ? ' disabled' : ''}>`;
+    if (!list || list.loading || list.error) {
+        // Read or failed, the list takes the room it will take once read - a tab's height, the
+        // rows' box - so the dialog does not change height when it comes (#377, R4).
+        const text = list?.error || 'Reading your checkpoints…';
+        return `${search(true)}<div class="mm-pick-body"><div class="mm-pick-tabs">`
+            + '<button type="button" class="mm-pick-tab mm-pick-tab-held" disabled tabindex="-1" aria-hidden="true">'
+            + `&nbsp;</button></div><div class="mm-pick-rows"><div class="mm-pick-wait">${escapeHtml(text)}</div></div></div>`;
+    }
+    return `${search(false)}<div class="mm-pick-body">${pickBodyHtml()}</div>`;
+}
+
+/**
+ * The tabs and the rows, redrawn as the search narrows them - the search box kept, focus and all.
+ * Suggested is a tab of its own, first (#377, R4): the suggestions sat on top of every tab. A
+ * family's tab holds every checkpoint of it, suggested or not, the image's base model first.
+ */
+function pickBodyHtml() {
+    const list = resourcesSend.pickList;
+    const data = list.data;
+    const rows = pickRows();
+    const words = String(list.search || '').toLowerCase().split(/\s+/).filter(Boolean);
+    const shown = rows.filter((r) => matches(r, words));
+    const families = [...new Set(rows.map((r) => r.family).filter(Boolean))];
+    const suggested = (data.suggested || []).map((s) => shown.find((r) => r.name === s.name)).filter(Boolean);
+    const hasSuggested = Boolean(data.suggested?.length);
+    const tab = families.includes(list.tab) || list.tab === 'all' || (list.tab === 'suggested' && hasSuggested)
+        ? list.tab : 'all';
+    const count = (n) => ` <span class="mm-pick-count">${n}</span>`;
+    const tabs = [...(hasSuggested ? [['suggested', 'Suggested', suggested.length, 'What suits this image']] : []),
+                  ...families.map((f) => [f, familyName(f), shown.filter((r) => r.family === f).length,
+                                          `Forge's UI preset: ${f}`]),
+                  ['all', 'All', shown.length, 'Every checkpoint Forge lists']]
+        .map(([id, label, n, tip]) => `<button type="button" class="mm-pick-tab${id === tab ? ' active' : ''}"`
+            + ` data-action="resources.pickTab" data-family="${escapeHtml(id)}" title="${escapeHtml(tip)}">${
+                escapeHtml(label)}${count(n)}</button>`)
+        .join('');
+    const section = (title, list2, family) => (list2.length
+        ? (title ? `<div class="mm-pick-head">${escapeHtml(title)}${count(list2.length)}</div>` : '')
+          + list2.map((r) => pickRowHtml(r, family)).join('') : '');
+    let body;
+    if (tab === 'suggested') body = section('', suggested, true);
+    else if (tab === 'all') body = section('', shown, true);
+    else {
+        const inTab = shown.filter((r) => r.family === tab);
+        const base = data.same_base?.base_model;
+        const sameBase = base ? inTab.filter((r) => r.base_model === base) : [];
+        const rest = inTab.filter((r) => !sameBase.includes(r));
+        body = sameBase.length
+            ? section(`${base}, like the image`, sameBase, false) + section(`Other ${familyName(tab)}`, rest, false)
+            : section('', rest, false);
+    }
+    return `<div class="mm-pick-tabs" role="tablist">${tabs}</div>
+            <div class="mm-pick-rows">${body || '<div class="mm-pick-wait">No checkpoint matches.</div>'}</div>`;
+}
+
+/**
+ * One row, in two lines: the model and its version, the base model at the right; then, smaller,
+ * why it is suggested, loaded now, its family where the tab does not say it, and its file.
+ */
+function pickRowHtml(row, family) {
+    const can = pickable(row);
+    const sub = [...row.why.filter((w) => w !== 'loaded now')
+                     .map((w) => `<span class="mm-pick-why">${escapeHtml(WHY_TEXT[w] || w)}</span>`),
+                 ...(resourcesSend.pickList.data.loaded === row.name
+                     ? ['<span class="mm-pick-loaded">Loaded in Forge now</span>'] : []),
+                 ...(family && row.family ? [escapeHtml(familyName(row.family))] : []),
+                 // Not asked of Civitai until a sync reads it.
+                 ...(!row.model && row.read ? ['Not on Civitai'] : []),
+                 ...(!row.read ? ['Not read by a sync yet'] : []),
+                 ...(!can ? [row.family ? escapeHtml(`No UI preset for ${familyName(row.family)} in this WebUI`)
+                                        : 'Forge could not tell what model this is'] : []),
+                 ...(row.model ? [`<span class="mm-pick-file">${escapeHtml(row.file)}</span>`] : [])]
+        .join(' · ');
+    const title = can ? row.name
+        : row.family ? 'This WebUI has no UI preset for this checkpoint\'s family, so Send could not load it.'
+            : 'Forge\'s model detector could not tell what model this checkpoint is, so Send could not set Forge up for it.';
+    return `<label class="mm-pick-row${can ? '' : ' mm-pick-greyed'}${resourcesSend.chosen === row.name ? ' picked' : ''}"`
+        + ` title="${escapeHtml(title)}">`
+        + `<input type="radio" name="mm_pick" value="${escapeHtml(row.name)}" data-action="resources.pickRow"${
+            resourcesSend.chosen === row.name ? ' checked' : ''}${can ? '' : ' disabled'}>`
+        + `<span class="mm-pick-name">${escapeHtml(row.model || row.file)}${
+            row.model && row.version ? ` <span class="mm-pick-ver">${escapeHtml(row.version)}</span>` : ''}</span>`
+        + `<span class="mm-pick-base">${escapeHtml(row.base_model || '')}</span>`
+        + `<span class="mm-pick-sub">${sub}</span></label>`;
+}
+
+/** The model the image's checkpoint is of, as the dialog has learnt it - its row's, or Civitai's answer. */
+function imageModel() {
+    const row = resourcesRows.find((r) => isCheckpoint(r.type));
+    if (!row) return null;
+    return row.modelId || civitaiModels.get(row.versionId)?.modelId || null;
+}
+
+/**
+ * Ask for the list (`send/checkpoints`), once the dialog's missing-resources
+ * lookup has answered: the suggestions are worked out from what it said of
+ * the image's checkpoint - its model, its base model, the same file held -
+ * which the server keeps only in memory. Asked again when a download lands.
+ */
+async function askPickList({ again = false } = {}) {
+    const line = resourcesSend;
+    if (!line?.choosing || !line.list || (line.pickList && !again)) return;
+    const list = line.pickList || (line.pickList = { loading: true, search: '', tab: null });
+    if (!list.data) redrawSendBar();
+    await modelsAsked;
+    if (resourcesSend !== line) return;
+    const row = resourcesRows.find((r) => isCheckpoint(r.type));
+    const civitai = row ? civitaiModels.get(row.versionId) : null;
+    const params = { ...line.list, model_id: imageModel() || '', base_model: civitai?.baseModel || '',
+                     same_file: civitai?.sameFile?.version_id || '' };
+    try {
+        const data = await apiCall({ endpoint: '/model-manager/send/checkpoints', params });
+        if (resourcesSend !== line) return;
+        if (!data?.success) throw new Error(data?.error || 'the server did not answer');
+        list.data = data;
+        list.loading = false;
+        list.error = '';
+        if (list.tab === null) {
+            // Suggested first; an image with none opens on its own family, All where that is not known.
+            const families = new Set((data.checkpoints || []).map((c) => c.family).filter(Boolean));
+            list.tab = data.suggested?.length ? 'suggested' : families.has(data.family) ? data.family : 'all';
+        }
+        // The pick made first: the image comes out as made (#304's same file among them).
+        if (!line.chosen && data.picked) line.chosen = data.picked;
+    } catch (error) {
+        if (resourcesSend !== line) return;
+        Object.assign(list, { loading: false, error: `Could not read your checkpoints: ${error.message || error}` });
+    }
+    redrawSendBar();
+}
+
+/** The list's rows again, the search box kept as it is - its focus and caret too. */
+function redrawPickBody() {
+    const body = document.querySelector('.mm-resources-modal .mm-pick-body');
+    if (body && resourcesSend?.pickList?.data) body.innerHTML = pickBodyHtml();
+    const status = document.querySelector('.mm-resources-modal .mm-res-send-status');
+    if (status) status.textContent = sendLineStatus().text || '';
+    // What a full redraw would draw now: one that would change nothing writes nothing.
+    if (resourcesSend) drawnSendBar = sendAgainButton();
 }
 
 /**
@@ -515,6 +882,8 @@ async function recheckSend() {
             if (resourcesSend !== wanted) return;
             const why = reason ? wanted.waits?.[reason] || wanted.waits?.missing || wanted.why : '';
             Object.assign(wanted, { reason, why, ready: !reason, gaveUp: Boolean(reason) && Date.now() >= until });
+            // Ready: Forge lists it now, and the list's answer names it the image's own (#377).
+            if (!reason) askPickList({ again: true });
             redrawSendBar();
             if (!reason || wanted.gaveUp) return;
             await new Promise((resolve) => setTimeout(resolve, TIMING.sendRecheck));
@@ -523,27 +892,20 @@ async function recheckSend() {
         wanted.checking = false;
     }
 }
-// The dialog's other way out of a stopped send: closed, and sent with what
-// the library has - a `file` of the image's version, though not the image's
-// own (#233), or another `version` of its model (#278).
-function useInstalled(versionId, kind) {
-    const send = resourcesSend;
-    if (!send?.useInstalled) return undefined;
-    closeMetaModal();
-    resourcesSend = null;
-    return send.useInstalled(versionId, kind);
-}
 
-// The dialog's Send: closed, and the image sent again, through every check -
-// with what the library has, when that is what is ticked or picked.
+// The dialog's Send: closed, and the image sent - with the checkpoint picked,
+// or, the box unticked, its own. It goes through every check, and never
+// opens the dialog again: the tab's box is read by the tab's own Send alone.
 function sendAgain() {
     const send = resourcesSend;
-    if (!send?.ready && send?.sameFile) return useInstalled(send.sameFile.version_id, 'same');
-    if (!send?.ready && send?.alternative && send.useChecked) {
-        return useInstalled(send.alternative.versionId, send.alternative.kind || 'file');
+    if (!send) return undefined;
+    if (send.choosing) {
+        if (!send.chosen) return undefined;
+        closeMetaModal();
+        resourcesSend = null;
+        return send.pick(send.chosen, imageModel());
     }
-    if (!send?.ready && !send?.alternative && send?.chosen) return useInstalled(send.chosen, 'version');
-    if (!send?.ready) return undefined;
+    if (!send.ready && !send.goesOn) return undefined;
     closeMetaModal();
     resourcesSend = null;
     return send.run();
@@ -572,7 +934,6 @@ let viewing = null;
  * only on a 404 for the model alone. One request a dialog; answers kept.
  */
 function askCivitaiModels(resources) {
-    offerSameFile(resources);
     const versions = resources.filter((r) => r.versionId && !civitaiModels.has(r.versionId)
                                              && !askingVersions.has(r.versionId))
         .map((r) => ({ version_id: r.versionId, model_id: r.modelId || null }));
@@ -588,10 +949,10 @@ function askCivitaiModels(resources) {
                 for (const [id, answer] of Object.entries(data.versions || {})) {
                     civitaiModels.set(Number(id), answer.gone ? { gone: true }
                                                               : { modelId: safeId(answer.model_id), sameFile: answer.same_file || null,
+                                                                  baseModel: answer.base_model || null,
                                                                   versionGone: Boolean(answer.version_gone),
                                                                   newest: answer.newest || null });
                 }
-                offerSameFile(resources);
             }
         } catch (error) {
             console.warn('[ModelManager] Could not ask Civitai about the resources\' models:', error);
@@ -613,35 +974,40 @@ function askCivitaiModels(resources) {
 }
 
 /**
- * The missing checkpoint, where the library holds its very file under another
- * Civitai model - matched by the file's hash on the server (#304): the stopped
- * Send can go with it at once. From what was asked, this dialog or an earlier.
+ * What View does, as a row's name and as its View button (#377, R4): the model in the Civitai
+ * Browser, or the website. Its model deleted from Civitai, neither - the red words go on the
+ * row's second line.
  */
-function offerSameFile(resources) {
-    if (!resourcesSend || resourcesSend.ready || resourcesSend.sameFile) return;
-    const row = resources.find((r) => /checkpoint/i.test(r.type || '') && civitaiModels.get(r.versionId)?.sameFile);
-    if (!row) return;
-    resourcesSend.sameFile = civitaiModels.get(row.versionId).sameFile;
-    redrawSendBar();
-}
-
-/** A row's View - or, its model deleted from Civitai, the red words in its place. */
-function viewCell(resource) {
+function viewAttributes(resource) {
     const id = resource.versionId;
-    if (civitaiModels.get(id)?.gone) {
-        return '<span class="mm-res-state error" title="Civitai no longer has this model">Model deleted from Civitai</span>';
-    }
     const title = available('civitaiBrowser') ? 'Show this model in the Civitai Browser tab' : 'Open this version on Civitai';
-    const looking = viewing === id;
-    return `<button type="button" class="mm-btn secondary mm-btn-small" data-action="resources.view"`
+    return ` data-action="resources.view"`
         + `${dataAttributes({ versionId: safeId(id), modelId: resource.modelId ? safeId(resource.modelId) : null })}`
-        + ` title="${escapeHtml(title)}"${looking ? ' disabled' : ''}>${looking ? 'Looking up...' : 'View'}</button>`;
+        + ` title="${escapeHtml(title)}"${viewing === id ? ' disabled' : ''}`;
 }
 
+function nameButton(resource) {
+    if (civitaiModels.get(resource.versionId)?.gone) return `<span class="mm-res-title">${escapeHtml(resource.name)}</span>`;
+    return `<button type="button" class="mm-res-view"${viewAttributes(resource)}>${escapeHtml(resource.name)}</button>`;
+}
+
+/**
+ * View, in a column of its own at the row's right. It keeps its word while it looks a model up -
+ * the second line says "Looking up..." - as "Looking up..." in it would widen the column.
+ */
+function viewButton(resource) {
+    if (civitaiModels.get(resource.versionId)?.gone) return '';
+    return `<button type="button" class="mm-btn secondary mm-btn-small"${viewAttributes(resource)}>View</button>`;
+}
+
+/** A row's name, notes and View again: View's state, its model deleted. */
 function redrawView(versionId, resource) {
-    const cell = document.querySelector(`.mm-resources-modal [data-res-view="${versionId}"]`);
-    if (cell) cell.innerHTML = viewCell(resource || { versionId, modelId: cell.querySelector('[data-model-id]')
-        ?.dataset.modelId || null });
+    const row = resourcesRows.find((r) => String(r.versionId) === String(versionId)) || resource;
+    if (!row) return;
+    const cell = document.querySelector(`.mm-resources-modal [data-res-name="${versionId}"]`);
+    if (cell) cell.innerHTML = resourceNameHtml(row);
+    const open = document.querySelector(`.mm-resources-modal [data-res-open="${versionId}"]`);
+    if (open) open.innerHTML = viewButton(row);
 }
 
 /**
@@ -701,10 +1067,18 @@ function resourceNameHtml(resource) {
     const made = held && imageFiles.get(resource.hash);
     const madeLabel = made ? fileLabel(made, made.size_kb ? made.size_kb * 1024 : 0) : '';
     const version = [resource.versionName, madeLabel].filter(Boolean).join(' · ');
-    return `${escapeHtml(resource.name)}${version ? ` <span class="mm-res-version">${escapeHtml(version)}</span>` : ''}`
-        + (held ? `<div class="mm-res-held">you have its ${escapeHtml(fileLabel(held, held.file_size) || held.name)} file</div>` : '')
-        + (civitaiModels.get(resource.versionId)?.versionGone
-            ? '<div class="mm-res-gone">this version is deleted from Civitai</div>' : '');
+    const notes = [`<span class="mm-res-type">${escapeHtml(rowKindName(resource.type))}</span>`,
+                   ...(resource.own ? ['<span class="mm-res-own">This gallery\'s model</span>'] : []),
+                   ...(resource.tag ? [`<code class="mm-res-tag">${escapeHtml(resource.tag)}</code>`] : []),
+                   ...(viewing === resource.versionId ? ['<span class="mm-res-looking">Looking up...</span>'] : []),
+                   ...(held ? [`<span class="mm-res-held">you have its ${escapeHtml(fileLabel(held, held.file_size) || held.name)} file</span>`] : []),
+                   ...(civitaiModels.get(resource.versionId)?.versionGone
+                       ? ['<span class="mm-res-gone">this version is deleted from Civitai</span>'] : []),
+                   ...(civitaiModels.get(resource.versionId)?.gone
+                       ? ['<span class="mm-res-state error" title="Civitai no longer has this model">Model deleted from Civitai</span>'] : [])];
+    return `<div class="mm-res-line">${nameButton(resource)}${
+        version ? ` <span class="mm-res-version">${escapeHtml(version)}</span>` : ''}</div>`
+        + `<div class="mm-res-sub">${notes.join(' · ')}</div>`;
 }
 
 // What a row says while its download is on its way: the words a Download
@@ -754,7 +1128,10 @@ function resourceDownloadCell(resource) {
     const failed = job && (job.status === 'error' || job.status === 'cancelled');
     if (job && !failed) return `<span class="mm-res-state">${onItsWayText(job)}</span>`;
     // Downloads run with the Model Manager or the Civitai Browser (#182).
-    if (!downloads()) return '<span class="mm-res-state">Not in the library</span>';
+    if (!downloads()) {
+        return '<span class="mm-res-state">Not in the library - downloads run while the Model Manager or the '
+            + 'Civitai Browser is on</span>';
+    }
     const retry = failed
         ? `<span class="mm-res-state error" title="${escapeHtml(job.error || job.status)}">Failed</span> ` : '';
     const modelId = resource.modelId || resourceDownloads[id]?.modelId;
@@ -771,87 +1148,30 @@ function redrawResourceDownload(versionId, resource) {
 }
 
 /** Mark which of the dialog's versions the library holds, and redraw them. */
-async function checkInstalledResources(resources) {
+async function checkInstalledResources(resources, unresolved = []) {
     const ids = resources.map((r) => r.versionId).filter(Boolean);
-    if (!ids.length) return;
-    const hashes = resources.map((r) => r.hash).filter(Boolean);
-    try {
-        const data = await apiCall({ endpoint: '/model-manager/image-resources',
-                                     params: { version_ids: ids.join(','), hashes: hashes.join(',') } });
-        for (const id of Object.keys((data && data.versions) || {})) installedResourceVersions.add(Number(id));
-        for (const hash of Object.keys((data && data.hashes) || {})) installedResourceHashes.add(hash.toLowerCase());
-        for (const [hash, held] of Object.entries((data && data.other_files) || {})) {
-            otherFileHashes.set(hash.toLowerCase(), held);
+    const line = resourcesSend;
+    // A checkpoint Civitai does not know - a merge of your own - by its hash: the Send line's
+    // box starts from whether the library holds it (checkpointInstalled).
+    const hashes = [...resources, ...unresolved.filter((r) => isCheckpoint(r.type))].map((r) => r.hash).filter(Boolean);
+    if (ids.length || hashes.length) {
+        try {
+            const data = await apiCall({ endpoint: '/model-manager/image-resources',
+                                         params: { version_ids: ids.join(','), hashes: hashes.join(',') } });
+            for (const id of Object.keys((data && data.versions) || {})) installedResourceVersions.add(Number(id));
+            for (const hash of Object.keys((data && data.hashes) || {})) installedResourceHashes.add(hash.toLowerCase());
+            for (const [hash, held] of Object.entries((data && data.other_files) || {})) {
+                otherFileHashes.set(hash.toLowerCase(), held);
+            }
+        } catch (error) {
+            console.warn('[ModelManager] Could not check which resources are installed:', error);
         }
-    } catch (error) {
-        console.warn('[ModelManager] Could not check which resources are installed:', error);
     }
+    // The Resources button's box starts from the checkpoint's row (#377).
+    if (line === resourcesSend) installedAsked = true;
     for (const resource of resources) redrawResourceDownload(resource.versionId, resource);
-    offerInstalledFile(resources);
-    offerOtherVersions(resources).catch((error) =>
-        console.warn('[ModelManager] Could not ask which other versions the library holds:', error));
+    startBox();
     await labelImageFiles(resources);
-}
-
-/**
- * A send stopped for its checkpoint, the library holding another file of its
- * version (#233): the dialog's Send can go with that one, once the person
- * ticks that they want it - the image may not come out exactly the same.
- * The closer match: it takes the place of any other versions offered (#278).
- */
-function offerInstalledFile(resources) {
-    if (!resourcesSend?.useInstalled) return;
-    const resource = resources.find((r) => r.hash && /checkpoint/i.test(r.type || '')
-                                           && otherFileHashes.has(r.hash) && !installedResourceHashes.has(r.hash));
-    if (!resource) return;
-    const held = otherFileHashes.get(resource.hash);
-    resourcesSend.alternative = { versionId: resource.versionId, resource, kind: 'file',
-                                  label: fileLabel(held, held.file_size) || held.name };
-    resourcesSend.alternatives = null;
-    redrawSendBar();
-    redrawNote();
-}
-
-/** A held version as the tick and the dropdown name it: "V17 (SD 1.5)". */
-function versionLabel(version) {
-    const name = version.version_name || version.file_name || `version ${version.version_id}`;
-    return version.base_model ? `${name} (${version.base_model})` : name;
-}
-
-/**
- * A send stopped for a checkpoint the library lacks, and no other file of its
- * version held: the versions of its model the library holds, to send with
- * instead (#278) - a tick for one, a dropdown for several. Asked once a
- * dialog, by the model id the image's data or Civitai's answer gives.
- */
-async function offerOtherVersions(resources) {
-    const send = resourcesSend;
-    if (!send?.useInstalled || send.reason !== 'missing' || send.alternative || send.versionsAsked) return;
-    const resource = resources.find((r) => r.versionId && /checkpoint/i.test(r.type || '')
-                                           && !installedResourceVersions.has(r.versionId)
-                                           && !(r.hash && installedResourceHashes.has(r.hash)));
-    if (!resource) return;
-    let modelId = resource.modelId || civitaiModels.get(resource.versionId)?.modelId;
-    if (!modelId && askingVersions.has(resource.versionId)) {
-        await modelsAsked;
-        modelId = civitaiModels.get(resource.versionId)?.modelId;
-    }
-    if (!modelId || resourcesSend !== send || send.versionsAsked) return;
-    send.versionsAsked = true;
-    const answer = await apiCall({ endpoint: '/model-manager/other-versions',
-                                   params: { version_id: resource.versionId, model_id: modelId } });
-    const versions = (answer?.success && answer.versions) || [];
-    // The file of its own version, found meanwhile, is the closer match.
-    if (resourcesSend !== send || send.alternative || !versions.length) return;
-    send.versionsOf = resource;
-    if (versions.length === 1) {
-        send.alternative = { versionId: versions[0].version_id, resource, kind: 'version',
-                             label: versionLabel(versions[0]) };
-    } else {
-        Object.assign(send, { alternatives: versions, chosen: null });
-    }
-    redrawSendBar();
-    redrawNote();
 }
 
 /** What Civitai says each image file named by a hash is, where the library holds another file of it. */
@@ -866,36 +1186,11 @@ async function labelImageFiles(resources) {
         }
         const cell = document.querySelector(`.mm-resources-modal [data-res-name="${safeId(resource.versionId)}"]`);
         if (cell) cell.innerHTML = resourceNameHtml(resource);
-        redrawNote();
     }
-}
-
-/**
- * The dialog's note: a stopped send's, naming the image's file where another
- * of its version is held - or its version, where other versions are (#278).
- */
-function noteText() {
-    const alternative = resourcesSend?.alternative;
-    const versionsOf = resourcesSend?.versionsOf;
-    if (versionsOf && (alternative?.kind === 'version' || (!alternative && resourcesSend.alternatives?.length))) {
-        const which = [versionsOf.name, versionsOf.versionName].filter(Boolean).join(' ');
-        return `The checkpoint this image was made with, ${which}, is not in your library. `
-               + 'Download it here, or send with the version of it you have.';
-    }
-    const made = alternative && imageFiles.get(alternative.resource.hash);
-    if (!made) return resourcesNote;
-    const which = [alternative.resource.name, alternative.resource.versionName].filter(Boolean).join(' ');
-    return `The checkpoint this image was made with, the ${fileLabel(made, made.size_kb ? made.size_kb * 1024 : 0)} `
-           + `file of ${which}, is not in your library. Download it here, or send with the file of it you have.`;
-}
-
-function redrawNote() {
-    const note = document.querySelector('.mm-resources-modal [data-res-note]');
-    if (note && note.textContent !== noteText()) note.textContent = noteText();
 }
 
 function redrawSendBar() {
-    const box = document.querySelector('.mm-resources-modal .mm-resources-send');
+    const box = document.querySelector('.mm-resources-modal .mm-resources-send-wrap');
     if (!box) return;
     // Redrawn as each row is - the downloads list's every look: only when it would differ.
     const bar = sendAgainButton();
@@ -985,6 +1280,22 @@ function finishResourceDownload(versionId) {
     announceDownloads({ installed: true,
                         landed: { versionId, chip: Boolean(job.chip), substituted: Boolean(job.substituted) } });
     recheckSend();
+    startBox();
+}
+
+/**
+ * Downloads landed and Forge's list refreshed (downloads.mjs): the list is
+ * asked again, so a deleted version's newest, once here, shows as "same
+ * model" (#372, #377) - only now, as Forge lists it only after its refresh.
+ * Unticked, the answer it holds is dropped, and the box ticked asks afresh.
+ */
+async function listAfterDownloads() {
+    const line = resourcesSend;
+    if (!line?.pickList) return;
+    await afterRefreshes();
+    if (resourcesSend !== line) return;
+    if (line.choosing) askPickList({ again: true });
+    else line.pickList = null;
 }
 
 /**
@@ -1020,20 +1331,50 @@ export function start(scope) {
     scope.provide('resources.download', ({ versionId, modelId, hash, newest }) =>
         downloadResource(safeId(versionId), safeId(modelId), String(hash || '').toLowerCase(),
                          { newest: Boolean(newest) }));
-    scope.provide('resources.chooseVersion', (data, select) => {
+    // The box: ticked, the list; unticked, the image's own. Pressed, it stays so.
+    scope.provide('resources.chooseTick', (data, box) => {
         if (!resourcesSend) return;
-        resourcesSend.chosen = Number(select?.value) || null;
+        Object.assign(resourcesSend, { choosing: Boolean(box?.checked), touched: true });
+        if (resourcesSend.choosing) askPickList();
         redrawSendBar();
     });
-    scope.provide('resources.useInstalledTick', (data, box) => {
-        if (!resourcesSend) return;
-        resourcesSend.useChecked = Boolean(box?.checked);
-        redrawSendBar();
+    scope.provide('resources.pickTab', ({ family }) => {
+        const list = resourcesSend?.pickList;
+        if (!list?.data) return;
+        list.tab = String(family || 'all');
+        redrawPickBody();
     });
+    // A pick: what Send says, and Send itself, without redrawing the rows - their scroll stays.
+    scope.provide('resources.pickRow', (data, radio) => {
+        if (!resourcesSend || !radio?.value) return;
+        resourcesSend.chosen = radio.value;
+        const button = document.querySelector('.mm-resources-modal [data-action="resources.sendAgain"]');
+        if (button) {
+            button.disabled = false;
+            button.removeAttribute('title');
+        }
+        document.querySelectorAll('.mm-resources-modal .mm-pick-row').forEach((row) => {
+            row.classList.toggle('picked', row.querySelector('input')?.value === radio.value);
+        });
+        const status = document.querySelector('.mm-resources-modal .mm-res-send-status');
+        if (status) status.textContent = sendLineStatus().text || '';
+        drawnSendBar = sendAgainButton();
+    });
+    // The search narrows as it is typed: the rows redrawn, the box kept.
+    if (typeof document !== 'undefined') {
+        scope.listen(document, 'input', (event) => {
+            if (!event.target?.matches?.('.mm-resources-modal .mm-pick-search') || !resourcesSend?.pickList) return;
+            resourcesSend.pickList.search = event.target.value;
+            redrawPickBody();
+        });
+    }
     whenDownloading((list) => {
         // Downloads landed, and Forge's list refreshed (downloads.mjs): the
         // checkpoint may be one of them.
-        list.onBatchDone(() => recheckSend());
+        list.onBatchDone(() => {
+            recheckSend();
+            listAfterDownloads();
+        });
         list.onChange(followResourceDownloads);
     });
 }

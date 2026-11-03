@@ -500,6 +500,61 @@ await new Promise((resolve) => setTimeout(resolve, 100));
 check('Send\'s own button: into txt2img, no mode or picture, no canvas button',
       loads.slice(loaded).map(({ tab, into, canvas }) => [tab, into, canvas]), [['txt2img', undefined, undefined]]);
 
+// "Choose the checkpoint at every Send" (#377): ticked, every Send in the
+// tab opens the Resources dialog with the list, the image's own picked - a
+// tile's, the viewer's, a ⋯ send into img2img, whose button names the mode.
+const fetchBeforeChoose = globalThis.fetch;
+const OWN = { name: 'someCheckpoint.safetensors [11]', file: 'someCheckpoint.safetensors', family: 'xl', read: true,
+              supported: true, model: 'Some', version: 'v1', base_model: 'SDXL 1.0' };
+globalThis.fetch = async (url, init) => (String(url).includes('/model-manager/send/checkpoints')
+    ? { ok: true, status: 200, json: async () => ({ success: true, checkpoints: [OWN], picked: OWN.name, loaded: null,
+        suggested: [{ name: OWN.name, why: ['the image\'s own'] }], same_base: { base_model: null, names: [] }, family: 'xl' }) }
+    : fetchBeforeChoose(url, init));
+const dialog = () => document.querySelector('.mm-resources-modal');
+const closeDialog = () => document.querySelectorAll('#mm_meta_modal').forEach((m) => { m.close?.(); m.remove(); });
+check('27. the toolbar\'s box, unticked as the setting is', $('gal_choose_checkpoint')?.checked, false);
+await tick('gallery.chooseCheckpoint', true);
+check('    ticked, kept in this browser', localStorage.getItem('mm_gallery_choose_checkpoint'), 'true');
+loaded = loads.length;
+act('gallery.send', { tile: 0 });
+await waitFor('the dialog', () => dialog()?.querySelector('.mm-pick-row'));
+check('    a tile\'s Send opens the Resources dialog, its box ticked, the image\'s own picked; nothing sent yet',
+      [dialog().querySelector('[data-action="resources.chooseTick"]')?.checked,
+       dialog().querySelector('.mm-pick-row input')?.checked,
+       dialog().querySelector('[data-action="resources.sendAgain"]')?.textContent.trim(), loads.length - loaded],
+      [true, true, 'Send to txt2img', 0]);
+press(dialog().querySelector('[data-action="resources.sendAgain"]'));
+await waitFor('the send', () => loads.length > loaded);
+check('26. the dialog\'s own Send sends, and opens no dialog again: the box is the tab\'s Send\'s alone',
+      [!!dialog(), loads.slice(loaded).map(({ tab }) => tab)], [false, ['txt2img']]);
+act('gallery.menu', { tile: 0 });
+await waitFor('the menu', () => menuEl());
+loaded = loads.length;
+sendItem('Send to Inpaint').dispatchEvent(new window.Event('click', { bubbles: true }));
+await waitFor('the dialog, from ⋯', () => dialog()?.querySelector('.mm-pick-row'));
+check('27. a ⋯ send into img2img opens it too, its button naming the mode; nothing sent yet',
+      [dialog().querySelector('[data-action="resources.sendAgain"]')?.textContent.trim(), loads.length - loaded],
+      ['Send to Inpaint', 0]);
+closeDialog();
+act('gallery.view', { tile: 0 });
+await waitFor('the viewer', () => document.querySelector('[data-gal-send]'));
+loaded = loads.length;
+document.querySelector('[data-gal-send]').dispatchEvent(new window.Event('click', { bubbles: true }));
+await waitFor('the dialog, from the viewer', () => dialog()?.querySelector('.mm-pick-row'));
+check('27. the viewer\'s Send opens it too, the image\'s own picked; nothing sent yet',
+      [dialog().querySelector('[data-action="resources.chooseTick"]')?.checked,
+       dialog().querySelector('.mm-pick-row input')?.checked, loads.length - loaded], [true, true, 0]);
+closeDialog();
+(await sharedModule('viewer.mjs')).closeViewer();
+await tick('gallery.chooseCheckpoint', false);
+check('    unticked, kept so', localStorage.getItem('mm_gallery_choose_checkpoint'), 'false');
+loaded = loads.length;
+act('gallery.send', { tile: 0 });
+await waitFor('the send, unticked', () => loads.length > loaded);
+check('    and a tile\'s Send sends as before: no dialog', [!!dialog(), loads.slice(loaded).map(({ tab }) => tab)],
+      [false, ['txt2img']]);
+globalThis.fetch = fetchBeforeChoose;
+
 // A video gets ⋯ too (#362): Show All and Resources, and no sends into
 // img2img, which take a picture.
 withVideo = true;

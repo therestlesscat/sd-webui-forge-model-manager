@@ -9,7 +9,7 @@
 // Here one image is drawn in both tabs: the card says the same in each, and
 // Show All opens the same window - the table, with a Copy JSON button.
 import { readFileSync } from 'node:fs';
-import { ROOT, act, browserGalleryAnswer, checker, mountTab, startTab, tabMarkup } from './harness.mjs';
+import { ROOT, act, browserGalleryAnswer, checker, mountTab, sharedModule, startTab, tabMarkup } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_civitai_browser.py');
 const { check, waitFor, done } = checker();
@@ -91,6 +91,67 @@ check('its sampler and scheduler as the server read them apart, not the data\'s 
       [said(managerCard()).includes('Sampler: Euler a'), said(managerCard()).includes('Scheduler: Uniform')], [true, true]);
 check('with its id and every ADetailer setting',
       [said(managerCard()).includes('4242'), said(managerCard()).includes('Inpaint masked: True')], [true, true]);
+
+// ------------------------------------------------------- Send as… (#377)
+// The Model Manager's cards have Send as… beside Send - which opens the
+// Resources dialog with your checkpoints to pick from - disabled whenever
+// Send is, with the same reason. The Civitai Browser has no Send.
+const labels = (card) => Array.from(card?.querySelectorAll('.mm-image-actions > button') || [])
+    .map((b) => b.textContent.trim());
+const managerSend = () => managerCard()?.querySelector('[data-action="modelManager.sendImage"]');
+const managerSendAs = () => managerCard()?.querySelector('[data-action="modelManager.sendImageAs"]');
+check('30. the Model Manager\'s card: Send as… right after Send; the Civitai Browser\'s: neither',
+      [labels(managerCard()).slice(0, 2), labels(browserCard()).filter((l) => l.startsWith('Send'))],
+      [['Send to txt2img', 'Send as…'], []]);
+check('    disabled whenever Send is, with the same reason',
+      [managerSendAs()?.disabled, managerSendAs()?.getAttribute('title')],
+      [managerSend()?.disabled, managerSend()?.disabled ? managerSend()?.getAttribute('title') : 'Pick the checkpoint to send with']);
+
+// An image Send cannot go from - drawn with Send's reason: Send as… too.
+const { renderImageCard } = await sharedModule('image_card.mjs');
+const holder = document.createElement('div');
+holder.innerHTML = renderImageCard ? renderImageCard({ id: 1, url: 'https://example.invalid/1.jpeg', meta: {} }, 0, {
+    width: 300, exclude: null, actions: { send: 'modelManager.sendImage', sendAs: 'modelManager.sendImageAs',
+                                          showAll: 'modelManager.showImageMeta', resources: 'modelManager.showResources' },
+    sendBlocked: 'Civitai gave this image no generation data: nothing to send.' }) : '';
+const blockedAs = holder.querySelector('[data-action="modelManager.sendImageAs"]');
+check('    an image Send cannot go from: Send as… disabled too, saying why',
+      [blockedAs?.disabled, blockedAs?.getAttribute('title')],
+      [true, 'Civitai gave this image no generation data: nothing to send.']);
+
+// Its viewer copies the card's buttons, and closes on Send as… as on Send.
+managerCard()?.querySelector('img[data-view-index]')?.dispatchEvent(new window.Event('click', { bubbles: true }));
+const viewer = () => document.querySelector('.mm-viewer');
+await waitFor('the viewer', () => viewer());
+const viewerSendAs = viewer()?.querySelector('.mm-viewer-actions .mm-send-as-btn');
+check('    the Model Manager\'s viewer: Send as… copied with the card\'s buttons, ready in a checkpoint\'s gallery',
+      [viewerSendAs?.textContent.trim(), viewerSendAs?.disabled], ['Send as…', false]);
+viewerSendAs?.dispatchEvent(new window.Event('click', { bubbles: true }));
+await waitFor('the viewer closed', () => !viewer());
+const pickDialog = () => document.querySelector('.mm-resources-modal [data-action="resources.chooseTick"]');
+await waitFor('the dialog from the viewer', () => pickDialog());
+check('    pressed, the viewer closes, and the Resources dialog opens with its box ticked, to pick',
+      [!!viewer(), pickDialog()?.checked], [false, true]);
+document.querySelectorAll('#mm_meta_modal').forEach((m) => { m.close?.(); m.remove(); });
+// The card's own Send as…: the same dialog, nothing sent yet.
+managerSendAs()?.dispatchEvent(new window.Event('click', { bubbles: true }));
+await waitFor('the dialog from the card', () => pickDialog());
+check('    the card\'s Send as…: the Resources dialog, its box ticked, to pick',
+      [pickDialog()?.checked, document.querySelector('.mm-resources-modal [data-action="resources.sendAgain"]')?.textContent.trim()],
+      [true, 'Send to txt2img']);
+document.querySelectorAll('#mm_meta_modal').forEach((m) => { m.close?.(); m.remove(); });
+document.querySelector('.mm-viewer')?.remove();
+// The two tabs' boxes are theirs alone (#377): ticked in this browser, the
+// Model Manager card's Send goes at once.
+localStorage.setItem('mm_gallery_choose_checkpoint', 'true');
+localStorage.setItem('mm_generations_choose_checkpoint', 'true');
+await act('modelManager.sendImage', { index: 0 });
+await new Promise((resolve) => setTimeout(resolve, 100));
+check('31. the tabs\' boxes ticked: the Model Manager\'s Send of a Civitai image opens no dialog',
+      !!document.querySelector('.mm-resources-modal'), false);
+localStorage.removeItem('mm_gallery_choose_checkpoint');
+localStorage.removeItem('mm_generations_choose_checkpoint');
+document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
 
 // ------------------------------------------------------------ Show All
 const shown = () => document.querySelector('#mm_meta_modal');

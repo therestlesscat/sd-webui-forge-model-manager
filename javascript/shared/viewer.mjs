@@ -21,8 +21,9 @@
  *   onClick(e, i)  a click inside the viewer the gallery handles; true if so
  *   onClose(i)     the viewer closed on image i
  *
- * A button with data-viewer-close, or a gallery's Send (.mm-send-btn), closes
- * the viewer as it is pressed: the page goes to txt2img or img2img.
+ * A button with data-viewer-close, or a gallery's Send (.mm-send-btn) or Send
+ * as… (.mm-send-as-btn, #377), closes the viewer as it is pressed: the page
+ * goes to txt2img or img2img, or the Resources dialog opens.
  *
  * It imports core.mjs, for its escapeHtml, under the version it was itself
  * asked for under (see the top of civitai_browser.mjs): the tabs' copy.
@@ -232,7 +233,7 @@ function onClick(event) {
     // the click is done. Send is its data-action, which the page's listener
     // runs after this one (shared/calls.mjs), and it saves where the page was
     // from the viewer, open (viewerPageScroll).
-    if (target.closest?.('[data-viewer-close], .mm-send-btn')) {
+    if (target.closest?.('[data-viewer-close], .mm-send-btn, .mm-send-as-btn')) {
         setTimeout(closeViewer, 0);
         return;
     }

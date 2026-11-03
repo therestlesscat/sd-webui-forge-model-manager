@@ -10,7 +10,7 @@
 // selects the modules after the paste, which re-renders but never touches
 // them. What is checked here is that order, and what is selected.
 import {
-    ROOT, act, checker, forgeRefreshButtons, mountTab, sendLoaders, sharedModule, startTab, withGalleryPages,
+    ROOT, act, checker, forgeRefreshButtons, mountTab, sendLoaders, sharedModule, startTab, tick, withGalleryPages,
 } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
@@ -166,8 +166,10 @@ globalThis.fetch = withGalleryPages(async (url, init) => {
         return { ok: true, json: async () => plan };
     }
     if (href.includes('/model-manager/ui-options')) {
+        // The family names, as ui-options hands the server's one table (#377): the chips' "made for SDXL".
         return { ok: true, json: async () => ({ success: true, samplers: ['Euler'],
-            schedulers: ['Simple'], has_api_key: true, image_browsing: 'continuous' }) };
+            schedulers: ['Simple'], has_api_key: true, image_browsing: 'continuous',
+            family_names: { sd: 'SD 1.x', sd2: 'SD 2.x', xl: 'SDXL', flux: 'Flux.1 / Chroma' } }) };
     }
     if (href.includes('/models/details')) {
         return { ok: true, json: async () => ({ success: true, model: { ...MODEL, images: [IMAGE],
@@ -422,13 +424,18 @@ plan = { ...plan, checkpoint: null, checkpoint_problem: { reason: 'missing', nam
 await send();
 check('a checkpoint the library lacks: nothing is set or pasted',
       events.filter((e) => /^(preset|checkpoint|paste|module)/.test(e)), []);
-check('and the Resources dialog says which, to download it there',
+check('and the Resources dialog says which, to download it there, or to pick one of yours (#377)',
       resourcesNote(), 'The checkpoint this image was made with, anima-preview2, is not in your library. '
-      + 'Download it here, then press Send.');
-// Its Send, at the bottom: disabled until the server says the checkpoint
-// can be loaded - asked again once downloads land.
+      + 'Download it here, or pick one of yours below.');
+// Its Send, at the bottom: its box ticked in every stop (#377), so nothing
+// is sent until a pick; unticked, disabled until the server says the
+// checkpoint can be loaded - asked again once downloads land.
 const dialogSend = () => document.querySelector('.mm-resources-modal [data-action="resources.sendAgain"]');
-check('the dialog\'s Send waits for the checkpoint, saying why',
+check('a stop opens with the box ticked, Send waiting for a pick',
+      [document.querySelector('.mm-resources-modal [data-action="resources.chooseTick"]')?.checked,
+       dialogSend()?.disabled], [true, true]);
+await tick('resources.chooseTick', false);
+check('unticked, the dialog\'s Send waits for the checkpoint, saying why',
       [dialogSend()?.disabled, dialogSend()?.getAttribute('title')],
       [true, 'The checkpoint is not in your library yet.']);
 closeResources();
@@ -449,6 +456,18 @@ check('what it names as a checkpoint is not one: said so, nothing sent',
               + 'checkpoint, in your library or on Civitai.']);
 check('and its Send stays disabled: no download helps', dialogSend()?.disabled, true);
 closeResources();
+// A checkpoint Civitai files under a family no UI preset runs (#377): said
+// as such - it read "names no checkpoint" - and never asked about again.
+plan = { ...plan, checkpoint_problem: { reason: 'unsupported', name: 'Image Gen - v1', base_model: 'MiniMax H3' } };
+await send();
+const askedAtStop = planAsked.length;
+await new Promise((resolve) => setTimeout(resolve, 120));
+check('19. a family no UI preset runs: said so, offering your checkpoints, nothing sent',
+      [events.includes('paste'), resourcesNote()],
+      [false, 'The checkpoint this image was made with, Image Gen - v1, is a MiniMax H3 model, which no UI preset of '
+              + 'Forge\'s is for. Send with one of yours: the image will not come out the same.']);
+check('    and never asked about again: no download changes it', planAsked.length - askedAtStop, 0);
+closeResources();
 
 // While the server's answers say Forge does not list it, the line beside the
 // dialog's Send says so (#211): the send hands the dialog the answer's reason,
@@ -457,6 +476,7 @@ plan = { ...plan, checkpoint: null, checkpoint_problem: { reason: 'not_listed', 
                                                           path: 'C:/models/Stable-diffusion/anima.safetensors' } };
 const askedBefore = planAsked.length;
 await send();
+await tick('resources.chooseTick', false);
 await waitFor('the dialog to ask twice', () => planAsked.length >= askedBefore + 3);
 check('asked again, still not listed: the line says Send waits for Forge',
       document.querySelector('.mm-resources-modal .mm-res-send-status')?.textContent,
@@ -493,6 +513,7 @@ await send();
 await waitFor('Forge\'s refresh', () => refreshes.length > 0);
 check('still not listed after the refresh: nothing sent, and the dialog waits for Forge',
       [events.includes('paste'), Boolean(document.querySelector('.mm-resources-modal'))], [false, true]);
+await tick('resources.chooseTick', false);
 plan = listedNow;
 await waitFor('the dialog\'s Send', () => dialogSend() && !dialogSend().disabled);
 check('once Forge lists it, the dialog\'s Send works', dialogSend()?.hasAttribute('title'), false);

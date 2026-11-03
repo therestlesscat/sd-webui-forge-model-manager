@@ -209,6 +209,31 @@ def for_image(tab: str, named: Dict[str, Any], image: Dict[str, Any]) -> Dict[st
     return named
 
 
+# What Hires fix's checkpoint and module controls hold to take the main ones.
+USE_SAME_CHECKPOINT = "Use same checkpoint"
+USE_SAME_MODULES = ["Use same choices"]
+
+
+def for_another_model(tab: str, named: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    A kept press, sent with a checkpoint of another model than it was made
+    with (#377): Hires fix's checkpoint and VAE / text encoders "Use same",
+    and the refiner off - the press's own are of the image's family, and
+    would load beside the pick.
+    """
+    named = copy.deepcopy(named)
+    fixed = named.get("fixed") or {}
+    if "hr_checkpoint_name" in fixed:
+        fixed["hr_checkpoint_name"] = USE_SAME_CHECKPOINT
+    if "hr_additional_modules" in fixed:
+        fixed["hr_additional_modules"] = list(USE_SAME_MODULES)
+    for controls in (named.get("scripts") or {}).values():
+        for entry in controls:
+            if entry.get("id") == f"{tab}_enable":
+                entry["value"] = False
+    return named
+
+
 def respelled(tab: str, named: Dict[str, Any], components: List[Any]) -> Tuple[Dict[str, Any], List[Tuple[Any, str]]]:
     """
     A generation's hires and refiner checkpoints as this WebUI's controls
@@ -247,10 +272,12 @@ def respelled(tab: str, named: Dict[str, Any], components: List[Any]) -> Tuple[D
 
 
 def generation_values(tab: str, generation_id: int, image_id: Optional[int],
-                      skip: Any = None) -> Tuple[List[Any], List[str], List[str]]:
+                      skip: Any = None, other_model: bool = False) -> Tuple[List[Any], List[str], List[str]]:
     """
     One image of a generation of your own, for its tab: see _values_for. A
     checkpoint this WebUI does not have keeps what is on screen, and is named.
+    `other_model`: sent with a checkpoint of another model (#377) - see
+    for_another_model().
     """
     generation = get_models_db().get_generation(generation_id)
     if generation is None:
@@ -264,6 +291,9 @@ def generation_values(tab: str, generation_id: int, image_id: Optional[int],
     own = capture.generate_click(tab)
     components = list(own.inputs) if own is not None else []
     named, gone = respelled(tab, for_image(tab, generation["inputs"], image), components)
+    if other_model:
+        named = for_another_model(tab, named)
+        gone = []
     shown, skipped, notes = _values_for(tab, named, skip)
     for control, name in gone:
         at = next((n for n, c in enumerate(components[1:]) if c is control), None)
@@ -296,7 +326,7 @@ def _module_labels(names: List[str], by_file: bool) -> Tuple[List[str], List[str
 
 
 def corrections(tab: str, infotext: str, record: Optional[Dict[str, Any]],
-                controls: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
+                controls: Dict[str, Any], other_model: bool = False) -> Tuple[Dict[str, Any], List[str]]:
     """
     What Neo's paste gets wrong, by control id: the hires checkpoint and VAE /
     text encoders, the refiner's checkpoint, and - from a record - its CFG
@@ -304,9 +334,23 @@ def corrections(tab: str, infotext: str, record: Optional[Dict[str, Any]],
     the infotext gives. A value already right comes out the same. A file
     this WebUI lacks is named, and its control keeps what is on screen (None).
 
+    `other_model`: sent with a checkpoint of another model (#377), whose
+    infotext lost its Hires fix checkpoint and module and its refiner
+    (send.without_second_models): Hires fix's two "Use same", and nothing
+    of the image's own - the paste leaves the refiner off.
+
     Returns:
         ({control id: value, or None to keep}, the names of the files missing)
     """
+    if other_model:
+        fixes: Dict[str, Any] = {}
+        if "hr_checkpoint" in controls:
+            listed = [c[1] if isinstance(c, (tuple, list)) else c
+                      for c in getattr(controls["hr_checkpoint"], "choices", None) or []]
+            fixes["hr_checkpoint"] = next((c for c in listed if str(c).startswith("Use same")), USE_SAME_CHECKPOINT)
+        if "hr_vae_te" in controls:
+            fixes["hr_vae_te"] = list(USE_SAME_MODULES)
+        return fixes, []
     record = record or {}
     params = parse_generation_parameters(infotext or "")
     settings_line = (infotext or "").strip().split("\n")[-1]
@@ -352,7 +396,7 @@ def corrections(tab: str, infotext: str, record: Optional[Dict[str, Any]],
 
 
 def paste_values(tab: str, infotext: str, generation_id: Optional[int], outputs: List[Any],
-                 skip: Any = None) -> Tuple[List[Any], List[str]]:
+                 skip: Any = None, other_model: bool = False) -> Tuple[List[Any], List[str]]:
     """
     Forge's own paste of an infotext, for these outputs, corrected: each
     output's value, or `skip`. A generation's own paths correct it where
@@ -372,7 +416,7 @@ def paste_values(tab: str, infotext: str, generation_id: Optional[int], outputs:
                       f"not a value for each of its {len(pasted)} controls")
     record = get_models_db().get_generation(int(generation_id)) if generation_id else None
     controls = {getattr(c, "elem_id", None): c for c in pasted if getattr(c, "elem_id", None)}
-    fixes, missing = corrections(tab, infotext, record, controls)
+    fixes, missing = corrections(tab, infotext, record, controls, other_model)
     by_component = {id(c): u for c, u in zip(pasted, updates)}
     for control_id, value in fixes.items():
         by_component[id(controls[control_id])] = skip if value is None else value
@@ -689,7 +733,7 @@ def _loader(tab: str, kept: List[int], extras: List[Any] = (), names: List[Optio
             # fix off, in the same event. A generation's kept press (#7) is
             # replayed instead, and a replay that fails is pasted.
             if request.get("source") is not None:
-                from ..send import match_detectors, renamed, settings, without_renames
+                from ..send import match_detectors, renamed, settings, without_renames, without_second_models
                 source = without_renames(request["source"])
                 generation_id = int(source["generation"]) if source.get("kind") == "generation" else None
                 found = settings(get_models_db(), source, bool(into))
@@ -701,10 +745,15 @@ def _loader(tab: str, kept: List[int], extras: List[Any] = (), names: List[Optio
                 # Forge's own - reads the text.
                 if found.get("text"):
                     found["text"] = match_detectors(found["text"], detector_choices(tab))
+                    # A pick of another model (#377): none of the image's
+                    # second checkpoints and modules, which are of its family.
+                    if found.get("other_model"):
+                        found["text"] = without_second_models(found["text"])
                 if found.get("replay"):
                     try:
                         values, skipped, notes = generation_values(tab, generation_id, source.get("image"),
-                                                                   skip=gr.update())
+                                                                   skip=gr.update(),
+                                                                   other_model=bool(found.get("other_model")))
                         values = kept_only(values)
                         # The chips' renames, in the prompt the press is set back with.
                         at = list(names).index("prompt") if "prompt" in names else None
@@ -734,7 +783,8 @@ def _loader(tab: str, kept: List[int], extras: List[Any] = (), names: List[Optio
                 if outputs is None:
                     own = capture.generate_click(tab)
                     outputs = kept_only(list(own.inputs[1:])) + list(extras)
-                values, missing, lacking = paste_values(tab, found["text"], generation_id, outputs, skip=gr.update())
+                values, missing, lacking = paste_values(tab, found["text"], generation_id, outputs, skip=gr.update(),
+                                                        other_model=bool(found.get("other_model")))
                 after_paste(tab, values, outputs, list(names), found["scheduler"], found["hires"])
                 answer.update({"pasted": True, "missing": missing, "unavailable": lacking})
                 answer.update(clip_skip_override(tab, values, outputs, found.get("clip_skip")))

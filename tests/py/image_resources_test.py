@@ -174,5 +174,35 @@ shared.cmd_opts.embeddings_dir = None
 check('16. with the embeddings folder not known - outside a WebUI - every one counts',
       sorted(e['file_stem'] for e in ask()[1].get('embeddings', [])), ['easynegative', 'stray_embedding'])
 
+# ------------------------------------- Installed means held here (#377)
+# A checkpoint, a VAE: Installed in the Resources dialog only where this
+# WebUI holds the file - on disk, in a folder it loads (model_dirs.held_here).
+# The other WebUI's copy, sharing the database, read Installed with no
+# Download while Send said this WebUI could not load it; so did a file gone.
+paths_module = sys.modules['modules.paths']
+paths_module.models_path = facts['models_dir']
+
+
+def held_file(path, version_id, file_type, on_disk=True):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    if on_disk:
+        with open(path, 'wb') as f:
+            f.write(b'model')
+    db.upsert_version({'id': version_id, 'model_id': 81000 + version_id, 'file_path': path,
+                       'file_name': os.path.basename(path), 'file_size': 5,
+                       'file_extension': os.path.splitext(path)[1], 'has_civitai_data': True, 'nsfw_level': 1})
+    db.set_architecture(path, 'xl' if file_type == 'Checkpoint' else None, None, False, False, '1', file_type=file_type)
+
+
+other_webui = os.path.join(WORK, 'other_webui', 'models')
+held_file(os.path.join(facts['models_dir'], 'Stable-diffusion', 'mine.safetensors'), 80001, 'Checkpoint')
+held_file(os.path.join(other_webui, 'Stable-diffusion', 'theirs.safetensors'), 80002, 'Checkpoint')
+held_file(os.path.join(facts['models_dir'], 'VAE', 'mine_vae.safetensors'), 80003, 'VAE')
+held_file(os.path.join(other_webui, 'VAE', 'their_vae.safetensors'), 80004, 'VAE')
+held_file(os.path.join(facts['models_dir'], 'Stable-diffusion', 'deleted.safetensors'), 80005, 'Checkpoint', on_disk=False)
+check('17. a checkpoint and a VAE held here are Installed; the other WebUI\'s, and one gone from disk, are not',
+      sorted(ask(version_ids='80001,80002,80003,80004,80005')[1]['versions']), ['80001', '80003'])
+paths_module.models_path = ''
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

@@ -53,6 +53,10 @@ def create_generations_ui():
                         <input type="checkbox" id="gen_expand" data-action="generations.expand">
                         Expand generations
                     </label>
+                    <label class="gen-view-switch" title="Choose the checkpoint at every Send. Every Send in this tab opens the Resources dialog first, where you pick the checkpoint to send with: the image's own, one that suits it, or any of yours.">
+                        <input type="checkbox" id="gen_choose_checkpoint" data-action="generations.chooseCheckpoint">
+                        Choose checkpoint
+                    </label>
                     <label class="gen-view-switch" title="Rate each image's NSFW level: a row of levels under every image">
                         <input type="checkbox" id="gen_rate" data-action="generations.rating">
                         Rate

@@ -68,6 +68,10 @@ def create_gallery_ui():
                             <div class="gen-group-list gen-menu-panel" hidden></div>
                         </span>
                     </span>
+                    <label class="gen-view-switch" title="Choose the checkpoint at every Send. Every Send in this tab opens the Resources dialog first, where you pick the checkpoint to send with: the image's own, one that suits it, or any of yours.">
+                        <input type="checkbox" id="gal_choose_checkpoint" data-action="gallery.chooseCheckpoint">
+                        Choose checkpoint
+                    </label>
                     <span class="gen-toolbar-fill"></span>
                     <button type="button" class="mm-btn secondary" id="gal_refresh_btn"
                             data-action="gallery.refresh">Refresh</button>

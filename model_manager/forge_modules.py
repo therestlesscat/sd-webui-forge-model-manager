@@ -125,19 +125,31 @@ CLASS_LABELS = {
     "ErnieImage": "ERNIE-Image", "PiD": "PiD",
 }
 
+# What a person calls each family a UI preset runs, the one spelling (#377):
+# the settings window's presets, the Resources dialog's checkpoint list (its
+# tab "SDXL", the key in the tab's tooltip), and the chips' "made for SDXL"
+# all read it, the page through
+# ui-options. SD 2.x is a kind of embedding the chips name, which no preset
+# of Neo's runs.
+FAMILY_NAMES = {
+    "sd": "SD 1.x", "sd2": "SD 2.x", "xl": "SDXL", "flux": "Flux.1 / Chroma", "klein": "Flux.2 Klein",
+    "lumina": "Lumina Image 2.0", "zit": "Z-Image", "anima": "Anima", "wan": "Wan", "qwen": "Qwen-Image",
+    "krea": "Krea 2", "ernie": "ERNIE-Image", "pid": "PiD",
+}
+
 # The presets whose modules the settings name: (preset, what it runs, a note).
-MODULE_PRESETS = (
-    ("flux", "Flux.1 / Chroma", ""),
-    ("klein", "Flux.2 Klein", ""),
-    ("lumina", "Lumina Image 2.0", ""),
-    ("zit", "Z-Image", ""),
-    ("anima", "Anima", ""),
-    ("wan", "Wan", "UMT5-XXL loads only in the Hugging Face layout these links have."),
-    ("qwen", "Qwen-Image", ""),
-    ("krea", "Krea 2", ""),
-    ("ernie", "ERNIE-Image", ""),
-    ("pid", "PiD", "Its VAE depends on the model, and is left to you."),
-)
+MODULE_PRESETS = tuple((preset, FAMILY_NAMES[preset], note) for preset, note in (
+    ("flux", ""),
+    ("klein", ""),
+    ("lumina", ""),
+    ("zit", ""),
+    ("anima", ""),
+    ("wan", "UMT5-XXL loads only in the Hugging Face layout these links have."),
+    ("qwen", ""),
+    ("krea", ""),
+    ("ernie", ""),
+    ("pid", "Its VAE depends on the model, and is left to you."),
+))
 
 
 def preset_classes(preset: str) -> List[str]:

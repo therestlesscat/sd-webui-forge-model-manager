@@ -439,6 +439,10 @@ class ModelsDatabase:
         """Each version's files as the lookup by hash named them (#375). See ModelsOps.looked_up_file_names()."""
         return self._models.looked_up_file_names(version_ids)
 
+    def files_described(self) -> List[Dict[str, Any]]:
+        """Every library file with its model's and version's names. See ModelsOps.files_described()."""
+        return self._models.files_described()
+
     def library_files(self, model_ids=None, version_ids=None, file_ids=None) -> List[Dict[str, Any]]:
         """The library's files of these models, versions or Civitai files. See ModelsOps.library_files()."""
         return self._models.library_files(model_ids, version_ids, file_ids)

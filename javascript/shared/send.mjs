@@ -86,15 +86,17 @@ export function sendTab(card) {
  *
  * @returns {Promise<boolean>} whether it could be sent
  */
-export async function sendInfotext({ infotext, mode, meta = {}, generationId = null, imageId = null, useVersion = null,
-                                     useKind = 'file', into = null, whole = false }) {
+export async function sendInfotext({ infotext, mode, meta = {}, generationId = null, imageId = null,
+                                     useCheckpoint = null, imageModel = null, into = null, whole = false,
+                                     choose = false }) {
     // Into img2img (#299), the image's own file with it: any image goes,
     // with no infotext too.
     const sending = into ? { mode: Number(into.mode), picture: { generation_image: Number(imageId) },
                              width: into.width ?? null, height: into.height ?? null } : null;
     if ((!infotext && !sending) || generationId === null || generationId === undefined) return false;
     meta = meta || {};
-    const askPlan = () => fetchGenerationPlan(generationId, useVersion);
+    const pick = useCheckpoint ? { checkpoint: useCheckpoint, imageModel } : null;
+    const askPlan = () => fetchGenerationPlan(generationId, pick);
     const plan = await whenListed(await askPlan(), askPlan);
     // The server builds what is set (#302): with no plan, there is nothing to send.
     if (!plan) {
@@ -104,32 +106,32 @@ export async function sendInfotext({ infotext, mode, meta = {}, generationId = n
     // Its checkpoint is not in the library - gone since, or a sync found none
     // (#233): sent with whatever Forge has loaded, the image cannot come out
     // as it was. So Send stops, and opens Resources to download it, as a
-    // Civitai image's does (#134); the dialog's Send works once it is there.
+    // Civitai image's does (#134), or to pick one of yours (#377).
     const problem = plan.checkpoint_problem
         || (plan.checkpoint_missing ? { reason: 'missing', name: plan.checkpoint_missing } : null);
+    const again = { infotext, mode, meta, generationId, imageId, into, whole };
+    if (choose && !pick) {
+        // Asked to choose (#377): the dialog opens with the list, whatever the plan said.
+        const note = problem ? checkpointNote(problem) || checkpointNote({ ...problem, reason: 'missing' }) : '';
+        const send = generationSendLine(again, { opened: 'choose', problem, goesOn: Boolean(problem && sending) });
+        if (problem?.reason === 'not_listed') refreshWebUiModelList();
+        await showImageResources({ meta }, null, { note, send, recheck: problem?.reason === 'not_listed' });
+        return false;
+    }
     if (problem && sending) {
         showNotice(keptCheckpointNote(problem), { info: true });
     } else if (problem) {
         // Why, as a Civitai image's send says it (stopForCheckpoint): not in
         // the library, in a folder only the other WebUI loads, or not listed yet.
         const note = checkpointNote(problem) || checkpointNote({ ...problem, reason: 'missing' });
-        const check = async () => {
-            const answer = await fetchGenerationPlan(generationId);
-            if (answer && !answer.checkpoint_missing) return '';
-            return waitReason(answer?.checkpoint_problem || { reason: 'missing' });
-        };
         const listing = problem.reason === 'not_listed';
         if (listing) refreshWebUiModelList();
-        const send = { why: CHECKPOINT_WAITS[problem.reason] || CHECKPOINT_WAITS.missing, check,
-                       reason: waitReason(problem), waits: CHECKPOINT_WAITS,
-                       run: () => sendInfotext({ infotext, mode, meta, generationId, imageId, whole }),
-                       useInstalled: (versionId, kind) => sendInfotext({ infotext, mode, meta, generationId, imageId,
-                                                                         useVersion: versionId, useKind: kind, whole }) };
         console.log('[ModelManager] Not sent:', note);
+        const send = generationSendLine(again, { opened: 'stop', problem });
         if (!await showImageResources({ meta }, null, { note, send, recheck: listing })) showNotice(note);
         return false;
     }
-    if (plan.instead) showNotice(insteadNotice(plan.instead, useKind), { info: true });
+    if (plan.instead) showNotice(insteadNotice(plan.instead, plan.pick), { info: true });
     if (plan.preset) await switchForgePreset(plan.preset);
     if (plan.checkpoint && typeof selectCheckpoint === 'function') {
         console.log('[ModelManager] Setting checkpoint:', plan.checkpoint);
@@ -163,7 +165,9 @@ export async function sendInfotext({ infotext, mode, meta = {}, generationId = n
     };
     const source = { kind: 'generation', generation: Number(generationId),
                      image: imageId === null || imageId === undefined ? null : Number(imageId),
-                     renames: resources?.renames || [], ...(whole ? { whole: true } : {}) };
+                     renames: resources?.renames || [], ...(whole ? { whole: true } : {}),
+                     // A pick (#377): the loader leaves the image's Hires fix and refiner out for another model's.
+                     ...(pick ? { use_checkpoint: pick.checkpoint, image_model: pick.imageModel || null } : {}) };
     // A press set back: its modules, the mode it was made in, its canvases
     // through the mode's own button - the picture sent in (#299), or the
     // press's own (#34) - and what kept what was on screen.
@@ -188,12 +192,12 @@ export async function sendInfotext({ infotext, mode, meta = {}, generationId = n
     return true;
 }
 
-/** A generation's plan (send.generation_plan), or null if the server cannot say. */
-async function fetchGenerationPlan(generationId, useVersion = null) {
+/** A generation's plan (send.generation_plan) - with a checkpoint picked (#377) - or null if the server cannot say. */
+async function fetchGenerationPlan(generationId, pick = null) {
     try {
-        const answer = await apiCall({ endpoint: '/model-manager/send/plan',
-                                       params: { kind: 'generation', generation: Number(generationId),
-                                                 use_version: useVersion } });
+        const params = { kind: 'generation', generation: Number(generationId) };
+        if (pick) Object.assign(params, { use_checkpoint: pick.checkpoint, image_model: pick.imageModel || '' });
+        const answer = await apiCall({ endpoint: '/model-manager/send/plan', params });
         return answer && answer.success ? answer : null;
     } catch (error) {
         console.warn('[ModelManager] Could not ask how the generation was made:', error);
@@ -590,11 +594,11 @@ function imageCheckpoint(img) {
  * its VAE / text encoders. Which model that is for - the gallery's
  * checkpoint, the image's own, a LoRA's, Civitai's say - the server works out
  * (send_plan.py), from the image's stored record and the checkpoint the page
- * reads of it (imageCheckpoint). `useVersion`: the library's version to send
- * with in place of the image's checkpoint, picked in the Resources dialog
- * (#278). null if the server cannot say.
+ * reads of it (imageCheckpoint). `pick`: {checkpoint, imageModel}, a
+ * checkpoint picked in the Resources dialog in place of the image's (#377),
+ * by Forge's name. null if the server cannot say.
  */
-async function fetchSendPlan(model, version, img, useVersion = null) {
+async function fetchSendPlan(model, version, img, pick = null) {
     if (!model) return null;
     const checkpoint = imageCheckpoint(img);
     const params = new URLSearchParams({ kind: 'civitai', image: String(img.id) });
@@ -604,7 +608,10 @@ async function fetchSendPlan(model, version, img, useVersion = null) {
     if (checkpoint.versionIds.length) params.set('version_ids', checkpoint.versionIds.join(','));
     if (checkpoint.hashes.length) params.set('hashes', checkpoint.hashes.join(','));
     if (checkpoint.name) params.set('model_name', checkpoint.name);
-    if (useVersion) params.set('use_version', String(useVersion));
+    if (pick) {
+        params.set('use_checkpoint', pick.checkpoint);
+        if (pick.imageModel) params.set('image_model', String(pick.imageModel));
+    }
     try {
         const response = await fetch('/model-manager/send/plan?' + params.toString());
         const plan = await response.json();
@@ -939,6 +946,7 @@ const CHECKPOINT_WAITS = {
     not_listed: 'Forge does not list the checkpoint yet.',
     not_checkpoint: 'The image names no checkpoint.',
     gone: 'The checkpoint is no longer on disk.',
+    unsupported: 'No UI preset of Forge\'s is for the checkpoint\'s family.',
 };
 
 /**
@@ -965,10 +973,20 @@ function waitReason(problem) {
     return CHECKPOINT_WAITS[problem.reason] ? problem.reason : 'missing';
 }
 
-/** Sent with what the library has, in place of the image's checkpoint: a `file` of its version, or another `version` (#278). */
+/**
+ * Sent with a checkpoint picked in the Resources dialog (#377), said after
+ * the send as #278's was: what the pick is to the image, by the server's
+ * word (send.pick_kind) - the `same` file under another Civitai model, a
+ * `file` of its version, another `version` of its model, another `model`.
+ */
 function insteadNotice(file, kind) {
     // The image's own file, held under another Civitai model (#304): the same bytes.
     if (kind === 'same') return `Sent with ${file}: the checkpoint this image was made with, held in your library under another Civitai model.`;
+    if (kind === 'model') {
+        return `Sent with ${file}, a checkpoint of another model than this image's: it will not come out the same. `
+               + 'The VAE and text encoders are its own family\'s, Hires fix uses the same checkpoint and modules, '
+               + 'and the refiner is off.';
+    }
     const what = kind === 'version' ? 'another version of the model' : 'another file of the version';
     return `Sent with ${file}, ${what} this image was made with: it may not come out exactly the same.`;
 }
@@ -999,8 +1017,14 @@ function checkpointNote(problem) {
         }[problem.reason];
     }
     const made = `The checkpoint this image was made with, ${problem.name}`;
+    if (problem.reason === 'unsupported') {
+        const named = problem.name ? `, ${problem.name},` : '';
+        const article = /^[aeiou]/i.test(problem.base_model || '') ? 'an' : 'a';
+        return `The checkpoint this image was made with${named} is ${article} ${problem.base_model} model, which no UI preset `
+               + 'of Forge\'s is for. Send with one of yours: the image will not come out the same.';
+    }
     return {
-        missing: `${made}, is not in your library. Download it here, then press Send.`,
+        missing: `${made}, is not in your library. Download it here, or pick one of yours below.`,
         elsewhere: `${made}, is in your library at ${problem.path}, a folder this WebUI does not load. `
                    + 'Move it into this WebUI\'s models folder, or download it here; then press Send.',
         not_listed: `${made}, is in your library at ${problem.path}, but Forge does not list it yet. `
@@ -1014,20 +1038,89 @@ async function stopForCheckpoint(img, model, version, problem) {
     const note = checkpointNote(problem);
     if (!note) return;
     console.log('[ModelManager] Not sent:', note);
-    const send = {
-        why: CHECKPOINT_WAITS[problem.reason], reason: problem.reason, waits: CHECKPOINT_WAITS,
-        check: problem.reason === 'not_checkpoint' ? null
-            : async () => waitReason((await fetchSendPlan(model, version, img)
-                                      || { checkpoint_problem: problem }).checkpoint_problem),
-        run: () => sendGalleryImage({ img, model, version }),
-        // Another file of the image's version, or another version of its
-        // model, picked in the dialog (#278) - as your generations' send has.
-        useInstalled: (versionId, kind) => sendGalleryImage({ img, model, version, useVersion: versionId,
-                                                              useKind: kind }),
-    };
+    const send = civitaiSendLine({ img, model, version }, { opened: 'stop', problem });
     const listing = problem.reason === 'not_listed';
     if (listing) refreshWebUiModelList();
     if (!await showImageResources(img, version?.id, { note, send, recheck: listing })) showNotice(note);
+}
+
+/** The dialog's Send button, as the press that opened it: "Send to txt2img", or the img2img mode's. */
+function sendButtonLabel(into, tab = 'txt2img') {
+    if (into) return IMG2IMG_SENDS.find((s) => s.mode === Number(into.mode))?.label || 'Send to img2img';
+    return `Send to ${tab}`;
+}
+
+/**
+ * Whether the dialog can ask again about the image's own checkpoint: not
+ * for one Civitai files under a family no preset runs, nor for no
+ * checkpoint at all - nothing it offers changes those.
+ */
+const checkable = (problem) => Boolean(problem) && !['not_checkpoint', 'unsupported'].includes(problem.reason)
+    && !problem.own;
+
+/**
+ * The Resources dialog's Send line for a Civitai image (#377; resources.mjs
+ * draws it): opened by a `stop`, by a press that asked to `choose`, or by the
+ * `resources` button - which runs no plan, its box going by the image's
+ * checkpoint row. Its Send sends as this tab's Send would, with the image's
+ * own checkpoint or the one picked, and never opens the dialog again.
+ */
+function civitaiSendLine({ img, model, version, into = null }, { opened, problem = null, goesOn = false } = {}) {
+    const named = imageCheckpoint(img);
+    return {
+        opened, goesOn,
+        ready: opened === 'resources' ? undefined : !problem,
+        // A checkpoint's gallery sends its own file: the image's row is not the one.
+        galleryOwn: galleryIsCheckpoint(model, version) && !problem,
+        why: problem ? CHECKPOINT_WAITS[problem.reason] || checkpointNote(problem) || CHECKPOINT_WAITS.missing : '',
+        reason: problem ? waitReason(problem) : '', waits: CHECKPOINT_WAITS,
+        check: checkable(problem)
+            ? async () => waitReason((await fetchSendPlan(model, version, img)
+                                      || { checkpoint_problem: problem }).checkpoint_problem)
+            : null,
+        run: () => sendGalleryImage({ img, model, version, into }),
+        pick: (name, imageModel) => sendGalleryImage({ img, model, version, into, useCheckpoint: name, imageModel }),
+        button: sendButtonLabel(into),
+        list: { version_ids: named.versionIds.join(','), hashes: named.hashes.join(','),
+                gallery_file: version?.file_path || '', gallery_base_model: version?.base_model || model?.base_model || '' },
+    };
+}
+
+/** The same for one of your generations: `args` as sendInfotext takes them. */
+function generationSendLine(args, { opened, problem = null, goesOn = false } = {}) {
+    return {
+        opened, goesOn,
+        ready: opened === 'resources' ? undefined : !problem,
+        why: problem ? CHECKPOINT_WAITS[problem.reason] || CHECKPOINT_WAITS.missing : '',
+        reason: problem ? waitReason(problem) : '', waits: CHECKPOINT_WAITS,
+        check: checkable(problem)
+            ? async () => {
+                const answer = await fetchGenerationPlan(args.generationId);
+                if (answer && !answer.checkpoint_missing) return '';
+                return waitReason(answer?.checkpoint_problem || { reason: 'missing' });
+            }
+            : null,
+        run: () => sendInfotext(args),
+        pick: (name, imageModel) => sendInfotext({ ...args, useCheckpoint: name, imageModel }),
+        button: sendButtonLabel(args.into, sendTab({ mode: args.mode })),
+        list: { generation: Number(args.generationId) },
+    };
+}
+
+/**
+ * The Send line a Resources button's dialog draws (#377), for a Civitai
+ * image in a gallery - or null where its Send is disabled: Send as… and the
+ * line go with Send.
+ */
+export function gallerySendLine({ img, model, version }) {
+    if (cannotSend(img, model, version)) return null;
+    return civitaiSendLine({ img, model, version }, { opened: 'resources' });
+}
+
+/** The same for one of your generations' images; null for one with nothing to send. */
+export function generationResourcesLine({ infotext, mode, meta, generationId, imageId = null, whole = false }) {
+    if (!infotext || generationId === null || generationId === undefined) return null;
+    return generationSendLine({ infotext, mode, meta, generationId, imageId, whole }, { opened: 'resources' });
 }
 
 /** A short message in the corner of the page, gone after a while. */
@@ -1364,27 +1457,34 @@ async function pasteWithButton(tab, promptTextarea, text) {
  * Send a gallery image to txt2img - img2img for an image-to-video model -
  * with Forge set up for it: its UI preset, checkpoint, modules, scheduler and
  * hires fix, its LoRAs and embeddings as chips. `model` is the library's
- * model the gallery is of, `version` the one it shows. `useVersion`: the
- * library's version to load in place of the image's checkpoint - a `file`
- * of its own version or another `version` of its model (`useKind`), picked
- * in the Resources dialog (#278).
+ * model the gallery is of, `version` the one it shows. `useCheckpoint`: a
+ * checkpoint picked in the Resources dialog in place of the image's (#377),
+ * by Forge's name, with `imageModel`, the model the dialog learnt the
+ * image's checkpoint is of. `choose`: the tab's box is ticked, or Send as…
+ * was pressed - the dialog opens with the list, whatever the plan says. The
+ * tab reads its own box: this never does, as the dialog's own Send comes
+ * back here.
  */
-export async function sendGalleryImage({ img, model, version, useVersion = null, useKind = 'file', into = null }) {
+export async function sendGalleryImage({ img, model, version, useCheckpoint = null, imageModel = null, into = null,
+                                         choose = false }) {
     // Into img2img (#299), its original with it: any image goes, whatever
     // its data lacks, under the progress popup while the server fetches it.
     const sending = into ? { mode: Number(into.mode), picture: { url: originalMediaUrl(img.url || '') },
                              width: img.width ?? null, height: img.height ?? null } : null;
-    if (!sending) return sendGalleryImageTo({ img, model, version, useVersion, useKind });
+    const pick = useCheckpoint ? { checkpoint: useCheckpoint, imageModel } : null;
+    const args = { img, model, version, into };
+    // Asked to choose, nothing is fetched until the dialog's Send: no popup.
+    if (!sending || (choose && !pick)) return sendGalleryImageTo({ ...args, pick, choose, sending });
     const progress = showProgress('Fetching the image from Civitai\u2026');
     try {
-        await sendGalleryImageTo({ img, model, version, useVersion, useKind, sending });
+        await sendGalleryImageTo({ ...args, pick, choose, sending });
         await sendSettled;
     } finally {
         progress.close();
     }
 }
 
-async function sendGalleryImageTo({ img, model, version, useVersion, useKind, sending = null }) {
+async function sendGalleryImageTo({ img, model, version, into = null, pick = null, choose = false, sending = null }) {
     // Its Send is disabled; pressed regardless - the viewer's copy of a card
     // drawn before - it is said, and nothing is asked. Before anything reads
     // the image's data: an image with none threw on it here (#266).
@@ -1401,7 +1501,7 @@ async function sendGalleryImageTo({ img, model, version, useVersion, useKind, se
         // Forge's UI preset first: changing it resets what the image is about
         // to set. The chips' resources are asked meanwhile.
         const filesAsked = fetchImageFiles(img);
-        const askPlan = () => fetchSendPlan(model, version, img, useVersion);
+        const askPlan = () => fetchSendPlan(model, version, img, pick);
         const plan = await whenListed(await askPlan(), askPlan);
         // The server builds what is pasted (#302): with no plan, there is
         // nothing to send - where the page once built a text of its own.
@@ -1415,6 +1515,15 @@ async function sendGalleryImageTo({ img, model, version, useVersion, useKind, se
         // One Forge cannot load stops it (#134) - the gallery's own with a
         // notice alone (#323).
         const problem = plan.checkpoint_problem;
+        if (choose && !pick) {
+            // Asked to choose (#377): the dialog opens with the list, whatever the plan said.
+            const note = problem ? checkpointNote(problem) || '' : '';
+            const send = civitaiSendLine({ img, model, version, into },
+                                         { opened: 'choose', problem, goesOn: Boolean(problem && sending && !problem.own) });
+            if (problem?.reason === 'not_listed' && !problem.own) refreshWebUiModelList();
+            await showImageResources(img, version?.id, { note, send, recheck: problem?.reason === 'not_listed' });
+            return;
+        }
         if (problem && sending) {
             showNotice(keptCheckpointNote(problem), { info: true });
         } else if (problem?.own) {
@@ -1426,7 +1535,7 @@ async function sendGalleryImageTo({ img, model, version, useVersion, useKind, se
             await stopForCheckpoint(img, model, version, problem);
             return;
         }
-        if (plan.instead) showNotice(insteadNotice(plan.instead, useKind), { info: true });
+        if (plan.instead) showNotice(insteadNotice(plan.instead, plan.pick), { info: true });
 
         // An image-to-video model starts from an image, which txt2img has
         // no way to give it - it failed in the sampler - so it goes to
@@ -1463,6 +1572,12 @@ async function sendGalleryImageTo({ img, model, version, useVersion, useKind, se
         const source = { kind: 'civitai', image: img.id, video, frames,
                          upscaler: tab === 'txt2img' ? plan.upscaler || null : null,
                          denoise: tab === 'img2img' && !sending ? 1 : null };
+        if (pick) {
+            // A pick (#377): the loader leaves the image's Hires fix and refiner out for another model's.
+            const named = imageCheckpoint(img);
+            Object.assign(source, { use_checkpoint: pick.checkpoint, image_model: pick.imageModel || null,
+                                    version_ids: named.versionIds.join(','), hashes: named.hashes.join(',') });
+        }
         if (resources.renames.length) {
             const rename = (text) => resources.renames
                 .reduce((out, { from, to }) => renameLoraTags(out, from, to), text);

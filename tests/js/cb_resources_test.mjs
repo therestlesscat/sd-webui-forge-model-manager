@@ -93,9 +93,9 @@ const card = () => document.querySelector('#cb_images .mm-image-card');
 const button = () => Array.from(card()?.querySelectorAll('.mm-image-actions button') || [])
     .find((b) => b.textContent.trim().startsWith('Resources'));
 const panel = () => document.querySelector('.mm-resources-modal');
-const rows = () => Array.from(panel()?.querySelectorAll('tbody tr') || [])
+const rows = () => Array.from(panel()?.querySelectorAll('.mm-res-row') || [])
     .map((row) => [row.querySelector('.mm-res-type')?.textContent.trim(),
-                   row.querySelector('.mm-res-name')?.childNodes[0]?.textContent.trim()]);
+                   row.querySelector('.mm-res-view, .mm-res-title')?.textContent.trim()]);
 
 $('cb_status').textContent = '';
 act('civitaiBrowser.search');
@@ -104,13 +104,14 @@ await act('civitaiBrowser.openModel', { index: 0 });
 await waitFor('the gallery', () => card());
 check('a PG image has no badge, whatever Civitai\'s old nsfw flag says (it once read "true")',
       card().querySelector('.mm-nsfw-badge')?.textContent ?? null, null);
-await waitFor('the button relabelled', () => button()?.textContent.trim() === 'Resources (2)');
-check('the button counts each resource once, and not the model the gallery shows',
-      button()?.textContent.trim(), 'Resources (2)');
+await waitFor('the button relabelled', () => button()?.textContent.trim() === 'Resources (3)');
+check('the button counts each resource once, the gallery\'s own checkpoint among them (#377)',
+      button()?.textContent.trim(), 'Resources (3)');
 
 // The Model Manager showing the LoRA's own model, whose version its gallery
-// leaves out of its Resources. The browser's leaves out its own gallery's
+// leaves out of its Resources. The browser's goes by its own gallery's
 // version, and only that: it once fell back to the Model Manager's (#90).
+// That version, a checkpoint, is kept and marked as the gallery's (#377).
 $('mm_load_btn').dispatchEvent(new window.Event('click', { bubbles: true }));
 await waitFor('the Model Manager\'s grid', () => document.querySelectorAll('#mm_grid .model-card').length > 0);
 await act('modelManager.selectModel', { index: 0 });
@@ -118,13 +119,17 @@ await act('modelManager.selectModel', { index: 0 });
 check('its button opens the image\'s resources', [button()?.dataset.action, button()?.dataset.index],
       ['civitaiBrowser.showResources', '0']);
 press(button());
-await waitFor('the dialog', () => rows().length === 2);
-check('it opens the Model Manager\'s Resources dialog: the same table, the same rows - the LoRA among them, '
-      + 'though the Model Manager shows its model',
-      [!!panel()?.querySelector('table.mm-resources-table'), rows()],
-      [true, [['LORA', 'Sea Spray'], ['VAE', 'VAE ft MSE']]]);
+await waitFor('the dialog', () => rows().length === 3);
+check('it opens the Model Manager\'s Resources dialog: the same list, the same rows - the LoRA among them, '
+      + 'though the Model Manager shows its model, and the browser\'s own checkpoint first, marked as the gallery\'s',
+      [!!panel()?.querySelector('.mm-resources-list'), rows(),
+       Array.from(panel().querySelectorAll('.mm-res-own')).map((n) => n.closest('.mm-res-row').querySelector('.mm-res-view')?.textContent.trim())],
+      [true, [['Checkpoint', 'The Model Itself'], ['LoRA', 'Sea Spray'], ['VAE', 'VAE ft MSE']], ['The Model Itself']]);
 
 const download = panel().querySelector('[data-res-download="6001"] button');
+check('25. no Send line: the Civitai Browser has no Send (#377)',
+      [!!panel()?.querySelector('.mm-resources-send'), !!panel()?.querySelector('[data-action="resources.chooseTick"]')],
+      [false, false]);
 check('with a Download for each: the LoRA alone, into the library',
       [download?.dataset.action, download?.dataset.versionId, download?.dataset.modelId],
       ['resources.download', '6001', '600']);

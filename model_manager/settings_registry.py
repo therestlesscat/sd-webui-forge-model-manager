@@ -352,6 +352,11 @@ SETTINGS: Tuple[Setting, ...] = (
             "<lora:AnimeStyle-v2.0:0.8>. A download from the Resources dialog does the same once its file arrives. "
             "When off, your prompt keeps the image's names, and a LoRA chip's press puts your file's tag in beside "
             "the image's. A download from a chip still changes that chip's tag, as you pressed it.", (SEND,)),
+    Setting("model_manager_send_choose_checkpoint", "send", "checkbox", "Choose the checkpoint at every Send",
+            "Choose the checkpoint at every Send",
+            "Every Send in the Civitai Images and Generations tabs opens the Resources dialog first, where you pick "
+            "the checkpoint to send with. Each tab also has a box of its own for this in its toolbar, which this "
+            "setting ticks or clears. The Resources dialog's own box starts ticked too.", (CI, GEN, SEND)),
 
     # ------------------------------------------------------- Generations
     Setting("model_manager_generations_delete_files", "your_generations", "checkbox",

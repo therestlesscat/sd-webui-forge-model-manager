@@ -8,8 +8,9 @@
 // listing the file - and, once the dialog has stopped asking with the
 // checkpoint still not ready, offers Check again. How Send finds out does not
 // change: a check at once, then one each TIMING.sendRecheck for
-// TIMING.sendRecheckMax.
-import { checker, mountTab, press, sharedModule, startServices } from './harness.mjs';
+// TIMING.sendRecheckMax. Since #377 a stop opens with its box ticked, to pick
+// one of your checkpoints; these are the image's own, the box unticked.
+import { checker, mountTab, press, sharedModule, startServices, tick } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_generations.py');
 // The page's waits, shortened: the fake server answers at once.
@@ -80,6 +81,7 @@ const close = () => document.querySelectorAll('#mm_meta_modal').forEach((n) => n
 // ------------------------------------- not in the library, Download offered
 await showImageResources(image(CHECKPOINT), null, { note: 'The checkpoint is not in your library.',
                                                     send: stoppedSend('missing') });
+await tick('resources.chooseTick', false);
 await waitFor('the checkpoint\'s Download', () => download());
 await waitFor('the line', () => line().includes('download it above'));
 check('not in the library: the line says to download it above, and nothing to check again',
@@ -121,6 +123,7 @@ close();
 answer = 'not_listed';
 await showImageResources(image(CHECKPOINT), null, { note: 'Forge does not list it yet.',
                                                     send: stoppedSend('not_listed'), recheck: true });
+await tick('resources.chooseTick', false);
 await waitFor('the line about Forge', () => line().includes('Forge to list'));
 check('asking: the line says Send waits for Forge, nothing to check again',
       [line(), Boolean(checkAgain())], ['Waiting for Forge to list the checkpoint…', false]);
@@ -140,6 +143,7 @@ close();
 answer = 'missing';
 await showImageResources(image(CHECKPOINT), null, { note: 'Not in your library.',
                                                     send: stoppedSend('missing'), recheck: true });
+await tick('resources.chooseTick', false);
 await waitFor('Check again', () => checkAgain());
 check('stopped asking with the checkpoint still missing: the line, with Check again',
       [line(), Boolean(checkAgain())], ['The checkpoint is not in your library yet.', true]);
@@ -148,6 +152,7 @@ close();
 // ------------------------------------------------- no Download to offer
 answer = 'missing';
 await showImageResources(image(GONE), null, { note: 'Not in your library.', send: stoppedSend('missing') });
+await tick('resources.chooseTick', false);
 await waitFor('the gone checkpoint\'s row', () => modal()?.querySelector(`[data-res-download="${GONE}"]`)
     && !modal().querySelector(`[data-res-download="${GONE}"]`).textContent.trim()
     && document.querySelectorAll('[data-res-download]').length === 2);

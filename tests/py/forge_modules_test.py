@@ -187,9 +187,10 @@ def forge_modules(params=None, **more):
     from model_manager import send
     p = {**(params or {}), **more}
     args = (db, p.get('file_path', ''), p.get('base_model', ''), p.get('version_ids', ''), p.get('hashes', ''),
-            p.get('model_name', ''), p.get('vae', ''), list(p.get('module') or []), int(p.get('use_version') or 0))
+            p.get('model_name', ''), p.get('vae', ''), list(p.get('module') or []), p.get('use_checkpoint') or '')
+    picked = {'image_model': p['image_model']} if 'image_model' in p else {}
     try:
-        answer = send.civitai_plan(*args, **({'vae_keys': p['vae_keys']} if 'vae_keys' in p else {}))
+        answer = send.civitai_plan(*args, **({'vae_keys': p['vae_keys']} if 'vae_keys' in p else {}), **picked)
     except TypeError:                                    # before #326, which added the keys
         answer = send.civitai_plan(*args)
     return json.loads(json.dumps(answer))
@@ -614,6 +615,61 @@ db.versions_named_by = lambda *args, **kw: lookups.append(args) or named_by(*arg
 forge_modules(asked)
 db.versions_named_by = named_by
 check('from a LoRA\'s gallery, the image\'s checkpoint looked up once, not once for each', len(lookups), 1)
+
+# ------------------------------------------ a checkpoint picked (#377)
+# Picked in the Resources dialog, by Forge's name: it stands for the image's
+# checkpoint. A pick of another model takes none of the image's VAE and text
+# encoders - its family's instead - and the model is "another" where the
+# page knows none for the image.
+xl_path = facts['linked_paths'][6]
+db.set_architecture(xl_path, 'xl', 'SDXL', False, False, '9999', file_type='Checkpoint')
+xl_id = db.get_version(xl_path)['id']
+FORGE = {'flux.safetensors [abcd1234]': flux_path, 'sdxl.safetensors [5678]': xl_path}
+host.checkpoint_file = lambda name: FORGE.get(name)
+host.checkpoint_name = lambda path: next((n for n, p in FORGE.items() if p == path), None)
+host.installed_modules = lambda: dict(listed)
+fi.classify_file = lambda path: kinds[path]
+flux_model = db.get_version(flux_path)['model_id']
+flux_image = {'file_path': lora_path, 'version_ids': '2999', 'module': ['ae.safetensors', 'clip_l.safetensors',
+                                                                    't5xxl_fp8.safetensors']}
+body = forge_modules({**flux_image, 'use_checkpoint': 'sdxl.safetensors [5678]', 'image_model': flux_model})
+check('5. a Flux image sent with an SDXL pick: the pick\'s family, named instead, none of the image\'s T5, CLIP or ae',
+      (body['preset'], body['checkpoint'], body['instead'], body['pick'], body['other_model'], body['target']),
+      ('xl', 'sdxl.safetensors [5678]', os.path.basename(xl_path), 'model', True, []))
+body = forge_modules({'file_path': lora_path, 'version_ids': str(xl_id), 'module': ['sdxl_vae.safetensors'],
+                      'use_checkpoint': 'flux.safetensors [abcd1234]', 'image_model': 1})
+check('   an SDXL image sent with a Flux pick: the Flux pick\'s ae and T5 picked, not the image\'s SDXL VAE',
+      (body['preset'], body['target']), ('flux', ['clip_l.safetensors', 't5xxl_fp16.safetensors', 'ae.safetensors']))
+body = forge_modules({**flux_image, 'use_checkpoint': 'flux.safetensors [abcd1234]', 'image_model': flux_model})
+check('7. a pick of the image\'s own model: its modules kept, as named',
+      (body['pick'], body['other_model'], body['target']),
+      ('version', False, ['clip_l.safetensors', 't5xxl_fp8.safetensors', 'ae.safetensors']))
+body = forge_modules({**flux_image, 'use_checkpoint': 'flux.safetensors [abcd1234]'})
+check('8. the same pick, the page knowing no model for the image\'s checkpoint: another model\'s, modules dropped',
+      (body['pick'], body['other_model'], body['target']),
+      ('model', True, ['clip_l.safetensors', 't5xxl_fp16.safetensors', 'ae.safetensors']))
+body = forge_modules({'file_path': xl_path, 'use_checkpoint': 'flux.safetensors [abcd1234]'})
+check('10. a pick in a checkpoint\'s gallery takes the gallery file\'s place',
+      (body['checkpoint'], body['preset'], body['checkpoint_problem']), ('flux.safetensors [abcd1234]', 'flux', None))
+body = sent_from(own_sd_vae, version_ids=str(xl_id), use_checkpoint='flux.safetensors [abcd1234]')
+check('    in an SD VAE\'s gallery, a Flux pick: the gallery\'s VAE left out and said, Flux\'s ae in its place',
+      (body['target'], body['modules_unfit']),
+      (['clip_l.safetensors', 't5xxl_fp16.safetensors', 'ae.safetensors'], [{'name': 'sd_own.safetensors', 'kind': 'vae_sd'}]))
+body = sent_from(own_vae, version_ids=str(xl_id), use_checkpoint='flux.safetensors [abcd1234]')
+check('    a Flux VAE\'s gallery, a Flux pick: kept, the family takes it',
+      (body['target'], body['modules_unfit']), (['clip_l.safetensors', 't5xxl_fp16.safetensors', 'ae_own.safetensors'], []))
+body = sent_from(own_te, version_ids=str(flux_id), use_checkpoint='sdxl.safetensors [5678]')
+check('    a text encoder\'s gallery, an SDXL pick: the encoder left out and said - SDXL brings its own',
+      (body['target'], body['modules_unfit']), ([], [{'name': 't5_own.safetensors', 'kind': 't5xxl'}]))
+body = sent_from(own_sd_vae, version_ids=str(flux_id), use_checkpoint='sdxl.safetensors [5678]')
+check('    an SD VAE\'s gallery, an SDXL pick: kept', (body['target'], body['modules_unfit']), (['sd_own.safetensors'], []))
+picked_route = client.get('/model-manager/send/plan', params={
+    'kind': 'civitai', 'image': 990001, 'file_path': lora_path, 'version_ids': str(flux_id),
+    'use_checkpoint': 'sdxl.safetensors [5678]', 'image_model': 1}).json()
+check('5. on the one route: no VAE named for a WebUI without the VAE / Text Encoder control - it is the image\'s',
+      (picked_route.get('other_model'), picked_route.get('named_vae')), (True, None))
+host.installed_modules = lambda: {label: label for label in MODULES}
+fi.classify_file = lambda path: MODULES[path]
 
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

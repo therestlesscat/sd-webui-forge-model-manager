@@ -62,7 +62,9 @@ const { refreshWebUiModelLists } = await shared('forge.mjs');
 const { connectJobs, bindJobControls, checkOngoingProcesses, askImageCount, showSyncDialog } = await shared('jobs.mjs');
 const { renderImageCard: sharedImageCard, showImageMeta, imageTextHtml } = await shared('image_card.mjs');
 const { showImageResources, resourceButtonLabel, learnResourceHashes } = await shared('resources.mjs');
-const { sendInfotext, sendTab, sendGalleryImage, cannotSend } = await shared('send.mjs');
+const {
+    sendInfotext, sendTab, sendGalleryImage, cannotSend, gallerySendLine, generationResourcesLine,
+} = await shared('send.mjs');
 
 // The notice of a newer version beside the header's: it draws itself.
 await shared('update_notice.mjs');
@@ -2513,6 +2515,8 @@ const generationViewerSource = {
         const label = resourceButtonLabel({ meta: image.meta || {} }, currentVersionId);
         return `${ratingRowHtml(image, 'modelManager.rateInViewer')}
             <button type="button" class="mm-btn primary mm-btn-small" data-gen-send>Send to ${sendTab(card)}</button>
+            <button type="button" class="mm-btn secondary mm-btn-small" data-gen-send-as
+                    title="Pick the checkpoint to send with">Send as…</button>
             ${label ? `<button type="button" class="mm-btn secondary mm-btn-small" data-gen-resources>${label}</button>` : ''}
             <button type="button" class="mm-btn danger mm-btn-small" data-gen-delete>Delete</button>`;
     },
@@ -2549,16 +2553,20 @@ const generationViewerSource = {
     onClick: (event, index) => {
         const { card, image } = generationViewerImages()[index] || {};
         if (!image) return false;
-        if (event.target.closest?.('[data-gen-send]')) {
+        // Send, or Send as… (#377): the Resources dialog, your checkpoints to pick from.
+        const sendAs = event.target.closest?.('[data-gen-send-as]');
+        if (sendAs || event.target.closest?.('[data-gen-send]')) {
             previousPlace.remember(`#mm_images [data-view-generation-image="${Number(image.id)}"]`);
             closeViewer();
             sendInfotext({ infotext: image.infotext, mode: card.mode, meta: image.meta, generationId: card.id,
-                           imageId: image.id });
+                           imageId: image.id, choose: Boolean(sendAs) });
             return true;
         }
         if (event.target.closest?.('[data-gen-resources]')) {
             showImageResources(image, currentVersionId, { leaving: () => previousPlace.remember(
-                `#mm_images [data-view-generation-image="${Number(image.id)}"]`) });
+                `#mm_images [data-view-generation-image="${Number(image.id)}"]`),
+                send: generationResourcesLine({ infotext: image.infotext, mode: card.mode, meta: image.meta,
+                                                generationId: card.id, imageId: image.id }) });
             return true;
         }
         if (event.target.closest?.('[data-gen-delete]')) {
@@ -2650,6 +2658,8 @@ function renderGenerationCard(card, index) {
                     <button class="mm-btn primary mm-send-btn" data-action="modelManager.sendGeneration" data-generation="${Number(card.id)}">
                         Send to ${sendTab(card)}
                     </button>
+                    <button class="mm-btn secondary mm-send-as-btn" data-action="modelManager.sendGenerationAs"
+                            data-generation="${Number(card.id)}" title="Pick the checkpoint to send with">Send as…</button>
                     <button class="mm-btn secondary" data-copy="${escapeHtml(prompt)}">Copy Prompt</button>
                     ${resourcesLabel ? `<button class="mm-btn secondary" data-resources-generation="${Number(card.id)}"
                         data-action="modelManager.showGenerationResources" data-generation="${Number(card.id)}">${resourcesLabel}</button>` : ''}
@@ -2672,7 +2682,7 @@ function renderGenerationCard(card, index) {
  * An img2img generation's source image is not kept, so img2img gets its
  * settings and a word to add an image.
  */
-async function sendGeneration(id) {
+async function sendGeneration(id, { choose = false } = {}) {
     const { card } = drawnGeneration(id);
     const first = card?.images?.[0];
     const infotext = card?.infotext || first?.infotext;
@@ -2682,7 +2692,7 @@ async function sendGeneration(id) {
     }
     previousPlace.remember(`#mm_images .mm-generation-card[data-generation="${Number(card.id)}"]`);
     if (await sendInfotext({ infotext, mode: card.mode, meta: first?.meta, generationId: card.id,
-                             imageId: first?.id, whole: true })) {
+                             imageId: first?.id, whole: true, choose })) {
         console.log(`[ModelManager] Sent generation ${card.id} to ${sendTab(card)}`);
     }
 }
@@ -2739,8 +2749,8 @@ let galleryWidth = null;
 // A Civitai image's card, as both tabs draw it (shared/image_card.mjs): this
 // tab's Send - disabled for an image it cannot send from this gallery - Show
 // All and Resources, and the version its gallery is of.
-const IMAGE_ACTIONS = { send: 'modelManager.sendImage', showAll: 'modelManager.showImageMeta',
-                        resources: 'modelManager.showResources' };
+const IMAGE_ACTIONS = { send: 'modelManager.sendImage', sendAs: 'modelManager.sendImageAs',
+                        showAll: 'modelManager.showImageMeta', resources: 'modelManager.showResources' };
 function renderImageCard(img, index) {
     const model = currentModels[selectedModelIndex];
     const sendBlocked = cannotSend(img, model, model ? sentFile(shownVersion(model)) : null);
@@ -2781,8 +2791,11 @@ function refreshResourceButtons(images = [...imageGallery.images, ...generationC
 
 // Show the resources behind an image, resolved and merged
 function showResources(imageIndex) {
-    return showImageResources(imageGallery.images[imageIndex], currentVersionId, { leaving: () => previousPlace.remember(
-        `#mm_images .mm-image-card[data-index="${Number(imageIndex)}"]`) });
+    const img = imageGallery.images[imageIndex];
+    const model = currentModels[selectedModelIndex];
+    const send = img ? gallerySendLine({ img, model, version: model ? sentFile(shownVersion(model)) : null }) : null;
+    return showImageResources(img, currentVersionId, { leaving: () => previousPlace.remember(
+        `#mm_images .mm-image-card[data-index="${Number(imageIndex)}"]`), send });
 }
 
 /**
@@ -2791,8 +2804,13 @@ function showResources(imageIndex) {
  */
 function showGenerationResources(id) {
     const { card } = drawnGeneration(id);
-    return card ? showImageResources(generationResourcesImage(card), currentVersionId, { leaving: () => previousPlace.remember(
-        `#mm_images .mm-generation-card[data-generation="${Number(card.id)}"]`) }) : undefined;
+    if (!card) return undefined;
+    // Its Send line sends the generation, as its card's Send does (#377): by its id, which the image the dialog lists drops.
+    const first = card.images?.[0];
+    const send = generationResourcesLine({ infotext: card.infotext || first?.infotext, mode: card.mode, meta: first?.meta,
+                                          generationId: card.id, imageId: first?.id, whole: true });
+    return showImageResources(generationResourcesImage(card), currentVersionId, { leaving: () => previousPlace.remember(
+        `#mm_images .mm-generation-card[data-generation="${Number(card.id)}"]`), send });
 }
 
 /**
@@ -2835,7 +2853,7 @@ function sentFile(shown) {
     return (files.length > 1 && files.find((f) => f.send_uses)) || shown;
 }
 
-async function sendToTxt2img(imageIndex) {
+async function sendToTxt2img(imageIndex, { choose = false } = {}) {
     const img = imageGallery.images[imageIndex];
     if (!img || !img.meta) {
         console.error('[ModelManager] No image data at index', imageIndex);
@@ -2846,7 +2864,7 @@ async function sendToTxt2img(imageIndex) {
     previousPlace.remember(`#mm_images .mm-image-card[data-index="${Number(imageIndex)}"]`);
 
     const model = currentModels[selectedModelIndex];
-    await sendGalleryImage({ img, model, version: model ? sentFile(shownVersion(model)) : null });
+    await sendGalleryImage({ img, model, version: model ? sentFile(shownVersion(model)) : null, choose });
 }
 
 // Close details panel
@@ -3418,6 +3436,7 @@ work.provide('modelManager.download', ({ modelId, versionId, fileId, fileName, s
     startDownload(safeId(modelId), safeId(versionId), safeId(fileId), { fileName, sizeKb }));
 work.provide('modelManager.selectFile', (data, picker) => selectFile(picker.value));
 work.provide('modelManager.sendImage', ({ index }) => sendToTxt2img(Number(index)));
+work.provide('modelManager.sendImageAs', ({ index }) => sendToTxt2img(Number(index), { choose: true }));
 work.provide('modelManager.showImageMeta', ({ index }) => showImageMetaAt(Number(index)));
 work.provide('modelManager.showResources', ({ index }) => showResources(Number(index)));
 work.provide('modelManager.selectPill', ({ index }) => selectPill(Number(index)));
@@ -3436,6 +3455,7 @@ work.provide('modelManager.refreshGenerations', () => refreshGenerations());
 work.provide('modelManager.showGalleryTab', ({ tab }) => showGalleryTab(tab));
 work.provide('modelManager.showMoreGenerations', () => showMoreGenerations());
 work.provide('modelManager.sendGeneration', ({ generation }) => sendGeneration(Number(generation)));
+work.provide('modelManager.sendGenerationAs', ({ generation }) => sendGeneration(Number(generation), { choose: true }));
 work.provide('modelManager.showGenerationResources', ({ generation }) => showGenerationResources(Number(generation)));
 work.provide('modelManager.showAllGeneration', ({ generation }) => showAllGeneration(Number(generation)));
 work.provide('modelManager.deleteGeneration', ({ generation }) => deleteGeneration(Number(generation)));

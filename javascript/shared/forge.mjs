@@ -199,6 +199,15 @@ export function refreshWebUiModelList() {
 }
 
 /**
+ * Resolves once every refresh asked for so far has been answered: what reads
+ * Forge's lists after a download - the Resources dialog's list of your
+ * checkpoints (#377) - waits for it.
+ */
+export function afterRefreshes() {
+    return inLine(() => {});
+}
+
+/**
  * Tell Forge its model files changed - downloaded, moved, forgotten,
  * deleted (#193): its checkpoint and VAE / text encoder lists, then its
  * extra networks - LoRAs, embeddings - through their hidden refresh, which

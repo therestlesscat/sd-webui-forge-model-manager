@@ -197,7 +197,7 @@ check('a card whose images used a LoRA offers Resources, counting it; one that u
 await act('modelManager.showGenerationResources', { generation: 1 });
 const modal = document.querySelector('.mm-resources-modal');
 check('which opens the Resources dialog on them, as a Civitai image\'s does',
-      Array.from(modal?.querySelectorAll('.mm-res-name') || []).map((n) => n.textContent.trim()), ['Add Detail v1']);
+      Array.from(modal?.querySelectorAll('.mm-res-line') || []).map((n) => n.textContent.replace(/\s+/g, ' ').trim()), ['Add Detail v1']);
 document.querySelectorAll('#mm_meta_modal').forEach((overlay) => overlay.close());
 
 // The viewer: a click on an image opens it on the images the cards show, each
@@ -207,10 +207,17 @@ cards()[0].querySelector('img[data-view-generation-image]').dispatchEvent(new wi
 check('a click on an image opens the viewer on it',
       [!!viewer(), viewer()?.querySelector('.mm-viewer-image')?.getAttribute('src')],
       [true, 'http://localhost:7860/model-manager/generations/images/11/file']);
-check('with its own Send, Resources and Delete, and its rating row, below it',
+check('with its own Send, Send as… (#377), Resources and Delete, and its rating row, below it',
       [Array.from(viewer().querySelectorAll('.mm-viewer-actions > button')).map((b) => b.textContent.trim()),
        viewer().querySelectorAll('.mm-viewer-actions .mm-rate-chip').length],
-      [['Send to txt2img', 'Resources (1)', 'Delete'], 5]);
+      [['Send to txt2img', 'Send as…', 'Resources (1)', 'Delete'], 5]);
+press(viewer().querySelector('[data-gen-send-as]'));
+await waitFor('the dialog from the viewer', () => document.querySelector('.mm-resources-modal [data-action="resources.chooseTick"]'));
+await new Promise((resolve) => setTimeout(resolve, 20));
+check('30. the viewer\'s Send as…: closes the viewer, as Send does, and opens the dialog to pick',
+      [!!viewer(), !!document.querySelector('.mm-resources-modal')], [false, true]);
+document.querySelectorAll('#mm_meta_modal').forEach((overlay) => overlay.close());
+cards()[0].querySelector('img[data-view-generation-image]').dispatchEvent(new window.Event('click', { bubbles: true }));
 check('its Delete is red, as every delete is (#105)',
       viewer().querySelector('[data-gen-delete]')?.classList.contains('danger'), true);
 deleteFilesSetting = true;
@@ -255,6 +262,11 @@ pasted.img2img = 0;
 
 check('a card sends back to the tab its generation was made in',
       [buttons(cards()[0])[0], buttons(cards()[1])[0]], ['Send to txt2img', 'Send to img2img']);
+check('30. with Send as… right after Send (#377)', buttons(cards()[0])[1], 'Send as…');
+// The two tabs' boxes (#377) are theirs alone: ticked in this browser, the
+// Model Manager's Send still goes at once.
+localStorage.setItem('mm_generations_choose_checkpoint', 'true');
+localStorage.setItem('mm_gallery_choose_checkpoint', 'true');
 await act('modelManager.sendGeneration', { generation: 1 });
 // The text is the server's now (#302): the paste button waits for it.
 await waitFor('the paste into txt2img', () => pasted.txt2img > 0);
@@ -265,6 +277,19 @@ await act('modelManager.sendGeneration', { generation: 2 });
 await waitFor('the paste into img2img', () => pasted.img2img > 0);
 check('an img2img generation\'s goes to img2img', [document.querySelector('#img2img_prompt textarea').value,
       pasted.img2img], ['a harbour\nSteps: 30', 1]);
+check('31. the tabs\' boxes ticked in this browser: the Model Manager\'s Send went at once, no dialog',
+      !!document.querySelector('.mm-resources-modal'), false);
+localStorage.removeItem('mm_generations_choose_checkpoint');
+localStorage.removeItem('mm_gallery_choose_checkpoint');
+// Send as…: the Resources dialog, your checkpoints to pick from; nothing pasted yet.
+const pastedBeforeAs = pasted.txt2img;
+await act('modelManager.sendGenerationAs', { generation: 1 });
+await waitFor('the dialog Send as… opens', () => document.querySelector('.mm-resources-modal [data-action="resources.chooseTick"]'));
+check('30. a card\'s Send as…: the Resources dialog, its box ticked, its Send naming the tab; nothing pasted',
+      [document.querySelector('.mm-resources-modal [data-action="resources.chooseTick"]')?.checked,
+       document.querySelector('.mm-resources-modal [data-action="resources.sendAgain"]')?.textContent.trim(),
+       pasted.txt2img - pastedBeforeAs], [true, 'Send to txt2img', 0]);
+document.querySelectorAll('#mm_meta_modal').forEach((overlay) => overlay.close());
 // Said once the paste is in: whether the press was replayed is the server's answer (#302).
 await waitFor('the source notice', () => document.querySelector('.mm-notice'));
 check('saying its source image is not kept',

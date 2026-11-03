@@ -240,5 +240,13 @@ for path in sources:
 check('every group and setting a link or a note opens the window at is the registry\'s', unknown, [])
 check('and the search found them: the three banners\' links, the notes, the links in text', named > 30, True)
 
+# "Choose the checkpoint at every Send" (#377): in Send's group, acting in
+# the two tabs whose boxes it starts and in Send, off by default.
+choose = next((s for s in settings if s.key == 'model_manager_send_choose_checkpoint'), None)
+check('34. the box\'s setting is registered: Send\'s group, its names, the tabs it acts in, off by default',
+      (choose.group, choose.name, choose.page_name, choose.tags, DEFAULTS.get(choose.key)) if choose else None,
+      ('send', 'Choose the checkpoint at every Send', 'Choose the checkpoint at every Send',
+       ('gallery', 'generations', 'send'), False))
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

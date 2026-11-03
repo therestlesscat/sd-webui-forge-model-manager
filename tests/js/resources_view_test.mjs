@@ -101,8 +101,10 @@ const shown = [];
 document.dispatchEvent(new window.Event('DOMContentLoaded', { bubbles: true }));
 
 const panel = () => document.querySelector('.mm-resources-modal');
-const row = (versionId) => panel()?.querySelector(`[data-res-name="${versionId}"]`)?.closest('tr') || null;
+const row = (versionId) => panel()?.querySelector(`[data-res-name="${versionId}"]`)?.closest('.mm-res-row') || null;
 const view = (versionId) => row(versionId)?.querySelector('[data-action="resources.view"]') || null;
+// View's own button, in the cell after the Download cell (#377, R4); the name above does the same.
+const viewButton = (versionId) => row(versionId)?.querySelector('.mm-res-open [data-action="resources.view"]') || null;
 const actions = (versionId) => row(versionId)?.querySelector('.mm-res-actions')?.textContent.replace(/\s+/g, ' ').trim();
 // No button, no press: a check fails rather than the suite.
 const pressView = (versionId) => (view(versionId) ? press(view(versionId)) : null);
@@ -126,12 +128,20 @@ check('the dialog asks the server about every row, once, each with the model id 
                { version_id: 6003, model_id: 603 }, { version_id: 6004, model_id: 604 },
                { version_id: 6005, model_id: 605 }, { version_id: 6006, model_id: null }]]);
 check('View says where it goes: the Civitai Browser', view(6001)?.title, 'Show this model in the Civitai Browser tab');
+check('View is a button again, in a cell of its own at the row\'s right, after the Download cell (#377, R4)',
+      [viewButton(6001)?.textContent.trim(), viewButton(6001)?.title,
+       Array.from(row(6001)?.children || []).map((cell) => cell.className)],
+      ['View', 'Show this model in the Civitai Browser tab', ['mm-res-name', 'mm-res-actions', 'mm-res-open']]);
 
 // ------------------------------------------------------------ pressed before the answer
 const viewing = pressView(6002);
-await waitFor('looking up', () => view(6002)?.textContent.trim() === 'Looking up...');
-check('a row with no model id, pressed before the answer: "Looking up...", disabled',
-      [view(6002)?.textContent.trim(), view(6002)?.disabled], ['Looking up...', true]);
+const looking = (versionId) => row(versionId)?.querySelector('.mm-res-looking')?.textContent.trim();
+await waitFor('looking up', () => looking(6002) === 'Looking up...');
+check('a row with no model id, pressed before the answer: "Looking up..." under its name, the name disabled',
+      [looking(6002), view(6002)?.disabled], ['Looking up...', true]);
+// "Looking up..." in it would widen View's column under the reader.
+check('    and its View button disabled too, keeping its word',
+      [viewButton(6002)?.textContent.trim(), viewButton(6002)?.disabled], ['View', true]);
 release();
 hold = null;
 await opening;
@@ -150,17 +160,20 @@ await waitFor('the dialog again', () => view(6001));
 await waitFor('the held version', () => actions(6004)?.includes('Installed'));
 check('answers are kept: opened again, only the one Civitai could not answer is asked again',
       asked.slice(1), [[{ version_id: 6006, model_id: null }]]);
-check('a model Civitai deleted: no View, no Download - the red message in their place',
+check('a model Civitai deleted: its name opens nothing, no Download - the red message under the name (#377, R4)',
       [view(6003), row(6003)?.querySelector('[data-action="resources.download"]') ?? null,
-       actions(6003), !!row(6003)?.querySelector('.mm-res-state.error')],
-      [null, null, 'Model deleted from Civitai', true]);
-check('one the library holds keeps "Installed", beside the message',
-      [view(6004), actions(6004)], [null, 'Model deleted from Civitai Installed']);
+       actions(6003), row(6003)?.querySelector('.mm-res-sub .mm-res-state.error')?.textContent],
+      [null, null, '', 'Model deleted from Civitai']);
+check('one the library holds keeps "Installed", the message under its name',
+      [view(6004), actions(6004), !!row(6004)?.querySelector('.mm-res-sub .mm-res-state.error')], [null, 'Installed', true]);
 check('a model whose version alone is gone keeps its View', !!view(6005), true);
+check('    View\'s button too; a model Civitai deleted has an empty cell where it would be',
+      [!!viewButton(6005), viewButton(6003), row(6003)?.querySelector('.mm-res-open')?.innerHTML.trim()], [true, null, '']);
 
-await pressView(6001);
+const viewPressed = viewButton(6001);
+if (viewPressed) await press(viewPressed);
 await waitFor('the Civitai Browser asked again', () => shown.length === 2);
-check('View on a row with its model id: the Civitai Browser at that model and version',
+check('View\'s button on a row with its model id: the Civitai Browser at that model and version',
       shown[1], 'model:600 version:6001');
 
 // ------------------------------------------------------------ no model id to be had

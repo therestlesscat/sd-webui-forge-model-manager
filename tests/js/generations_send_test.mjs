@@ -400,4 +400,85 @@ check('Send\'s own button: into its own tab, no mode or picture, no canvas butto
     check('into img2img\'s modes: the items, what they ask, what they show', String(error), null);
 }
 
+// --------------------------------------------- your checkpoints (#377)
+const fetchBeforeList = globalThis.fetch;
+let listAnswer = null;
+globalThis.fetch = async (url, ...rest) => (String(url).includes('/model-manager/send/checkpoints')
+    ? (asked.push(String(url)), { ok: true, json: async () => listAnswer }) : fetchBeforeList(url, ...rest));
+const MINE = { name: 'mine.safetensors [aa]', file: 'mine.safetensors', family: 'xl', read: true, supported: true,
+               model: 'Mine', version: 'v1', base_model: 'SDXL 1.0' };
+const dialog = () => document.querySelector('.mm-resources-modal');
+const pickRow = (name) => {
+    const radio = [...(dialog()?.querySelectorAll('.mm-pick-row input') || [])].find((r) => r.value === name);
+    if (radio) { radio.checked = true; radio.dispatchEvent(new window.Event('change', { bubbles: true })); }
+};
+const dialogSend = () => dialog()?.querySelector('[data-action="resources.sendAgain"]');
+
+// A generation that keeps its checkpoint by name alone - 93 here - stopped
+// with nothing to download, its dialog's Send grey for ever.
+planAnswer = { ...NO_PLAN, checkpoint_missing: 'my_merge_v3', checkpoint_problem: { reason: 'missing', name: 'my_merge_v3' } };
+listAnswer = { success: true, checkpoints: [MINE], suggested: [], picked: null, loaded: null,
+               same_base: { base_model: null, names: [] }, family: null };
+let at = loaderAsked.length;
+await act('generations.send', { tile: 0 });
+await waitFor('the stop\'s list', () => dialog()?.querySelector('.mm-pick-row'));
+check('18. a generation kept by name, pressed Send: the dialog, its list on All, nothing sent',
+      [dialog()?.querySelector('.mm-pick-tab.active')?.textContent.trim(), loaderAsked.length - at], ['All 1', 0]);
+check('    the list asked by the generation', asked.some((h) => h.includes('/send/checkpoints') && h.includes('generation=1')), true);
+planAnswer = { ...NO_PLAN, checkpoint: MINE.name, instead: 'mine.safetensors', pick: 'model', other_model: true };
+pickRow(MINE.name);
+dialogSend()?.dispatchEvent(new window.Event('click', { bubbles: true }));
+await waitFor('the send with the pick', () => loaderAsked.length > at);
+check('    a pick sends: the plan asked with it, the loader handed it', [
+      asked.some((h) => h.includes('/send/plan') && h.includes(`use_checkpoint=${encodeURIComponent(MINE.name).replace(/%20/g, '+')}`)),
+      lastSource()?.use_checkpoint], [true, MINE.name]);
+await waitFor('the notice', () => [...document.querySelectorAll('.mm-notice')].some((n) => n.textContent.includes('another model')));
+check('32. and the notice says it is another model\'s: Hires fix and the refiner none of the image\'s',
+      [...document.querySelectorAll('.mm-notice')].some((n) => n.textContent === 'Sent with mine.safetensors, a checkpoint of '
+          + 'another model than this image\'s: it will not come out the same. The VAE and text encoders are its own '
+          + 'family\'s, Hires fix uses the same checkpoint and modules, and the refiner is off.'), true);
+document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+
+// The tab's box: every Send opens the dialog, the image's own picked.
+planAnswer = NO_PLAN;
+listAnswer = { success: true, checkpoints: [MINE], suggested: [{ name: MINE.name, why: ['the image\'s own'] }],
+               picked: MINE.name, loaded: null, same_base: { base_model: null, names: [] }, family: 'xl' };
+check('28. the toolbar\'s box, unticked as the setting is', document.getElementById('gen_choose_checkpoint')?.checked, false);
+const box = document.getElementById('gen_choose_checkpoint');
+box.checked = true;
+box.dispatchEvent(new window.Event('change', { bubbles: true }));
+check('    ticked, kept in this browser', localStorage.getItem('mm_generations_choose_checkpoint'), 'true');
+at = loaderAsked.length;
+await act('generations.send', { tile: 0 });
+await waitFor('the dialog', () => dialog()?.querySelector('.mm-pick-row input:checked'));
+check('    Send opens the dialog, the image\'s own picked, nothing sent yet',
+      [dialog()?.querySelector('[data-action="resources.chooseTick"]')?.checked, dialogSend()?.disabled,
+       loaderAsked.length - at], [true, false, 0]);
+dialogSend()?.dispatchEvent(new window.Event('click', { bubbles: true }));
+await waitFor('the send', () => loaderAsked.length > at);
+check('    its Send sends, and opens no dialog again', !!dialog(), false);
+at = loaderAsked.length;
+await act('generations.view', { tile: 0 });
+await waitFor('the viewer', () => document.querySelector('[data-gen-send]'));
+document.querySelector('[data-gen-send]').dispatchEvent(new window.Event('click', { bubbles: true }));
+await waitFor('the dialog, from the viewer', () => dialog()?.querySelector('.mm-pick-row input:checked'));
+check('    the viewer\'s Send opens it too, the image\'s own picked; nothing sent yet',
+      [dialog()?.querySelector('[data-action="resources.chooseTick"]')?.checked, loaderAsked.length - at], [true, 0]);
+document.querySelectorAll('#mm_meta_modal').forEach((m) => { m.close?.(); m.remove(); });
+(await sharedModule('viewer.mjs')).closeViewer();
+at = loaderAsked.length;
+await press(0, 'Send to Inpaint');
+await waitFor('the dialog, from ⋯', () => dialog()?.querySelector('.mm-pick-row input:checked'));
+check('    a ⋯ send into img2img opens it too, its button naming the mode; nothing sent yet',
+      [dialogSend()?.textContent.trim(), loaderAsked.length - at], ['Send to Inpaint', 0]);
+document.querySelectorAll('#mm_meta_modal').forEach((m) => { m.close?.(); m.remove(); });
+box.checked = false;
+box.dispatchEvent(new window.Event('change', { bubbles: true }));
+check('    unticked, kept so', localStorage.getItem('mm_generations_choose_checkpoint'), 'false');
+at = loaderAsked.length;
+await act('generations.send', { tile: 0 });
+await waitFor('the send, unticked', () => loaderAsked.length > at);
+check('    and Send sends as before: no dialog', !!dialog(), false);
+globalThis.fetch = fetchBeforeList;
+
 done();

@@ -92,6 +92,7 @@ class SendModel:
 # from many galleries, and an answer forgotten is only asked again.
 _remembered = Remembered(most=2000)
 _NOT_ASKED = object()
+_FAILED = object()
 
 
 def plan_model(db, file_path: str = "", base_model: str = "",
@@ -138,19 +139,36 @@ def plan_model(db, file_path: str = "", base_model: str = "",
                      video=_video(preset, named=gallery_base))
 
 
+def picked_model(db, path: str) -> SendModel:
+    """
+    The model a checkpoint picked in the Resources dialog is (#377): its
+    file, read as a scan reads it - once, and stored - for one no sync has
+    read. It stands for the image's checkpoint, whatever the image names.
+    """
+    row = _read(db, path)
+    if row.get("architecture"):
+        return _from_row(row, "picked")
+    return SendModel(source="picked")
+
+
 def image_checkpoint(db, file_path: str = "", version_ids: List[int] = (), hashes: List[str] = (),
                      model_name: str = "", lookup: Callable[[str, str], Optional[dict]] = None,
-                     here: Callable[[str], bool] = None, local: Callable[[], dict] = None) -> Dict[str, Any]:
+                     here: Callable[[str], bool] = None, local: Callable[[], dict] = None,
+                     names: Optional[Dict[int, str]] = None) -> Dict[str, Any]:
     """
     The checkpoint an image names, for a send from a gallery that is not a
     checkpoint's (#134) - the one thing such a send cannot go without.
 
     Returns {"path": file} when the library has it; {"missing": name} when it
     names one the library lacks - by the name the image gives it, the name
-    Civitai gives its file, or its hash; {"not_checkpoint": True} when what
-    it names as checkpoints is something else, here or on Civitai (a VAE or
-    a text encoder filed as one); {} when it names none. `local`: as
-    plan_model()'s.
+    Civitai gives its file, or its hash; {"unsupported": base model, "name"}
+    when Civitai files it under a family no UI preset runs (#377: OpenAI,
+    MiniMax H3); {"not_checkpoint": True} when what it names as checkpoints
+    is something else, here or on Civitai (a VAE or a text encoder filed as
+    one); {} when it names none. A version Civitai answers 404 for, or
+    could not be asked about, is missing too, by the name the image's own
+    resource entry gives it (`names`, version id -> name): until #377 both
+    read "names no checkpoint". `local`: as plan_model()'s.
     """
     version_ids, hashes = named_ids(version_ids, hashes)
     row = local() if local else local_checkpoint(db, file_path, version_ids, hashes, here)
@@ -166,7 +184,37 @@ def image_checkpoint(db, file_path: str = "", version_ids: List[int] = (), hashe
     if hashes:
         # A model hash is the checkpoint's, whatever Civitai knows of it.
         return {"missing": hashes[0]}
+    unsupported, unanswered = _unrunnable(db, version_ids, lookup or _ask_civitai)
+    if unsupported:
+        return {"unsupported": unsupported[1], "name": (names or {}).get(unsupported[0]) or ""}
+    if unanswered:
+        return {"missing": (names or {}).get(unanswered[0]) or f"version {unanswered[0]}"}
     return {"not_checkpoint": True}
+
+
+# Civitai's base models that name no family: what a VAE or a text encoder
+# filed as a checkpoint is usually given.
+_NO_FAMILY = frozenset(("", "other"))
+
+
+def _unrunnable(db, version_ids, lookup) -> Tuple[Optional[Tuple[int, str]], List[int]]:
+    """
+    Of the versions an image names as checkpoints that the library lacks and
+    no preset was found for: the first Civitai files under a family no UI
+    preset runs, (version id, its base model), and those it answered 404 for
+    or could not be asked about. Remembered answers only, but for a failure,
+    which is asked again.
+    """
+    local_ids, _ = db.local_versions_by_key(list(version_ids), [])
+    unsupported, unanswered = None, []
+    for version_id in [i for i in version_ids if i not in local_ids][:MAX_LOOKUPS]:
+        answer = _remember(("v", str(version_id)), lookup)
+        if answer is _FAILED or answer is None:
+            unanswered.append(version_id)
+        elif not preset_for_base_model(answer[0]) and answer[0].strip().lower() not in _NO_FAMILY \
+                and unsupported is None:
+            unsupported = (version_id, answer[0])
+    return unsupported, unanswered
 
 
 def named_ids(version_ids, hashes) -> Tuple[List[int], List[str]]:
@@ -252,7 +300,7 @@ def _image_checkpoint_on_civitai(db, version_ids, hashes, model_name,
     first = (None, "", "")
     for key in keys[:MAX_LOOKUPS]:
         answer = _remember(key, lookup)
-        if not answer:
+        if not answer or answer is _FAILED:
             continue
         preset = preset_for_base_model(answer[0])
         if not preset:
@@ -264,7 +312,11 @@ def _image_checkpoint_on_civitai(db, version_ids, hashes, model_name,
     return first
 
 
-def _remember(key, lookup) -> Optional[Tuple[str, List[str]]]:
+def _remember(key, lookup) -> Any:
+    """
+    Civitai's answer for ("v", id) or ("h", hash): (baseModel, file names),
+    None for not found, or _FAILED where it could not be asked - not kept.
+    """
     known = _remembered.get(key, _NOT_ASKED)
     if known is not _NOT_ASKED:
         return known
@@ -272,7 +324,7 @@ def _remember(key, lookup) -> Optional[Tuple[str, List[str]]]:
         version = lookup(*key)
     except Exception as e:
         say(f"Could not ask Civitai about {key[1]}: {e}")
-        return None
+        return _FAILED
     answer = None
     if version:
         answer = (version.get("baseModel") or "",

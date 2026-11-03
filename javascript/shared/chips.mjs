@@ -15,23 +15,14 @@ const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).sea
 const { apiCall, escapeHtml } = await shared('core.mjs');
 const {
     resolveResourceHashes, knownHashes, imageResourceHashes, resourceDownload, downloadResource, substituteOf,
+    resourceKind, resourceHash,
 } = await shared('resources.mjs');
 const { downloads } = await shared('downloads.mjs');
-const { fetchUiOptions } = await shared('ui_options.mjs');
-
-// What Forge loads through <lora:...>, by the file's own type or Civitai's.
-const LORA_TYPES = new Set(['lora', 'locon', 'loha', 'lokr', 'dora', 'lycoris', 'lycoris full']);
-const EMBEDDING_TYPES = new Set(['textualinversion', 'embedding', 'embed']);
+const { familyName, fetchUiOptions, uiOptions } = await shared('ui_options.mjs');
 
 // A LoRA an image gives no weight gets this one.
 export const DEFAULT_LORA_WEIGHT = 0.5;
 
-function resourceKind(type) {
-    const value = String(type || '').toLowerCase();
-    if (LORA_TYPES.has(value)) return 'lora';
-    if (EMBEDDING_TYPES.has(value)) return 'embedding';
-    return null;
-}
 
 const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -259,25 +250,6 @@ export function collectResourceChips(meta, files, gallery = null, missing = null
 }
 
 /**
- * A resource's hash from the image's `hashes`, where its own entry has none:
- * Forge writes {"lora:Ghibli_v6": "58549cc3d3"} there and leaves the
- * resources list without them. Some write the kind in capitals - "LORA:",
- * "EMBED:", 5,561 and 35 keys in one library - so its case is ignored; the
- * name after it has to match as written.
- */
-function resourceHash(meta, resource) {
-    const hashes = (meta && meta.hashes) || {};
-    const kind = resourceKind(resource.type);
-    const prefixes = kind === 'lora' ? ['lora', 'lyco'] : kind === 'embedding' ? ['embed'] : [];
-    for (const [key, hash] of Object.entries(hashes)) {
-        const at = key.indexOf(':');
-        if (hash && at > 0 && key.slice(at + 1) === resource.name
-            && prefixes.includes(key.slice(0, at).toLowerCase())) return hash;
-    }
-    return '';
-}
-
-/**
  * What to ask the library to find by name: the image's LoRAs and embeddings,
  * each with the hash the image gives for it, which the file has to match.
  */
@@ -422,7 +394,10 @@ function missingChipState(chip) {
 }
 
 // An embedding's kind, as file_identity names it, and as a person reads it.
-const EMBEDDING_KINDS = { sd: 'SD 1.x', sd2: 'SD 2.x', xl: 'SDXL' };
+// The kinds of embedding a WebUI loads (forge_host.embedding_kind), each named
+// by the server's one table of family names (#377).
+const EMBEDDING_KINDS = ['sd', 'sd2', 'xl'];
+const kindName = (kind) => (EMBEDDING_KINDS.includes(kind) ? familyName(kind) : null);
 
 /**
  * An embedding the library has that Forge will not use with the send's
@@ -440,7 +415,7 @@ function skippedState(chip, loads) {
     }
     // Which of the two is not known is said: "not known if this model uses
     // it" was both, and "this model" read as the embedding's own (#208).
-    const made = EMBEDDING_KINDS[chip.architecture];
+    const made = kindName(chip.architecture);
     if (!made) {
         return { unavailable: true, mark: '?', note: 'made for an unknown model, may be skipped',
                  title: `${chip.title}: what it was made for is not known, so Forge may skip it with this checkpoint` };
@@ -452,7 +427,7 @@ function skippedState(chip, loads) {
     if (chip.architecture === loads) return null;
     // By the embeddings it takes, not its family: Forge gives Flux and SD 3
     // SD 1.x ones, and they were called "this SD 1.x model".
-    const takes = EMBEDDING_KINDS[loads] || loads;
+    const takes = kindName(loads) || loads;
     return { unavailable: true, note: `made for ${made}; this checkpoint takes ${takes} embeddings`,
              title: `${chip.title} is made for ${made}: Forge skips it, this checkpoint takes ${takes} embeddings` };
 }
@@ -808,6 +783,8 @@ function keepResourceChips() {
 export function start(scope) {
     scope.afterUpdate(keepResourceChips);
     if (typeof window === 'undefined') return;
+    // The family names the chips say "made for" with (#377), asked once a page.
+    uiOptions();
     scope.listen(window, 'mm-resource-downloads', (event) => {
         if (event.detail?.installed) refreshResourceChips(event.detail.landed);
         else redrawResourceChips();

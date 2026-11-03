@@ -69,17 +69,19 @@ def register(app: FastAPI):
     @gate("send")
     def send_plan(kind: str, image: int = 0, file_path: str = "", base_model: str = "", version_ids: str = "",
                   hashes: str = "", model_name: str = "", generation: int = 0, task: int = 0,
-                  use_version: int = 0, text: int = 0, upscaler: str = "", denoise: Optional[float] = None,
+                  use_checkpoint: str = "", image_model: int = 0, text: int = 0, upscaler: str = "",
+                  denoise: Optional[float] = None,
                   video: str = "", frames: int = 0, prompt: Optional[str] = None,
                   negative_prompt: Optional[str] = None, renames: str = "", into: int = 0):
         """
         How to set Forge up before a Send, for any source (#302): see
         send.plan(). `kind` is civitai - the image's id, the gallery's
         `file_path` and `base_model`, the checkpoint the page read of the
-        image - generation, or task. A generation's answers while the
-        Generations tab is on, a task's while the Queue is, as their own
-        routes did. A plain `def`: it reads file headers, and may ask Civitai
-        once.
+        image - generation, or task; `use_checkpoint` a checkpoint picked
+        in the Resources dialog (#377), with `image_model`. A generation's
+        answers while the Generations tab is on, a task's while the Queue
+        is, as their own routes did. A plain `def`: it reads file headers,
+        and may ask Civitai once.
 
         With `text`, a Civitai image's or a generation's settings instead -
         the infotext, its scheduler, whether it had Hires fix (send.settings)
@@ -101,7 +103,9 @@ def register(app: FastAPI):
             found = settings(get_models_db(), {
                 "kind": kind, "image": image, "upscaler": upscaler or None, "denoise": denoise,
                 "video": video == "true", "frames": frames or None, "prompt": prompt,
-                "negative_prompt": negative_prompt, "generation": generation, "renames": pairs}, bool(into))
+                "negative_prompt": negative_prompt, "generation": generation, "renames": pairs,
+                "use_checkpoint": use_checkpoint, "image_model": image_model, "version_ids": version_ids,
+                "hashes": hashes}, bool(into))
             if found is None:
                 return JSONResponse({"success": False, "error": "The image is not in the library" if kind == "civitai"
                                      else f"No generation #{generation}"}, status_code=404)
@@ -110,12 +114,34 @@ def register(app: FastAPI):
             found = plan(get_models_db(), {"kind": kind, "image": image, "file_path": file_path,
                                            "base_model": base_model, "version_ids": version_ids,
                                            "hashes": hashes, "model_name": model_name,
-                                           "generation": generation, "task": task, "use_version": use_version})
+                                           "generation": generation, "task": task,
+                                           "use_checkpoint": use_checkpoint, "image_model": image_model})
         except ValueError as e:
             return JSONResponse({"success": False, "error": str(e)}, status_code=400)
         if found is None:
             return JSONResponse({"success": False, "error": f"No such {kind}"}, status_code=404)
         return JSONResponse({"success": True, **found})
+
+    @app.get("/model-manager/send/checkpoints")
+    @gate("send")
+    def send_checkpoints(version_ids: str = "", hashes: str = "", model_id: int = 0, base_model: str = "",
+                         same_file: int = 0, gallery_file: str = "", gallery_base_model: str = "",
+                         generation: int = 0):
+        """
+        The Resources dialog's list of your checkpoints (#377): every one
+        Forge lists, and which suit the image - send.your_checkpoints(). Asked
+        once the dialog's missing-resources lookup has answered, with what it
+        answered. Reads the library alone: no file, no Civitai.
+        """
+        from ..db import get_models_db
+        from ..send import your_checkpoints
+        try:
+            return JSONResponse({"success": True, **your_checkpoints(
+                get_models_db(), version_ids, hashes, model_id, base_model, same_file, gallery_file,
+                gallery_base_model, generation)})
+        except Exception as e:
+            say_failure(f"Send checkpoints error: {e}")
+            return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
     @app.get("/model-manager/forge-modules/current")
     @gate("send")
@@ -139,7 +165,8 @@ def register(app: FastAPI):
         from ..generations import GENERATIONS_DELETE_FILES, GENERATIONS_HIDE_NSFW, generations_enabled
         from ..grids import GALLERY_GRID, GENERATIONS_GRID, grid
         from ..scheduler import queue_enabled
-        from ..send import RENAME_LORAS_SETTING
+        from ..forge_modules import FAMILY_NAMES
+        from ..send import CHOOSE_CHECKPOINT_SETTING, RENAME_LORAS_SETTING
         from ..tabs import TABS, built, on
         has_api_key = api_key_from_settings() is not None
         # How the Civitai Browser's gallery opens, asked each time a model is;
@@ -159,6 +186,9 @@ def register(app: FastAPI):
         # Whether a Resources dialog download, landing, may rename LoRA tags in
         # the prompt (#205): the page asks afresh at each landing.
         rename_loras = bool(setting(RENAME_LORAS_SETTING))
+        # Where the tabs' "Choose the checkpoint at every Send" boxes start,
+        # and the Resources button's dialog's (#377): the page asks afresh.
+        choose_checkpoint = bool(setting(CHOOSE_CHECKPOINT_SETTING))
         # How many of Civitai's images a page loads at once (#213): a whole
         # number of at least 1, else the default.
         try:
@@ -211,6 +241,10 @@ def register(app: FastAPI):
                 "civitai_on_site_marks": civitai_on_site_marks,
                 "combine_lora_kinds": combine_lora_kinds,
                 "rename_loras": rename_loras,
+                "choose_checkpoint": choose_checkpoint,
+                # What each family a UI preset runs is called (#377): the
+                # Resources dialog's list and the chips.
+                "family_names": FAMILY_NAMES,
                 "images_at_once": images_at_once,
                 "generations_hide_nsfw": generations_hide_nsfw,
                 "generations_delete_files": generations_delete_files,
@@ -245,6 +279,7 @@ def register(app: FastAPI):
                  "civitai_on_site_marks": civitai_on_site_marks,
                  "combine_lora_kinds": combine_lora_kinds,
                  "rename_loras": rename_loras,
+                 "choose_checkpoint": choose_checkpoint, "family_names": FAMILY_NAMES,
                  "images_at_once": images_at_once,
                  "generations_hide_nsfw": generations_hide_nsfw,
                  "generations_delete_files": generations_delete_files,

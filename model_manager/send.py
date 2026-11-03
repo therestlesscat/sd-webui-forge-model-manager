@@ -33,14 +33,21 @@ def plan(db, source: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
         civitai     `image` (its id), the gallery's `file_path` and
                     `base_model`, the checkpoint the page read of it -
-                    `version_ids`, `hashes`, `model_name` - and `use_version`
-        generation  `generation`, and `use_version`
+                    `version_ids`, `hashes`, `model_name` - and a pick:
+                    `use_checkpoint`, with `image_model`
+        generation  `generation`, and a pick: `use_checkpoint`, `image_model`
         task        `task`
+
+    A pick (#377) is a checkpoint chosen in the Resources dialog, by the name
+    Forge lists it under; `image_model` the Civitai model the page learnt the
+    image's checkpoint is of, which tells a pick of the image's own model
+    from another's (pick_kind).
 
     Returns:
         The kind's plan with `kind` added, or None for no such source.
     """
     kind = source.get("kind")
+    image_model = int(source.get("image_model") or 0) or None
     if kind == "civitai":
         record = next(iter(db.stored_records([int(source.get("image") or 0)])), None)
         if record is None:
@@ -48,12 +55,15 @@ def plan(db, source: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         answer = civitai_plan(db, source.get("file_path") or "", source.get("base_model") or "",
                               source.get("version_ids") or "", source.get("hashes") or "",
                               source.get("model_name") or "", "", named_modules(record.get("meta")),
-                              int(source.get("use_version") or 0), vae_keys(record.get("meta")))
+                              source.get("use_checkpoint") or "", vae_keys(record.get("meta")),
+                              image_model, checkpoint_names(record.get("meta")))
         # The VAE the image names, for a WebUI without Forge's VAE / Text
-        # Encoder control: the page selects it by name, as it always did.
-        answer["named_vae"] = named_vae(record.get("meta"))
+        # Encoder control: the page selects it by name, as it always did -
+        # none with a pick of another model, of whose family it is not (#377).
+        answer["named_vae"] = None if answer.get("other_model") else named_vae(record.get("meta"))
     elif kind == "generation":
-        answer = generation_plan(db, int(source.get("generation") or 0), source.get("use_version") or None)
+        answer = generation_plan(db, int(source.get("generation") or 0), source.get("use_checkpoint") or None,
+                                 image_model)
     elif kind == "task":
         answer = task_plan(db, int(source.get("task") or 0))
     else:
@@ -92,20 +102,21 @@ def _listed_upscaler(db, file_path: str):
 
 
 def _image_checkpoint(db, file_path: str, version_ids: str, hashes: str, model_name: str,
-                      instead: bool = False, local: Optional[Callable[[], dict]] = None) -> dict:
+                      local: Optional[Callable[[], dict]] = None,
+                      names: Optional[Dict[int, str]] = None) -> dict:
     """
     The image's checkpoint for a send from a gallery that is not a
     checkpoint's: {checkpoint: Forge's name for it} or {checkpoint_problem}.
-    `instead`: the version asked for is not the image's own (#278) - the
-    answer names the file sent with, for the page to say. `local`: the
-    library's checkpoint the image names, looked up once for the whole plan.
-    See civitai_plan().
+    `local`: the library's checkpoint the image names, looked up once for
+    the whole plan. `names`: version id -> the name the image's own
+    resource entry gives it (checkpoint_names). See civitai_plan().
     """
     from .forge_host import checkpoint_name
     from .model_dirs import loads_here
     from .send_plan import image_checkpoint
     try:
-        found = image_checkpoint(db, file_path, version_ids.split(","), hashes.split(","), model_name, local=local)
+        found = image_checkpoint(db, file_path, version_ids.split(","), hashes.split(","), model_name, local=local,
+                                 names=names)
     except Exception as e:
         say(f"Could not work out the image's checkpoint: {e}")
         return {}
@@ -113,14 +124,123 @@ def _image_checkpoint(db, file_path: str, version_ids: str, hashes: str, model_n
     if path:
         name = checkpoint_name(path)
         if name:
-            return {"checkpoint": name, "instead": os.path.basename(path)} if instead else {"checkpoint": name}
+            return {"checkpoint": name}
         reason = "not_listed" if loads_here(path) else "elsewhere"
         return {"checkpoint_problem": {"reason": reason, "name": os.path.basename(path), "path": path}}
     if found.get("missing"):
         return {"checkpoint_problem": {"reason": "missing", "name": found["missing"]}}
+    if found.get("unsupported"):
+        return {"checkpoint_problem": {"reason": "unsupported", "name": found.get("name") or "",
+                                       "base_model": found["unsupported"]}}
     if found.get("not_checkpoint"):
         return {"checkpoint_problem": {"reason": "not_checkpoint"}}
     return {}
+
+
+def checkpoint_names(meta: Any) -> Dict[int, str]:
+    """
+    The name the image's own resource list gives each checkpoint version it
+    names (`civitaiResources`): "Model - Version", for a stop to name one
+    Civitai no longer answers for (#377).
+    """
+    names: Dict[int, str] = {}
+    entries = (meta.get("civitaiResources") if isinstance(meta, dict) else None) or []
+    for entry in entries:
+        if not isinstance(entry, dict) or str(entry.get("type") or "").lower() != "checkpoint":
+            continue
+        version_id = entry.get("modelVersionId")
+        name = " - ".join(str(part) for part in (entry.get("name"), entry.get("modelVersionName")) if part)
+        if str(version_id or "").isdigit() and name:
+            names.setdefault(int(version_id), name)
+    return names
+
+
+def _same_path(a: Optional[str], b: Optional[str]) -> bool:
+    return bool(a and b) and os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+
+
+def pick_kind(db, path: str, version_ids: List[Any], hashes: List[str],
+              model_id: Optional[int] = None, own_path: str = "") -> str:
+    """
+    What a checkpoint picked in the Resources dialog is to the image (#377),
+    for the notice after and for what goes with it:
+
+        own      the image's own file - its path, its hash, or a file of its
+                 version where the image names none by hash
+        same     the image's file - by its hash, or by Civitai's for its
+                 version - held under another Civitai model (#304): the same
+                 bytes
+        file     another file of the image's version: fp16 for fp32
+        version  another version of the image's model (#278)
+        model    anything else, or where the image's model is not known
+
+    The image's VAE and text encoders go with all but `model`; Hires fix's
+    checkpoint and module and the refiner too. `model_id`: the model the page
+    learnt the image's checkpoint is of; else the library's, of its version.
+    """
+    from .hashing import hash_key
+    from .send_plan import named_ids
+    version_ids, hashes = named_ids(version_ids, hashes)
+    if _same_path(path, own_path):
+        return "own"
+    if not version_ids and hashes:
+        # Named by a hash alone - a generation kept by name: its version and
+        # model as Civitai answered for the hash, once asked (#233).
+        known = db.resolved_hashes([hash_key(h) for h in hashes])
+        version_ids = [int(v["version_id"]) for v in known.values() if v and v.get("version_id")]
+        model_id = model_id or next((v.get("model_id") for v in known.values() if v and v.get("model_id")), None)
+    row = db.get_version(path) or {}
+    by_hash = [r["file_path"] for r in (db.versions_named_by([], hashes) if hashes else []) if r.get("file_path")]
+    if any(_same_path(path, p) for p in by_hash):
+        return "own" if not version_ids or row.get("id") in version_ids else "same"
+    if version_ids and row.get("id") in version_ids:
+        return "file" if hashes else "own"
+    if version_ids and not hashes:
+        # Named by its version alone, the library holding that very file under
+        # another Civitai model (#304): matched by the hash Civitai gave for the
+        # version's file, which the dialog's lookup asked.
+        from .resources import version_file_hashes
+        civitai_hashes = version_file_hashes(version_ids)
+        if civitai_hashes and any(_same_path(path, r.get("file_path"))
+                                  for r in db.versions_named_by([], civitai_hashes)):
+            return "same"
+    model = model_id
+    if not model and version_ids:
+        model = next((r.get("model_id") for r in db.library_files(version_ids=version_ids) if r.get("model_id")), None)
+    if model and row.get("model_id") and int(row["model_id"]) == int(model):
+        return "version"
+    return "model"
+
+
+def _picked(db, use_checkpoint: str) -> Optional[str]:
+    """The file Forge lists a pick under, by exactly that name; None for none: gone since the list was drawn."""
+    from .forge_host import checkpoint_file
+    try:
+        return checkpoint_file(use_checkpoint)
+    except Exception as e:
+        say(f"Could not ask Forge for the checkpoint picked: {e}")
+        return None
+
+
+def family_modules(db, path: str) -> List[str]:
+    """
+    The VAE / text encoder labels a checkpoint's family needs, picked from
+    what Forge offers as a Civitai image's Send picks them with nothing
+    named (forge_modules.pick): for a pick of another model (#377), the
+    image's own being of the other family. None for SD and SDXL, which bring
+    their own.
+    """
+    from .file_identity import classify_file
+    from .forge_host import installed_modules, saved_modules
+    from .forge_modules import pick, preferred_modules
+    from .send_plan import picked_model
+    found = picked_model(db, path)
+    if found.preset in (None, "sd", "xl"):
+        return []
+    installed = installed_modules()
+    modules = {label: classify_file(p) for label, p in installed.items()}
+    return list(pick(found.model_class, found.preset, found.bundled_text_encoder, found.bundled_vae,
+                     modules, saved_modules(found.preset), preferred_modules(found.preset))["select"])
 
 
 def _gallery_checkpoint(path: str) -> dict:
@@ -141,6 +261,34 @@ def _gallery_checkpoint(path: str) -> dict:
     else:
         reason = "not_listed" if loads_here(path) else "elsewhere"
     return {"checkpoint_problem": {"reason": reason, "name": os.path.basename(path), "path": path, "own": True}}
+
+
+def _family_takes(own: Optional[str], own_vae: bool, installed: Dict[str, str], found, answer: dict) -> Optional[str]:
+    """
+    A VAE's or text encoder's gallery file, sent with a pick of another model
+    (#377): kept where the pick's family takes that kind of module, else left
+    out and said in `modules_unfit`, as Send leaves out a VAE of another
+    family today. One whose kind cannot be read stays.
+    """
+    from .file_identity import classify_file
+    from .forge_modules import CLASS_FOR_PRESET, NEEDS
+    if not own:
+        return own
+    kind = classify_file(installed[own])[0] if own in installed else None
+    if kind is None:
+        return own
+    if found.preset is None:
+        fits = True
+    elif found.preset in ("sd", "xl"):
+        # SD and SDXL bring their text encoders: of a gallery's modules, an SD VAE alone.
+        fits = own_vae and kind == "vae_sd"
+    else:
+        encoders, vae_kind = NEEDS.get(found.model_class or CLASS_FOR_PRESET.get(found.preset) or "", ((), None))
+        fits = kind == vae_kind if own_vae else kind in encoders
+    if fits:
+        return own
+    answer["modules_unfit"].append({"name": own, "kind": kind})
+    return None
 
 
 def _listed_label(path: str, installed: dict):
@@ -169,8 +317,9 @@ def _held_label(db, installed: dict, hashes: List[str] = (), versions: List[int]
 
 
 def civitai_plan(db, file_path: str = "", base_model: str = "", version_ids: str = "", hashes: str = "",
-                 model_name: str = "", vae: str = "", module: List[str] = (), use_version: int = 0,
-                 vae_keys: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                 model_name: str = "", vae: str = "", module: List[str] = (), use_checkpoint: str = "",
+                 vae_keys: Optional[Dict[str, Any]] = None, image_model: Optional[int] = None,
+                 names: Optional[Dict[int, str]] = None) -> Dict[str, Any]:
     """
     What Send to txt2img should set up in Forge before sending a Civitai image.
 
@@ -193,10 +342,21 @@ def civitai_plan(db, file_path: str = "", base_model: str = "", version_ids: str
             name among `module`, the hashes it gives for it, the Civitai
             versions civitaiResources lists as one - for a VAE no name finds
             (#326).
-        use_version: Send with the library's file of this version, not the
-            checkpoint the image names - another file of its version, or
-            another version of its model, picked in the Resources dialog
-            (#278). The answer's `instead` names the file.
+        use_checkpoint: Send with this checkpoint, by the name Forge lists
+            it under, not the one the image names: picked in the Resources
+            dialog (#377; until then a version id, #278). It stands for the
+            image's checkpoint - its preset, the file loaded - and in a
+            checkpoint's gallery for the gallery's own file. The answer's
+            `instead` names its file and `pick` what it is to the image
+            (pick_kind); `other_model` is true for another model's, which
+            takes none of the image's VAE and text encoders - its family's
+            instead - and leaves out a VAE's or text encoder's gallery file
+            its family does not take. A name Forge does not list (any more)
+            is the stop, `missing`.
+        image_model: The Civitai model the page learnt the image's
+            checkpoint is of (pick_kind).
+        names: Version id -> the name the image's resource list gives it,
+            for a stop to name one Civitai does not answer for.
 
     Returns:
         preset: Forge's UI preset, or null if unknown. source: how it was
@@ -221,7 +381,9 @@ def civitai_plan(db, file_path: str = "", base_model: str = "", version_ids: str
         checkpoint_problem, why it cannot be - {reason: missing, name},
         {reason: elsewhere | not_listed, name, path} for one the library has
         in a folder this WebUI does not load, or that Forge has not listed
-        yet, {reason: not_checkpoint} - and the page sends nothing. From a
+        yet, {reason: unsupported, name, base_model} for one of a family no
+        UI preset runs, {reason: not_checkpoint} - and the page sends
+        nothing. From a
         checkpoint's, the same two for its own file (#323), the problem
         marked `own` - {reason: gone} for a file no longer on disk. From a
         VAE's or a text encoder's, that file is in `target` in its kind's
@@ -232,12 +394,8 @@ def civitai_plan(db, file_path: str = "", base_model: str = "", version_ids: str
     from .file_identity import classify_file
     from .forge_host import embedding_kind, installed_modules, saved_modules
     from .forge_modules import CLASS_FOR_PRESET, NEEDS, match_module, pick, preferred_modules
-    from .send_plan import SendModel, local_checkpoint, named_ids, plan_model
+    from .send_plan import SendModel, local_checkpoint, named_ids, picked_model, plan_model
 
-    if use_version:
-        # The version picked stands for the image's checkpoint, whatever
-        # the image names: its preset, its modules, the file loaded.
-        version_ids, hashes, model_name = str(use_version), "", ""
     # The library's checkpoint the image names: the model to set up for and
     # the checkpoint to load both start from it, looked up once (#302).
     looked_up: Dict[str, dict] = {}
@@ -247,9 +405,19 @@ def civitai_plan(db, file_path: str = "", base_model: str = "", version_ids: str
             looked_up["row"] = local_checkpoint(db, file_path, *named_ids(version_ids.split(","), hashes.split(",")))
         return looked_up["row"]
 
+    # A pick (#377) stands for the image's checkpoint, whatever the image
+    # names: its preset, its modules, the file loaded.
+    picked = _picked(db, use_checkpoint) if use_checkpoint else None
+    kind = None
+    if picked:
+        kind = pick_kind(db, picked, version_ids.split(","), hashes.split(","), image_model,
+                         (local() or {}).get("file_path") or "")
     try:
-        found = plan_model(db, file_path, base_model,
-                           version_ids.split(","), hashes.split(","), model_name, local=local)
+        if picked:
+            found = picked_model(db, picked)
+        else:
+            found = plan_model(db, file_path, base_model,
+                               version_ids.split(","), hashes.split(","), model_name, local=local)
     except Exception as e:
         say(f"Could not work out the architecture: {e}")
         found = SendModel()
@@ -263,12 +431,21 @@ def civitai_plan(db, file_path: str = "", base_model: str = "", version_ids: str
               "select": [], "missing": [], "needed": [], "not_found": [],
               "target": [], "modules_not_found": [], "modules_unfit": [], "bundled": [],
               "checkpoint": None, "checkpoint_problem": None, "own_not_listed": None,
-              "upscaler": None, "upscaler_not_listed": None}
+              "upscaler": None, "upscaler_not_listed": None, "other_model": kind == "model"}
     gallery_type = ((db.get_version(file_path) or {}).get("file_type") if file_path else None)
-    if gallery_type == "Checkpoint":
+    if use_checkpoint and not picked:
+        # Gone from Forge's list since the dialog drew it: the stop, as for
+        # the image's own checkpoint.
+        answer["checkpoint_problem"] = {"reason": "missing", "name": use_checkpoint}
+    elif picked:
+        # In a checkpoint's gallery too: the pick takes the gallery file's place.
+        answer["checkpoint"] = use_checkpoint
+        if kind != "own":
+            answer.update({"instead": os.path.basename(picked), "pick": kind})
+    elif gallery_type == "Checkpoint":
         answer.update(_gallery_checkpoint(file_path))
     else:
-        answer.update(_image_checkpoint(db, file_path, version_ids, hashes, model_name, bool(use_version), local))
+        answer.update(_image_checkpoint(db, file_path, version_ids, hashes, model_name, local, names))
     if gallery_type == "Upscaler":
         answer["upscaler"] = _listed_upscaler(db, file_path)
         answer["upscaler_not_listed"] = None if answer["upscaler"] else os.path.basename(file_path)
@@ -288,8 +465,12 @@ def civitai_plan(db, file_path: str = "", base_model: str = "", version_ids: str
     # hash the image gives for it, else the version civitaiResources lists
     # (#326). Not the hash first: where a name found a file, A1111's `VAE
     # hash` named a VAE of the other family - SD 1.5 for SDXL, or the
-    # reverse - 277 times in 449 on one library, the name 7 in 9,416.
-    keys = vae_keys or {}
+    # reverse - 277 times in 449 on one library, the name 7 in 9,416. A pick
+    # of another model takes none of them (#377): they are of the image's.
+    keys = (vae_keys or {}) if kind != "model" else {}
+    if kind == "model":
+        vae, module = "", ()
+        own = _family_takes(own, own_vae, installed, found, answer)
     vae_name = keys.get("name")
     by_hash = _held_label(db, installed, hashes=keys.get("hashes") or [])
     names = list(dict.fromkeys(n.strip() for n in [vae, *module] if n and n.strip()))
@@ -323,7 +504,7 @@ def civitai_plan(db, file_path: str = "", base_model: str = "", version_ids: str
         # stays, as named.
         kinds = {label: classify_file(installed[label])[0] for label in named}
         unfit = [label for label in named if str(kinds[label] or "").startswith("vae") and kinds[label] != "vae_sd"]
-        answer["modules_unfit"] = [{"name": label, "kind": kinds[label]} for label in unfit]
+        answer["modules_unfit"] += [{"name": label, "kind": kinds[label]} for label in unfit]
         named = [label for label in named if label not in unfit]
         if own and own_vae:
             named = [label for label in named
@@ -925,6 +1106,28 @@ def without_lora_hashes(infotext: str) -> str:
     return "\n".join(lines)
 
 
+# The fields of an infotext's last line that name the image's second models:
+# Hires fix's checkpoint and modules, the refiner and where it switches.
+_SECOND_MODELS = re.compile(r'(^|,\s*)(?:Hires checkpoint|Hires Module \d+|Refiner|Refiner switch at): '
+                            r'(?:"(?:[^"\\]|\\.)*"|[^,\n]*)(\s*,\s*)?')
+
+
+def without_second_models(infotext: str) -> str:
+    """
+    The infotext with none of the image's second models (#377): sent with a
+    checkpoint of another model, the image's hires checkpoint, Hires Module
+    and refiner are of its own family. Left out, Forge's paste sets Hires
+    fix's checkpoint to "Use same" and the refiner off; the loader sets Hires
+    fix's modules (scheduler/load.corrections).
+    """
+    lines = str(infotext or "").split("\n")
+    previous = None
+    while previous != lines[-1]:
+        previous = lines[-1]
+        lines[-1] = _SECOND_MODELS.sub(lambda m: ", " if m.group(1) and m.group(2) else "", lines[-1], count=1)
+    return "\n".join(lines)
+
+
 def video_size(width: Any, height: Any) -> Dict[str, int]:
     """A video's size as Wan can make it: its 2x2 patches of 8x latents, 16 px."""
     snap = lambda v: max(16, int(_js_round(float(v) / 16)) * 16)  # noqa: E731
@@ -1189,6 +1392,10 @@ def renamed(text: Any, renames: Any) -> Any:
 
 
 RENAME_LORAS_SETTING = "model_manager_send_rename_loras"
+# Where the Civitai Images and Generations tabs' "Choose the checkpoint at
+# every Send" boxes start, and whether a Resources button's dialog starts its
+# box ticked (#377). The boxes are the page's.
+CHOOSE_CHECKPOINT_SETTING = "model_manager_send_choose_checkpoint"
 
 
 def without_renames(source: Dict[str, Any]) -> Dict[str, Any]:
@@ -1248,9 +1455,34 @@ def generation_settings(db, source: Dict[str, Any], into: bool = False) -> Optio
 def settings(db, source: Dict[str, Any], into: bool = False) -> Optional[Dict[str, Any]]:
     """The loader's settings for a source: a Civitai image's or a generation's."""
     source = without_renames(source)
+    found = generation_settings(db, source, into) if source.get("kind") == "generation" \
+        else civitai_settings(db, source)
+    if found is not None:
+        found["other_model"] = _other_model(db, source)
+    return found
+
+
+def _other_model(db, source: Dict[str, Any]) -> bool:
+    """
+    Whether a source is sent with a checkpoint of another model than its
+    image's (#377): the loader then sets Hires fix's checkpoint and module to
+    "Use same" and leaves the refiner off - the image's own are of its
+    family. Told by the pick as the plan told it (pick_kind), from what the
+    page sends with the source: `use_checkpoint`, `image_model`, and a Civitai
+    image's `version_ids` and `hashes`.
+    """
+    picked = _picked(db, source.get("use_checkpoint") or "") if source.get("use_checkpoint") else None
+    if not picked:
+        return False
+    image_model = int(source.get("image_model") or 0) or None
     if source.get("kind") == "generation":
-        return generation_settings(db, source, into)
-    return civitai_settings(db, source)
+        generation = db.get_generation(int(source.get("generation") or 0))
+        return bool(generation) and generation_pick_kind(db, generation, picked, image_model) == "model"
+    from .send_plan import local_checkpoint, named_ids
+    version_ids = str(source.get("version_ids") or "").split(",")
+    hashes = str(source.get("hashes") or "").split(",")
+    own = local_checkpoint(db, "", *named_ids(version_ids, hashes))
+    return pick_kind(db, picked, version_ids, hashes, image_model, (own or {}).get("file_path") or "") == "model"
 
 
 # --------------------------------------- a generation's, and a task's, plan
@@ -1267,7 +1499,8 @@ def _checkpoints_by_hash(db, generation: Dict[str, Any]) -> List[str]:
             if row.get("file_path") and row.get("file_type") in (None, "Checkpoint")]
 
 
-def generation_plan(db, generation_id: int, use_version: Optional[int] = None) -> Optional[Dict[str, Any]]:
+def generation_plan(db, generation_id: int, use_checkpoint: Optional[str] = None,
+                    image_model: Optional[int] = None) -> Optional[Dict[str, Any]]:
     """
     What Forge is set up with before a generation of your own is sent back to
     it: the same as it was made with, from what was recorded - its checkpoint's
@@ -1280,6 +1513,12 @@ def generation_plan(db, generation_id: int, use_version: Optional[int] = None) -
     Checkpoint / VAE / Text Encoder when reading infotext", both on by
     default), and a model that loaded no modules names none to clear.
 
+    `use_checkpoint`: a checkpoint picked in the Resources dialog Send opened
+    (#377), by the name Forge lists it under, in place of the one the
+    generation was made with; `image_model` and the answer's `pick`,
+    `instead` and `other_model` as civitai_plan()'s. A pick of another model
+    loads its family's modules, not the recorded ones (family_modules).
+
     Returns:
         plan_for()'s answer, or None for no such generation.
     """
@@ -1288,18 +1527,24 @@ def generation_plan(db, generation_id: int, use_version: Optional[int] = None) -
         return None
     path = generation.get("checkpoint_path") or ""
     modules = generation.get("modules") or []
-    if use_version:
-        # The person chose, in the Resources dialog Send opened, to send with
-        # the file of the image's version the library holds - not the file the
-        # image was made with (#233): the first of them Forge lists.
-        from .forge_host import checkpoint_name
-        held = next((r["file_path"] for r in db.library_files(version_ids=[int(use_version)])
-                     if checkpoint_name(r["file_path"])), None)
-        if held:
-            plan = plan_for(db, held, modules)
-            plan["instead"] = os.path.basename(held)
-            plan["inputs"] = bool(generation.get("inputs"))
+    if use_checkpoint:
+        picked = _picked(db, use_checkpoint)
+        if not picked:
+            # Gone from Forge's list since the dialog drew it: the stop.
+            plan = plan_for(db, "", [])
+            plan.update({"checkpoint_missing": use_checkpoint,
+                         "checkpoint_problem": {"reason": "missing", "name": use_checkpoint},
+                         "inputs": bool(generation.get("inputs")), "other_model": False})
             return plan
+        kind = generation_pick_kind(db, generation, picked, image_model)
+        plan = plan_for(db, picked, modules if kind != "model" else [])
+        if kind == "model":
+            plan["target"], plan["modules_missing"] = family_modules(db, picked), []
+        if kind != "own":
+            plan.update({"instead": os.path.basename(picked), "pick": kind})
+        plan["other_model"] = kind == "model"
+        plan["inputs"] = bool(generation.get("inputs"))
+        return plan
     plan = plan_for(db, path, modules)
     if not plan["checkpoint"]:
         # Forge does not list the file it was made with (#233). The library's
@@ -1329,6 +1574,17 @@ def generation_plan(db, generation_id: int, use_version: Optional[int] = None) -
     # recorded without them has Forge's paste, corrected.
     plan["inputs"] = bool(generation.get("inputs"))
     return plan
+
+
+def generation_pick_kind(db, generation: Dict[str, Any], picked: str, image_model: Optional[int] = None) -> str:
+    """pick_kind() for a generation: its checkpoint's file, version and hash, as recorded."""
+    from .image_text import line_params
+    path = generation.get("checkpoint_path") or ""
+    row = (db.get_version(path) or {}) if path else {}
+    hashes = [h for h in (generation.get("checkpoint_hash"),
+                          line_params(generation.get("infotext")).get("Model hash")) if h]
+    return pick_kind(db, picked, [row["id"]] if row.get("id") else [], hashes,
+                     image_model or row.get("model_id"), path)
 
 
 def plan_for(db, path: str, modules: List[str]) -> Dict[str, Any]:
@@ -1398,3 +1654,138 @@ def task_plan(db, task_id: int) -> Optional[Dict[str, Any]]:
     if task.get("checkpoint") and not path:
         plan["checkpoint_missing"] = task["checkpoint"]
     return {"mode": task["mode"], **plan}
+
+
+# ---------------------------------------- the Resources dialog's checkpoints
+
+# Why a checkpoint is suggested for an image, closest first (#377): the order
+# the suggestions come in. Within one, by Forge's name.
+SUGGESTED_ORDER = ("this gallery's", "the image's own", "same file", "same version, other file",
+                   "same model", "loaded now")
+# Suggested and picked before anything is touched: the image comes out as made.
+PICKED_FIRST = ("this gallery's", "the image's own", "same file")
+
+
+def your_checkpoints(db, version_ids: str = "", hashes: str = "", model_id: int = 0, base_model: str = "",
+                     same_file: int = 0, gallery_file: str = "", gallery_base_model: str = "",
+                     generation: int = 0) -> Dict[str, Any]:
+    """
+    Every checkpoint Forge lists, for the Resources dialog's list (#377), and
+    which of them suit the image - from the library's rows and what the page
+    hands, reading no file and asking Civitai nothing.
+
+    Args:
+        version_ids, hashes: the image's checkpoint as the page reads it
+            (imageCheckpoint in send.mjs); for a generation, its own
+            (`generation`) are taken.
+        model_id, base_model: what the dialog's missing-resources lookup
+            answered for the image's checkpoint version; the library's row
+            is taken where it holds the version.
+        same_file: the version the library holds the image's very file
+            under, as that lookup answered (#304).
+        gallery_file, gallery_base_model: the gallery's file and its model's
+            base model, in a model's gallery.
+
+    Returns:
+        checkpoints: [{name: Forge's, file, family, read, supported, model,
+            version, base_model}] in Forge's order; `family` the UI preset a
+            sync read, null for none or not read yet (`read` false);
+            `supported`, whether this WebUI has that preset.
+        suggested: [{name, why}], closest first; picked: the name picked to
+            begin with, or null; same_base: {base_model, names} - the
+            checkpoints of the image's base model, in Forge's order, shown
+            first in their family's tab, not suggested; loaded: Forge's
+            checkpoint now; family: the image's, which the list opens on.
+    """
+    from .architecture import preset_for_base_model
+    from .forge_host import available_presets, checkpoint_file, listed_checkpoints, selected_models
+    from .image_text import line_params
+    from .send_plan import named_ids
+
+    versions, hash_list = named_ids(str(version_ids or "").split(","), str(hashes or "").split(","))
+    own_path = ""
+    if generation:
+        record = db.get_generation(int(generation)) or {}
+        own_path = record.get("checkpoint_path") or ""
+        hash_list = [h for h in (record.get("checkpoint_hash"),
+                                 line_params(record.get("infotext")).get("Model hash")) if h]
+        row = (db.get_version(own_path) or {}) if own_path else {}
+        versions = [row["id"]] if row.get("id") else []
+    if not versions and hash_list:
+        # Named by a hash alone - A1111's Model hash, a generation kept by
+        # name: its version and model as Civitai answered for the hash.
+        known = db.resolved_hashes(hash_list)
+        versions = [int(v["version_id"]) for v in known.values() if v and v.get("version_id")]
+        model_id = model_id or next((v.get("model_id") for v in known.values() if v and v.get("model_id")), 0)
+    listed = listed_checkpoints()
+    key = lambda path: os.path.normcase(os.path.abspath(path or ""))
+    rows = {key(r["file_path"]): r for r in db.files_described()}
+    presets = available_presets()
+
+    checkpoints = []
+    by_path: Dict[str, str] = {}
+    for name, path in listed:
+        row = rows.get(key(path)) or {}
+        family = row.get("architecture") or None
+        by_path[key(path)] = name
+        checkpoints.append({
+            "name": name, "file": os.path.basename(path), "family": family, "read": bool(row.get("read")),
+            "supported": family is not None and (presets is None or family in presets),
+            "model": row.get("model_name") or None, "version": row.get("version_name") or None,
+            "base_model": row.get("base_model") or None})
+
+    reasons: Dict[str, List[str]] = {}
+
+    def suggest(paths, why):
+        for path in paths:
+            name = by_path.get(key(path))
+            if name and why not in reasons.setdefault(name, []):
+                reasons[name].append(why)
+
+    # The image's own: the first file it names - by a hash, else its version -
+    # that Forge lists. From the rows alone: local_checkpoint() reads headers.
+    named = [r for r in (db.versions_named_by(versions, hash_list) if (versions or hash_list) else [])
+             if r.get("file_path") and r.get("file_type") in (None, "Checkpoint")]
+    own = next((r for r in named if key(r["file_path"]) in by_path), named[0] if named else {})
+    own_path = own_path or (own or {}).get("file_path") or ""
+    if gallery_file and (rows.get(key(gallery_file)) or {}).get("file_type") == "Checkpoint":
+        suggest([gallery_file], "this gallery's")
+    suggest([own_path] if own_path else [], "the image's own")
+    if same_file:
+        suggest([r["file_path"] for r in db.library_files(version_ids=[int(same_file)])], "same file")
+    if versions:
+        suggest([r["file_path"] for r in db.library_files(version_ids=versions)
+                 if not _same_path(r["file_path"], own_path)], "same version, other file")
+    model = int(model_id or 0) or (own or {}).get("model_id") or next(
+        (r.get("model_id") for r in (db.library_files(version_ids=versions) if versions else []) if r.get("model_id")),
+        None)
+    if model:
+        # Its model's other versions the library holds here, as #278 offered them.
+        from .resources import other_versions
+        held = other_versions(db, versions[0] if versions else 0, int(model))
+        suggest([r["file_path"] for v in held for r in db.library_files(version_ids=[v["version_id"]])
+                 if r.get("version_id") not in versions], "same model")
+    loaded = None
+    try:
+        loaded_path = checkpoint_file(selected_models().get("checkpoint") or "")
+        loaded = by_path.get(key(loaded_path)) if loaded_path else None
+    except Exception as e:
+        say(f"Could not ask Forge which checkpoint it has: {e}")
+    if loaded:
+        suggest([checkpoint_file(loaded)], "loaded now")
+
+    def closest(name):
+        return min(SUGGESTED_ORDER.index(why) for why in reasons[name]), name.lower()
+    suggested = [{"name": name, "why": [w for w in SUGGESTED_ORDER if w in reasons[name]]}
+                 for name in sorted(reasons, key=closest)]
+    picked = next((s["name"] for s in suggested if s["why"][0] in PICKED_FIRST), None)
+
+    own_row = rows.get(key(own_path)) or {}
+    base = own_row.get("base_model") or base_model or gallery_base_model or ""
+    same_base = sorted((c["name"] for c in checkpoints if base and c["base_model"] == base
+                        and c["name"] not in reasons), key=str.lower)
+    family = own_row.get("architecture") or preset_for_base_model(base) \
+        or (rows.get(key(gallery_file)) or {}).get("architecture") or preset_for_base_model(gallery_base_model)
+    return {"checkpoints": checkpoints, "suggested": suggested, "picked": picked,
+            "same_base": {"base_model": base or None, "names": same_base},
+            "loaded": loaded, "family": family or None}

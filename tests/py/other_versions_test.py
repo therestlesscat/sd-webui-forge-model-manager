@@ -1,8 +1,9 @@
 """
 The versions of an image's checkpoint's model the library holds (#278): what
 a stopped Send's Resources dialog offers to send with when the image's own
-checkpoint is missing - and sending a Civitai image with one, through the
-route its Send asks (forge-modules, `use_version`).
+checkpoint is missing - and sending a Civitai image with one, picked in the
+Resources dialog's list by Forge's name for it (`use_checkpoint`, #377; a
+version id, `use_version`, until then).
 
 Any version of the model, whatever its base model, each naming its own;
 newest first by Civitai's stored order, one Civitai no longer lists last;
@@ -103,12 +104,13 @@ check('a model the library holds nothing of: nothing', other_versions(db, IMAGE_
 
 # ------------------------------------------------------------- the routes
 client = TestClient((lambda app: (setup_api(app), app)[1])(FastAPI()))
-body = client.get('/model-manager/other-versions', params={'version_id': IMAGE_VERSION, 'model_id': MODEL}).json()
-check('the route answers the same list', (body.get('success'), ids(body.get('versions') or [])), (True, [V1, V2]))
+check('its route is gone: the list of your checkpoints suggests them (#377)',
+      client.get('/model-manager/other-versions', params={'version_id': IMAGE_VERSION, 'model_id': MODEL}).status_code,
+      404)
 
 # A Civitai image's Send, from a LoRA's gallery: the image names v3, which
-# the library lacks; asked with use_version, the checkpoint is the file of
-# the version picked, and the answer names it.
+# the library lacks; asked with use_checkpoint, the checkpoint is the very
+# file picked, and the answer names it and what it is to the image.
 import model_manager.identity_store as store             # noqa: E402
 import model_manager.send_plan as sp                       # noqa: E402
 sp._ask_civitai = lambda kind, value: None                 # a suite asks Civitai nothing
@@ -118,6 +120,7 @@ for path in (P1, P2):
 host.installed_modules = lambda: {}
 host.saved_modules = lambda preset: []
 host.checkpoint_name = lambda path: {P1: 'model_v0.safetensors [1111]'}.get(path)
+host.checkpoint_file = lambda name: {'model_v0.safetensors [1111]': P1}.get(name)
 LORA = [p for p in facts['linked_paths'] if os.sep + 'Lora' + os.sep in p][0]
 image = {'file_path': LORA, 'version_ids': str(IMAGE_VERSION), 'model_name': 'v3_checkpoint'}
 
@@ -128,17 +131,38 @@ def plan(**params):
     p = {**image, **params}
     return json.loads(json.dumps(send.civitai_plan(
         db, p.get('file_path', ''), p.get('base_model', ''), p.get('version_ids', ''), p.get('hashes', ''),
-        p.get('model_name', ''), p.get('vae', ''), list(p.get('module') or []), int(p.get('use_version') or 0))))
+        p.get('model_name', ''), p.get('vae', ''), list(p.get('module') or []), p.get('use_checkpoint') or '',
+        None, p.get('image_model'))))
 
 
-body = plan(use_version=V1)
-check('use_version: the checkpoint is the library\'s file of that version, and the answer names it',
-      (body.get('checkpoint'), body.get('instead'), body.get('checkpoint_problem')),
-      ('model_v0.safetensors [1111]', os.path.basename(P1), None))
+body = plan(use_checkpoint='model_v0.safetensors [1111]', image_model=MODEL)
+check('use_checkpoint: the checkpoint is the very file picked; the answer names it, another version of the model',
+      (body.get('checkpoint'), body.get('instead'), body.get('pick'), body.get('other_model'),
+       body.get('checkpoint_problem')),
+      ('model_v0.safetensors [1111]', os.path.basename(P1), 'version', False, None))
+body = plan(use_checkpoint='model_v0.safetensors [1111]')
+check('the image\'s model not known to the page: the pick counts as another model\'s',
+      (body.get('pick'), body.get('other_model')), ('model', True))
+check('a name Forge no longer lists: the stop, as for the image\'s own',
+      plan(use_checkpoint='gone.safetensors [0000]').get('checkpoint_problem'),
+      {'reason': 'missing', 'name': 'gone.safetensors [0000]'})
 body = plan()
 check('without it: the image\'s own checkpoint, missing, as before, and nothing said instead',
       (body.get('checkpoint_problem'), 'instead' in body), ({'reason': 'missing', 'name': 'v3_checkpoint'}, False))
-check('and use_version=0 answers exactly as no use_version', plan(use_version=0), plan())
+check('and an empty use_checkpoint answers exactly as none', plan(use_checkpoint=''), plan())
+# A version holding an fp32 and an fp16 (#233): the very file picked, though
+# Forge lists the version's other file first - a version id could not say.
+P1_FP16 = os.path.join(os.path.dirname(P1), 'model_v0_fp16.safetensors')
+raw.execute("INSERT INTO files (file_path, file_name, version_id, file_type) VALUES (?, ?, ?, 'Checkpoint')",
+            (P1_FP16, os.path.basename(P1_FP16), V1))
+raw.commit()
+db.set_architecture(P1_FP16, 'sd', 'SD1', False, False, '1234', file_type='Checkpoint')
+host.checkpoint_name = lambda path: {P1: 'model_v0.safetensors [1111]', P1_FP16: 'model_v0_fp16.safetensors [2222]'}.get(path)
+host.checkpoint_file = lambda name: {'model_v0.safetensors [1111]': P1,
+                                     'model_v0_fp16.safetensors [2222]': P1_FP16}.get(name)
+body = plan(use_checkpoint='model_v0_fp16.safetensors [2222]', image_model=MODEL)
+check('7. an fp16 picked where its version also has an fp32 Forge lists first: the fp16 itself',
+      (body.get('checkpoint'), body.get('instead')), ('model_v0_fp16.safetensors [2222]', os.path.basename(P1_FP16)))
 
 # The image's checkpoint, missing, may be a file the library holds under
 # another Civitai model - one checkpoint uploaded twice (#304). The Resources
@@ -182,6 +206,35 @@ held = dirs.held_here
 dirs.held_here = lambda path: False
 check('the same file, but not held here: nothing to send with', missing({'SHA256': SHA}), None)
 dirs.held_here = held
+
+
+class CivitaiOwn(Civitai):
+    """Civitai's answer for the library's own version, V1, whose file is P1."""
+    def get_models_by_ids(self, ids, nsfw=True):
+        return {MODEL: {'type': 'Checkpoint', 'name': 'The model', 'modelVersions': [
+            {'id': V1, 'name': 'v1', 'files': [{'name': os.path.basename(P1), 'primary': True, 'type': 'Model',
+                                               'hashes': {'SHA256': SHA}}]}]}}
+
+
+# Seen live on 7870 (#377): the image's own version, held, came back as "the
+# same file", and the list tagged the image's own file "Same file" too.
+resources._MISSING_FILES.clear()
+answer = resources.missing_files(db, [{'version_id': V1, 'model_id': MODEL}], [], lambda: CivitaiOwn({'SHA256': SHA}))
+check('the version asked about, held: its own file, not the same file under another model',
+      (answer['versions'].get(str(V1)) or {}).get('same_file'), None)
+
+# Picked from the list's "Same file" (#377): the image names that version
+# alone, no hash. It is the image's very file, so its VAE and text encoders
+# go with it, and the notice says the same file - it was sent as another
+# model's pick, the image's modules dropped.
+missing({'SHA256': SHA})
+body = plan(version_ids=str(ITS_VERSION), use_checkpoint='model_v0.safetensors [1111]', image_model=REUPLOAD)
+check('a "Same file" pick, the image named by its version alone: the same file, not another model\'s',
+      (body.get('pick'), body.get('other_model')), ('same', False))
+resources._MISSING_FILES.clear()
+body = plan(version_ids=str(ITS_VERSION), use_checkpoint='model_v0.safetensors [1111]', image_model=REUPLOAD)
+check('    Civitai\'s hash for the version not asked: another model\'s, as it cannot be told',
+      (body.get('pick'), body.get('other_model')), ('model', True))
 
 print('\n'.join('FAIL ' + f for f in fails) if fails else 'All checks passed.')
 sys.exit(1 if fails else 0)

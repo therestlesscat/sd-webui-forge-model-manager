@@ -1,14 +1,18 @@
 // A send stopped for a checkpoint the library lacks opens the image's
 // Resources dialog. With another file of the image's version held, a tick
-// offered to send with that file (#233) - for your own generations only: a
-// Civitai image's stopped Send handed the dialog no way to send with
-// anything else. Another version of the same model held offered nothing.
+// offered to send with that file (#233); another version of the same model,
+// a tick for one and a dropdown for several (#278); the same file held under
+// another model, Send at once (#304). When none of those was held, the
+// dialog's Send stayed grey for ever.
 //
-// Now one way out at a time (#278): the file of the image's own version when
-// the library holds one, otherwise the other versions of its model - a tick
-// for one, a dropdown for several - from your generations and Civitai images
-// alike.
-import { checker, choose, mountTab, press, sharedModule, startServices } from './harness.mjs';
+// Now one list of your checkpoints (#377): the stop opens with its box,
+// "Choose the checkpoint to send with", ticked, and the list under it -
+// asked once the dialog's missing-resources lookup has answered, with what it
+// said of the image's checkpoint. What suits the image comes first, each with
+// a chip saying why: another version of its model is suggested, not picked;
+// the same file under another model is picked first, and the image comes out
+// as made. Every pick is sent one way, by Forge's name for it.
+import { checker, forgeRefreshButtons, mountTab, press, sharedModule, startServices, tick } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_generations.py');
 window.mmTiming = { poll: 20, sendRecheck: 20, sendRecheckMax: 200, pasteMax: 50, frame: 5 };
@@ -17,167 +21,217 @@ const { check, waitFor, done } = checker();
 // ------------------------------------------------------------- the server
 const CHECKPOINT = 111;        // the version the image names, which the library lacks
 const MODEL = 11;
-const HASH = 'abcdef0123';     // an AutoV2 of another file of CHECKPOINT
-let versions = [];             // what /other-versions answers
-let otherFiles = {};           // what /image-resources says of another file of the version
 let plan = null;               // what the send plan answers
 let sameFile = null;           // what /missing-resources says of the checkpoint's file, held under another model
-const REUPLOADED = 3072332;    // a checkpoint version whose file the library holds under another model
+let list = null;               // what /send/checkpoints answers
+let progress = [];             // what the downloads list answers
+let listAfter = null;          // what /send/checkpoints answers once Forge's list is refreshed
+let refreshes = [];            // Forge's refreshes pressed, from the stand-in buttons below
+let forgeAnswered = false;     // whether Forge has answered its checkpoint refresh
 const asked = [];
 globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
     asked.push(href);
     const reply = (body) => ({ ok: true, status: 200, json: async () => structuredClone(body) });
-    if (href.includes('/civitai/download/progress')) return reply({ success: true, downloads: [] });
-    if (href.includes('/other-versions')) return reply({ success: true, versions });
+    if (href.includes('/civitai/download/progress')) return reply({ success: true, downloads: progress });
+    if (href.includes('/civitai/download')) {
+        return reply({ success: true, version_id: CHECKPOINT, version_name: 'v5', file_id: 1111,
+                       progress: { version_id: CHECKPOINT, file_id: 1111, status: 'pending', percent: 0 } });
+    }
+    // After a download, the new file is in Forge's list only once its refresh is answered.
+    if (href.includes('/model-manager/send/checkpoints')) return reply(listAfter && forgeAnswered ? listAfter : list);
+    // Forge's answer to its checkpoint refresh: only now does it list the new file.
+    if (href.includes('/run/predict')) {
+        forgeAnswered = refreshes.includes('checkpoints');
+        return reply({});
+    }
+    if (href.includes('/queue/join')) return reply({});
     if (href.includes('/model-manager/send/plan')) return reply(plan);
     if (href.includes('/image-resources')) {
-        return reply({ success: true, versions: { 222: { version_id: 222 } }, hashes: {}, other_files: otherFiles,
+        return reply({ success: true, versions: { 222: { version_id: 222 } }, hashes: {}, other_files: {},
                        names: {}, embeddings: [] });
-    }
-    if (href.includes('/resolve-hashes')) {
-        return reply({ success: true, deferred: [], resolved: { [HASH]: {
-            version_id: CHECKPOINT, model_id: MODEL, name: 'A Checkpoint', version_name: 'v5', model_type: 'Checkpoint' } } });
     }
     if (href.includes('/missing-resources')) {
         const wanted = JSON.parse(new URLSearchParams(String(init.body)).get('versions'));
         return reply({ success: true, versions: Object.fromEntries(wanted.map(({ version_id: id }) => [id, {
-            model_id: MODEL, ...(sameFile && [REUPLOADED, globalThis.REUPLOADED_ALSO].includes(Number(id)) ? { same_file: sameFile } : {}) }])) });
+            model_id: MODEL, base_model: 'SD 1.5', ...(sameFile ? { same_file: sameFile } : {}) }])) });
     }
-    if (href.includes('/ui-options')) return reply({ success: true, samplers: [], schedulers: [], has_api_key: true });
+    if (href.includes('/ui-options')) {
+        return reply({ success: true, samplers: [], schedulers: [], has_api_key: true,
+                       family_names: { sd: 'SD 1.x', xl: 'SDXL' } });
+    }
     return reply({ success: true });
 };
 
 await sharedModule('downloads.mjs');
 const { showImageResources } = await sharedModule('resources.mjs');
 const { sendGalleryImage } = await sharedModule('send.mjs');
-await startServices('core.mjs', 'calls.mjs', 'downloads.mjs', 'resources.mjs');
+await (await sharedModule('ui_options.mjs')).uiOptions();
+await startServices('core.mjs', 'calls.mjs', 'forge.mjs', 'downloads.mjs', 'resources.mjs');
 
-const V16 = { version_id: 112, version_name: 'V16', base_model: 'SD 1.5', file_name: 'a_v16.safetensors' };
-const XL = { version_id: 113, version_name: 'V2 XL', base_model: 'SDXL 1.0', file_name: 'a_xl.safetensors' };
+const V16 = { name: '_SD\\a_v16.safetensors [1234]', file: 'a_v16.safetensors', family: 'sd', read: true, supported: true,
+              model: 'A Checkpoint', version: 'V16', base_model: 'SD 1.5' };
+const OTHER = { name: 'other.safetensors [9999]', file: 'other.safetensors', family: 'sd', read: true, supported: true,
+                model: 'Another', version: 'v1', base_model: 'SD 1.5' };
+const REUP = { name: 'reup.safetensors [5678]', file: 'reup.safetensors', family: 'sd', read: true, supported: true,
+               model: 'A Re-upload', version: 'fp8', base_model: 'SD 1.5' };
+const answer = (checkpoints, suggested, picked = null) => ({ success: true, checkpoints, suggested, picked,
+    same_base: { base_model: 'SD 1.5', names: [] }, loaded: null, family: 'sd' });
 const WAITS = { missing: 'The checkpoint is not in your library yet.' };
-const used = [];
-// Your generations' stopped send, as send.mjs hands it to the dialog.
-const stoppedSend = () => ({ why: WAITS.missing, reason: 'missing', waits: WAITS, check: null, run: () => used.push('own'),
-                             useInstalled: (versionId, kind) => used.push([versionId, kind]) });
+const picked = [];
+// A stopped send, as send.mjs hands it to the dialog.
+const stoppedSend = () => ({ opened: 'stop', ready: false, why: WAITS.missing, reason: 'missing', waits: WAITS, check: null,
+                             run: () => picked.push('own'), pick: (name, model) => picked.push([name, model]),
+                             button: 'Send to txt2img', list: { generation: 7 } });
 const byId = { meta: { prompt: 'a lighthouse', civitaiResources: [
     { type: 'checkpoint', modelVersionId: CHECKPOINT, modelId: MODEL, name: 'A Checkpoint', modelVersionName: 'v5' },
     { type: 'lora', modelVersionId: 222, modelId: 22, name: 'A LoRA', modelVersionName: 'v1' }] } };
-const byHash = { meta: { prompt: 'a lighthouse', resources: [{ type: 'model', name: 'a_checkpoint', hash: HASH }] } };
 
 const modal = () => document.querySelector('.mm-resources-modal');
-const tick = () => modal()?.querySelector('[data-action="resources.useInstalledTick"]');
-const tickText = () => (tick()?.closest('label')?.textContent || '').replace(/\s+/g, ' ').trim();
-const picker = () => modal()?.querySelector('[data-action="resources.chooseVersion"]');
+const box = () => modal()?.querySelector('[data-action="resources.chooseTick"]');
 const sendButton = () => modal()?.querySelector('[data-action="resources.sendAgain"]');
-const note = () => modal()?.querySelector('[data-res-note]')?.textContent || '';
-const versionsAsked = () => asked.filter((h) => h.includes('/other-versions'));
+const status = () => modal()?.querySelector('.mm-res-send-status')?.textContent || '';
+const rows = () => [...(modal()?.querySelectorAll('.mm-pick-row') || [])];
+const rowOf = (name) => rows().find((r) => r.querySelector('input')?.value === name);
+const whys = (row) => [...(row?.querySelectorAll('.mm-pick-why') || [])].map((c) => c.textContent);
+const sub = (row) => row?.querySelector('.mm-pick-sub')?.textContent;
+const active = () => modal()?.querySelector('.mm-pick-tab.active')?.textContent;
+const heads = () => [...(modal()?.querySelectorAll('.mm-pick-head') || [])].map((h) => h.textContent);
+const listAsked = () => asked.filter((h) => h.includes('/send/checkpoints'));
 const close = () => document.querySelectorAll('#mm_meta_modal').forEach((n) => n.close());
-const NOTE = 'The checkpoint this image was made with, A Checkpoint, is not in your library. Download it here, then press Send.';
+const pickRow = (name) => {
+    const radio = rowOf(name)?.querySelector('input');
+    if (radio) { radio.checked = true; press(radio); }
+};
 
-// ------------------------------------------------- one other version held
-versions = [V16];
-await showImageResources(byId, null, { note: NOTE, send: stoppedSend() });
-await waitFor('the tick', () => tick());
-check('one other version of the model held: a tick naming it and its base model',
-      tickText(), 'Use V16 (SD 1.5), the version I have, instead: the image may not come out exactly the same');
-check('asked by the image\'s version and its model',
-      versionsAsked().map((h) => [new URL(h, 'http://x').searchParams.get('version_id'),
-                                  new URL(h, 'http://x').searchParams.get('model_id')]), [[String(CHECKPOINT), String(MODEL)]]);
-check('the note offers the version you have',
-      note(), 'The checkpoint this image was made with, A Checkpoint v5, is not in your library. '
-              + 'Download it here, or send with the version of it you have.');
-check('Send waits until it is ticked', sendButton()?.disabled, true);
-if (tick()) { tick().checked = true; press(tick()); }
-check('ticked, Send is on', sendButton()?.disabled, false);
+// ------------------------------- another version of the model held (#278)
+list = answer([V16, OTHER], [{ name: V16.name, why: ['same model'] }]);
+await showImageResources(byId, null, { note: 'Not in your library.', send: stoppedSend() });
+await waitFor('the list', () => rows().length);
+check('a stop opens with its box ticked and the list under it, on Suggested', [box()?.checked, rows().length], [true, 1]);
+const listUrl = new URL(listAsked()[0] || 'http://x/', 'http://x');
+check('the list is asked after the missing-resources lookup, with what it said of the image\'s checkpoint',
+      [asked.findIndex((h) => h.includes('/missing-resources')) < asked.findIndex((h) => h.includes('/send/checkpoints')),
+       listUrl.searchParams.get('generation'), listUrl.searchParams.get('model_id'),
+       listUrl.searchParams.get('base_model')],
+      [true, '7', String(MODEL), 'SD 1.5']);
+check('another version of the model: under Suggested, open first, saying why, its family and its file',
+      [active(), heads(), sub(rowOf(V16.name))], ['Suggested 1', [], 'Same model, other version · SD 1.x · a_v16.safetensors']);
+check('nothing picked: Send waits for a pick, saying so', [sendButton()?.disabled, status()], [true, 'Pick a checkpoint to send with.']);
+pickRow(V16.name);
+check('picked: Send is on, and says what it sends with',
+      [sendButton()?.disabled, status()],
+      [false, 'Sends with A Checkpoint V16. It will not come out exactly as made.']);
 if (sendButton() && !sendButton().disabled) press(sendButton());
-check('and sends with that version, saying it is another version', used, [[112, 'version']]);
+check('pressed: the dialog closes and the pick is sent by Forge\'s name, with the image\'s model',
+      [Boolean(modal()), picked], [false, [[V16.name, MODEL]]]);
 close();
 
-// ------------------------------------------------ several versions held
-used.length = 0;
-asked.length = 0;
-versions = [V16, XL];
-await showImageResources(byId, null, { note: NOTE, send: stoppedSend() });
-await waitFor('the dropdown', () => picker());
-const options = () => [...(picker()?.querySelectorAll('option') || [])].map((o) => o.textContent);
-check('two versions held: a dropdown, the image\'s own first, then each version with its base model',
-      options(), ['The image\'s own checkpoint - download it above', 'V16 (SD 1.5)', 'V2 XL (SDXL 1.0)']);
-check('no tick beside it', Boolean(tick()), false);
-check('the image\'s own selected, and Send waits', [picker()?.value, sendButton()?.disabled], ['', true]);
-if (picker()) choose('resources.chooseVersion', '113');
-check('a version picked: Send is on, and the pick stays drawn', [sendButton()?.disabled, picker()?.value], [false, '113']);
-if (picker()) choose('resources.chooseVersion', '');
-check('the image\'s own picked again: Send waits again', sendButton()?.disabled, true);
-if (picker()) choose('resources.chooseVersion', '112');
-if (sendButton() && !sendButton().disabled) press(sendButton());
-check('Send goes with the version picked', used, [[112, 'version']]);
-close();
-
-// ------------------------------- another file of the image's version too
-used.length = 0;
-asked.length = 0;
-versions = [V16];
-otherFiles = { [HASH]: { name: 'a_v5_fp16.safetensors', fp: 'fp16', size: 'pruned', file_size: 2132651338 } };
-await showImageResources(byHash, null, { note: NOTE, send: stoppedSend() });
-await waitFor('the tick', () => tick());
-await new Promise((r) => setTimeout(r, 100));
-check('another file of the image\'s own version held: its tick alone, as before (#233)',
-      [tickText().startsWith('Use the fp16 pruned'), Boolean(picker())], [true, false]);
-check('and the other versions are not asked for', versionsAsked(), []);
-close();
-otherFiles = {};
-
-// ------------------------------------------------- nothing of it held
-asked.length = 0;
-versions = [];
-await showImageResources(byId, null, { note: NOTE, send: stoppedSend() });
-await waitFor('the question', () => versionsAsked().length);
-await new Promise((r) => setTimeout(r, 50));
-check('nothing of the model held: nothing offered, asked once',
-      [Boolean(tick()), Boolean(picker()), versionsAsked().length], [false, false, 1]);
+// ------------------------------------------------- unticked: the image's own
+picked.length = 0;
+await showImageResources(byId, null, { note: 'Not in your library.', send: stoppedSend() });
+await waitFor('the list', () => rows().length);
+await tick('resources.chooseTick', false);
+check('unticked: the list goes, and Send waits for the image\'s own, as before',
+      [rows().length, sendButton()?.disabled, sendButton()?.getAttribute('title')], [0, true, WAITS.missing]);
 close();
 
 // ------------------------- the same file, held under another model (#304)
 // One checkpoint uploaded twice: the server matched the missing version's
-// file to the library's by its hash. Send is on at once, saying with what.
-used.length = 0;
+// file to the library's by its hash, and suggests it, picked first.
+picked.length = 0;
 asked.length = 0;
-versions = [];
 sameFile = { version_id: 333, file_name: 'reup.safetensors', model_name: 'A Re-upload', version_name: 'fp8' };
+list = answer([OTHER, REUP], [{ name: REUP.name, why: ['same file'] }], REUP.name);
+// Another image, its checkpoint another version: the page keeps each version's answer.
 const reuploaded = { meta: { prompt: 'a lighthouse', civitaiResources: [
-    { type: 'checkpoint', modelVersionId: REUPLOADED, modelId: MODEL, name: 'A Checkpoint', modelVersionName: 'v1.0' }] } };
-await showImageResources(reuploaded, null, { note: NOTE, send: stoppedSend() });
+    { type: 'checkpoint', modelVersionId: 3072332, modelId: MODEL, name: 'A Checkpoint', modelVersionName: 'v1.0' }] } };
+await showImageResources(reuploaded, null, { note: 'Not in your library.', send: stoppedSend() });
 await waitFor('Send on', () => sendButton() && !sendButton().disabled);
-check('the missing checkpoint held as another model\'s file: Send on at once, the line saying which, nothing to tick',
-      [sendButton()?.disabled, modal()?.querySelector('.mm-res-send-status')?.textContent, Boolean(tick())],
-      [false, "You have this checkpoint's file, reup.safetensors, as A Re-upload / fp8: Send uses it.", false]);
+check('the list was told of the same file, by its version',
+      new URL(listAsked()[0] || 'http://x/', 'http://x').searchParams.get('same_file'), '333');
+check('the same file under another model: suggested, picked first, Send on at once - the image comes out as made',
+      [sub(rowOf(REUP.name)), rowOf(REUP.name)?.querySelector('input')?.checked, status()],
+      ['Same file · SD 1.x · reup.safetensors', true, 'Sends with A Re-upload fp8. The image comes out as made.']);
 if (sendButton() && !sendButton().disabled) press(sendButton());
-check('and sends with that version, as the same file', used, [[333, 'same']]);
+check('and sends with it', picked, [[REUP.name, MODEL]]);
 close();
 sameFile = null;
 
-// ---------------------------------------------- a Civitai image's Send
-// It stops for the checkpoint; the dialog offers the version held; ticked,
-// Send asks the server again with use_version, and says what it sent with.
+// --------------------------------------- a download lands from the dialog
+// A deleted version's newest, or the image's own: once it is in the library,
+// the list is asked again, and shows it (#372, #377).
+picked.length = 0;
 asked.length = 0;
-versions = [V16];
+const NEWEST = { name: 'a_v6.safetensors [6666]', file: 'a_v6.safetensors', family: 'sd', read: true, supported: true,
+                 model: 'A Checkpoint', version: 'v6', base_model: 'SD 1.5' };
+list = answer([OTHER], []);
+const landing = { meta: { prompt: 'a lighthouse', civitaiResources: [
+    { type: 'checkpoint', modelVersionId: CHECKPOINT, modelId: MODEL, name: 'A Checkpoint', modelVersionName: 'v5' }] } };
+await showImageResources(landing, null, { note: 'Not in your library.', send: stoppedSend() });
+await waitFor('the list', () => rows().length);
+const download = modal()?.querySelector(`[data-action="resources.download"][data-version-id="${CHECKPOINT}"]`);
+check('the checkpoint\'s row offers its Download', Boolean(download), true);
+const listsBefore = listAsked().length;
+// Forge lists the new file only once its refresh is answered: asked before
+// then, the list would not hold it.
+refreshes = forgeRefreshButtons(document, window);
+listAfter = answer([OTHER, NEWEST], [{ name: NEWEST.name, why: ['same model'] }]);
+if (download) press(download);
+progress = [{ version_id: CHECKPOINT, file_id: 1111, status: 'complete', percent: 100, synced: true }];
+await waitFor('the list asked again', () => listAsked().length > listsBefore && rowOf(NEWEST.name), 100);
+check('20. once it lands and Forge has listed it, the list is asked again, the download in it, suggested',
+      [listAsked().length > listsBefore, whys(rowOf(NEWEST.name))[0]], [true, 'Same model, other version']);
+progress = [];
+listAfter = null;
+forgeAnswered = false;
+close();
+
+// The Resources button's dialog, its box unticked by hand: a download of the
+// image's checkpoint landing enables its Send, the image's own.
+const { gallerySendLine } = await sharedModule('send.mjs');
+const OWN_DOWNLOAD = 115;
+const fresh = { id: 7115, meta: { prompt: 'a lighthouse', civitaiResources: [
+    { type: 'checkpoint', modelVersionId: OWN_DOWNLOAD, modelId: MODEL, name: 'A Checkpoint', modelVersionName: 'v9' }] } };
+list = answer([OTHER], []);
+await showImageResources(fresh, null, { send: gallerySendLine({ img: fresh, model: { id: 4001, base_model: 'SD 1.5' },
+                                                                version: { id: 5001, file_path: 'C:/models/Lora/a.safetensors' } }) });
+await waitFor('the box set', () => box()?.checked === true);
+await tick('resources.chooseTick', false);
+check('the Resources button\'s dialog, its checkpoint not here, unticked: Send waits for it', sendButton()?.disabled, true);
+const ownDownload = modal()?.querySelector(`[data-action="resources.download"][data-version-id="${OWN_DOWNLOAD}"]`);
+if (ownDownload) press(ownDownload);
+progress = [{ version_id: OWN_DOWNLOAD, file_id: 1111, status: 'complete', percent: 100, synced: true }];
+await waitFor('Send on once it lands', () => sendButton() && !sendButton().disabled, 100);
+check('    its download landed: Send sends the image\'s own, the box left as pressed',
+      [sendButton()?.disabled, status(), box()?.checked], [false, 'Sends with the image\'s own checkpoint.', false]);
+progress = [];
+close();
+
+// ---------------------------------------------- a Civitai image's Send
+// It stops for the checkpoint; a pick goes to the server as use_checkpoint,
+// with the image's model, and the notice says what it was to the image.
+asked.length = 0;
+list = answer([V16, OTHER], [{ name: V16.name, why: ['same model'] }]);
 const gallery = { id: 4001, base_model: 'SD 1.5', model_type: 'LORA' };
 const shown = { id: 5001, file_path: 'C:/models/Lora/a_lora.safetensors', base_model: 'SD 1.5' };
-plan = { success: true, preset: null, checkpoint: null,
-         checkpoint_problem: { reason: 'missing', name: 'A Checkpoint' } };
+plan = { success: true, preset: null, checkpoint: null, checkpoint_problem: { reason: 'missing', name: 'A Checkpoint' } };
 await sendGalleryImage({ img: byId, model: gallery, version: shown });
-await waitFor('the tick, from a Civitai image', () => tick());
-check('a Civitai image\'s stopped Send offers the version held too',
-      tickText(), 'Use V16 (SD 1.5), the version I have, instead: the image may not come out exactly the same');
-plan = { success: true, preset: null, checkpoint: 'a_v16.safetensors [1234]', checkpoint_problem: null,
-         instead: 'a_v16.safetensors' };
-if (tick()) { tick().checked = true; press(tick()); }
+await waitFor('the list, from a Civitai image', () => rows().length);
+const civitaiUrl = new URL(listAsked()[0] || 'http://x/', 'http://x');
+check('a Civitai image\'s list is asked with its checkpoint and its gallery',
+      [civitaiUrl.searchParams.get('version_ids'), civitaiUrl.searchParams.get('gallery_file'),
+       civitaiUrl.searchParams.get('gallery_base_model')],
+      [String(CHECKPOINT), shown.file_path, 'SD 1.5']);
+plan = { success: true, preset: null, checkpoint: V16.name, checkpoint_problem: null,
+         instead: 'a_v16.safetensors', pick: 'version' };
+pickRow(V16.name);
 if (sendButton() && !sendButton().disabled) press(sendButton());
-await waitFor('the send with it', () => asked.filter((h) => h.includes('use_version=')).length);
-const withVersion = asked.find((h) => h.includes('use_version='));
-check('ticked and sent: the server is asked with that version',
-      withVersion && new URL(withVersion, 'http://x').searchParams.get('use_version'), '112');
+await waitFor('the send with it', () => asked.filter((h) => h.includes('use_checkpoint=')).length);
+const withPick = new URL(asked.find((h) => h.includes('use_checkpoint=')), 'http://x');
+check('picked and sent: the server is asked with Forge\'s name for it and the image\'s model',
+      [withPick.searchParams.get('use_checkpoint'), withPick.searchParams.get('image_model'),
+       withPick.searchParams.has('use_version')], [V16.name, String(MODEL), false]);
 await waitFor('the notice', () => document.querySelector('.mm-notice'));
 check('and the notice says it was another version of the model',
       (document.querySelector('.mm-notice')?.textContent || '').includes(
@@ -188,21 +242,19 @@ close();
 // A Civitai image whose checkpoint the library holds under another model
 // (#304): sent with it, and said to be the image's own - no caution.
 asked.length = 0;
-versions = [];
+sameFile = { version_id: 334, file_name: 'reup.safetensors', model_name: 'A Re-upload', version_name: 'fp8' };
+list = answer([OTHER, REUP], [{ name: REUP.name, why: ['same file'] }], REUP.name);
+plan = { success: true, preset: null, checkpoint: null, checkpoint_problem: { reason: 'missing', name: 'A Checkpoint' } };
 const ownFile = { meta: { prompt: 'a lighthouse', civitaiResources: [
     { type: 'checkpoint', modelVersionId: 3072333, modelId: MODEL, name: 'A Checkpoint', modelVersionName: 'v1.1' }] } };
-sameFile = { version_id: 334, file_name: 'reup2.safetensors', model_name: 'A Re-upload', version_name: 'fp16' };
-const reup = 3072333;
-plan = { success: true, preset: null, checkpoint: null, checkpoint_problem: { reason: 'missing', name: 'A Checkpoint' } };
-globalThis.REUPLOADED_ALSO = reup;
 await sendGalleryImage({ img: ownFile, model: gallery, version: shown });
 await waitFor('Send on, from a Civitai image', () => sendButton() && !sendButton().disabled);
-plan = { success: true, preset: null, checkpoint: 'reup2.safetensors [5678]', checkpoint_problem: null, instead: 'reup2.safetensors' };
+plan = { success: true, preset: null, checkpoint: REUP.name, checkpoint_problem: null, instead: 'reup.safetensors', pick: 'same' };
 if (sendButton() && !sendButton().disabled) press(sendButton());
 await waitFor('the notice', () => document.querySelector('.mm-notice'));
 check('sent with the same file, and said to be the image\'s own checkpoint',
-      [new URL(asked.find((h) => h.includes('use_version=')) || 'http://x/', 'http://x').searchParams.get('use_version'),
+      [new URL(asked.find((h) => h.includes('use_checkpoint=')) || 'http://x/', 'http://x').searchParams.get('use_checkpoint'),
        document.querySelector('.mm-notice')?.textContent],
-      ['334', 'Sent with reup2.safetensors: the checkpoint this image was made with, held in your library under another Civitai model.']);
+      [REUP.name, 'Sent with reup.safetensors: the checkpoint this image was made with, held in your library under another Civitai model.']);
 
 done();

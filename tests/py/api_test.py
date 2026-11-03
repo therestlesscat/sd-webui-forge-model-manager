@@ -877,7 +877,7 @@ def _files(*names, primary=None):
 
 _Missing.models = {
     700: {'id': 700, 'name': 'A Very Different Title', 'type': 'LORA', 'modelVersions': [
-        {'id': 7001, 'name': 'v1', 'files': _files('big_fp32.safetensors', 'sharp_eyes.safetensors',
+        {'id': 7001, 'name': 'v1', 'baseModel': 'Illustrious', 'files': _files('big_fp32.safetensors', 'sharp_eyes.safetensors',
                                                    primary='sharp_eyes.safetensors')}]},
     701: {'id': 701, 'name': 'Moved On', 'type': 'LORA', 'modelVersions': [
         {'id': 7012, 'name': 'v2', 'files': _files('moved_on_fp32.safetensors', 'moved_on_v2.safetensors',
@@ -898,9 +898,10 @@ try:
                                            {'version_id': 7020, 'model_id': None}]),
                       hashes='ABCDEF0123,0000000000')
     got = body.get('versions', {})
-    check('a missing version is named as a download names it: its primary file, not the first listed',
+    check('a missing version is named as a download names it: its primary file, not the first listed; '
+          'its base model said, for the Resources dialog\'s list (#377)',
           got.get('7001'), {'file_stem': 'sharp_eyes', 'file_type': 'LORA', 'model_id': 700,
-                            'name': 'A Very Different Title', 'version_name': 'v1'})
+                            'name': 'A Very Different Title', 'version_name': 'v1', 'base_model': 'Illustrious'})
     check('a version its model no longer lists is said so, the model named',
           (got.get('7011') or {}).get('version_gone'), True)
     # What a Download fetches in its place, said before the press (#205, #372):
@@ -936,7 +937,7 @@ try:
     got = body.get('versions', {})
     check('a model the NSFW batch leaves out - one Civitai marks minor - is not gone: asked again without',
           got.get('7031'), {'file_stem': 'marked_minor', 'file_type': 'LORA', 'model_id': 703,
-                            'name': 'Marked Minor', 'version_name': 'v1'})
+                            'name': 'Marked Minor', 'version_name': 'v1', 'base_model': None})
     check('one both batches leave out is asked alone, and named',
           (got.get('7041') or {}).get('file_stem'), 'missed')
     check('one that cannot be asked alone is not called gone: no answer for it', '7051' in got, False)

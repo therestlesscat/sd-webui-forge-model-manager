@@ -159,14 +159,22 @@ def image_files(db, version_ids: List[int], hashes: List[str],
     (_loadable_here). `embeddings` is every embedding it loads: a prompt can
     name one no resource lists, as a word, and the page looks for each (#179).
     """
+    from .model_dirs import held_here
     loadable = _loadable_here(lora_folders(), embedding_folders())
     types = {}
 
     def usable(path: str) -> bool:
-        # The key lookup knows paths; what each file is, its row says.
+        # The key lookup knows paths; what each file is, its row says. A
+        # checkpoint, VAE, text encoder or upscaler is Installed only where it
+        # is held here (#377): the other WebUI's copy, sharing the database,
+        # read Installed with no Download while Send said this WebUI could not
+        # load it. LoRAs and embeddings keep their own folders' rule.
         if path not in types:
             types[path] = (db.get_version(path) or {}).get("file_type")
-        return loadable(path, types[path])
+        kind = types[path]
+        if kind is not None and kind != "TextualInversion" and kind not in LORA_FAMILY:
+            return held_here(path)
+        return loadable(path, kind)
     by_id, by_hash = db.local_versions_by_key(version_ids, hashes, usable)
     by_name = files_by_name(db, named, by_hash, loadable)
     embeddings = [row for row in db.local_embeddings() if loadable(row.get("file_path"), "TextualInversion")]
@@ -348,6 +356,20 @@ def same_file(db, file_hash: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def version_file_hashes(version_ids) -> List[str]:
+    """
+    The hash Civitai gave for each version's file, as the Resources dialog's
+    lookup asked it (missing_files, kept in memory): what a pick of the same
+    file under another model is matched by (#304). [] for a version not asked.
+    """
+    found = []
+    for version_id in version_ids:
+        answer = _MISSING_FILES.get(int(version_id)) or {}
+        if answer.get("file_hash"):
+            found.append(str(answer["file_hash"]).lower())
+    return found
+
+
 def missing_files(db, wanted: List[Dict[str, Any]], hash_list: List[str],
                   civitai: Callable[[], Any]) -> Dict[str, Dict[str, Any]]:
     """
@@ -438,6 +460,9 @@ def missing_files(db, wanted: List[Dict[str, Any]], hash_list: List[str],
             "file_stem": os.path.splitext(chosen.get("name") or "")[0] or None,
             "file_type": model_type, "model_id": model_id,
             "name": model_name, "version_name": version.get("name"),
+            # What the Resources dialog's list suggests by (#377): the same
+            # base model first in its family's tab.
+            "base_model": version.get("baseModel") or None,
             # Its SHA-256, else its AutoV2: what the library's own file is
             # matched by (#304).
             "file_hash": hashes.get("sha256") or hashes.get("autov2"),
@@ -451,6 +476,9 @@ def missing_files(db, wanted: List[Dict[str, Any]], hash_list: List[str],
         # The hash is the server's, to match by; the page gets what it found.
         same = same_file(db, answer["file_hash"]) \
             if answer.get("file_type") == "Checkpoint" and answer.get("file_hash") else None
+        # The library holding the version asked about is its own file, not one under another model.
+        if same and str(same.get("version_id")) == key:
+            same = None
         answers[key] = {**{k: v for k, v in answer.items() if k != "file_hash"}, **({"same_file": same} if same else {})}
     return {"versions": {v: answer for v, answer in answers.items() if answer is not None},
             "hashes": by_hash}

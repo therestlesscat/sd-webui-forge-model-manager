@@ -1,5 +1,18 @@
 [
     {
+        "id": "choose-checkpoint",
+        "version": "0.74.0",
+        "kind": "feature",
+        "audience": "everyone",
+        "tabs": [
+            "gallery",
+            "generations",
+            "model_manager"
+        ],
+        "title": "Pick the checkpoint to send with",
+        "text": "When Send cannot load an image's checkpoint, the Resources dialog it opens now lists your own checkpoints to send with, those that suit the image first. To pick on any Send, tick Choose checkpoint in the toolbar of the Civitai Images or the Generations tab, or press Send as… beside Send on a card in the Model Manager. A setting of the same name, in Send, ticks both tabs' boxes."
+    },
+    {
         "id": "twin-files-0-73-1",
         "version": "0.73.1",
         "kind": "action",

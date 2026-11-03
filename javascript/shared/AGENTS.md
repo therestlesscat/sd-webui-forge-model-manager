@@ -42,7 +42,7 @@ the sync's module, and the Queue alone asked for the sync's progress
 | `generations` | your generations, as a model's gallery and the Generations tab both show them: a thumbnail, the rating and delete requests, a shift-click's range, the select bar and bulk delete, the rating row. Each tab draws its own cards or tiles |
 | `downloads` | a version's Download button, and the downloads panel both tabs show; the list runs once a tab that downloads starts it, and stops with the last; Send's Resources and chips offer Download only while it runs |
 | `forge` | what the page does with Forge's own page, the server's `forge_host.py` on this side (#321): the watcher of Gradio's calls to Forge - its straight-to-server calls, and apart from them its posts to the queue - on the page's fetch while a tab that uses it runs; and Forge's refreshes, one at a time in one line for every caller (a batch landing, a sync's end, a delete, Send's): the checkpoint refresh, its answer waited for, then the extra networks refresh, ended when the step Forge chains after it is posted. Pressed together, the first read Forge's checkpoint list half rebuilt by the second, and the Checkpoint box went empty. Send's helpers for Forge's controls move here in #325 |
-| `send` | Send to txt2img / img2img, from any tab: Forge's VAE / Text Encoder control, its UI preset, the one send plan (`/model-manager/send/plan`, `send.py`) and the source it hands the tab's loader, which builds the infotext on the server and sets the schedule type and Hires fix in the paste's own event (#302), an image-to-video model's start frame (`sendGalleryImage`, `sendInfotext`); and, with `into`, the picture itself into one of img2img's modes (#299, `IMG2IMG_SENDS`, the ⋯ menu's items) - put in by a canvas button of the mode's own, never the settings' loader (an answer that leaves a canvas as it is breaks it for the session: `scheduler/load.py`), its layer emptied, a missing checkpoint said rather than a stop |
+| `send` | Send to txt2img / img2img, from any tab: Forge's VAE / Text Encoder control, its UI preset, the one send plan (`/model-manager/send/plan`, `send.py`) and the source it hands the tab's loader, which builds the infotext on the server and sets the schedule type and Hires fix in the paste's own event (#302), an image-to-video model's start frame (`sendGalleryImage`, `sendInfotext`); and, with `into`, the picture itself into one of img2img's modes (#299, `IMG2IMG_SENDS`, the ⋯ menu's items) - put in by a canvas button of the mode's own, never the settings' loader (an answer that leaves a canvas as it is breaks it for the session: `scheduler/load.py`), its layer emptied, a missing checkpoint said rather than a stop; the Resources dialog's Send line it hands each dialog (`civitaiSendLine`, `generationSendLine`; for the Resources button `gallerySendLine`, `generationResourcesLine`, #377), with `choose` from a tab's own box or Send as… - which it never reads itself: the dialog's own Send comes back through it |
 | `chips` | an image's LoRAs and embeddings as chips under the prompt, after a send: their rules, and the chips on the page |
 | `resources` | an image's resources and the Resources dialog every gallery opens, each passing the version its gallery is of (`exclude`): which Civitai versions they are, whether the library has each, and a Download into it - through the downloads list, which polls for it, as for every download |
 | `wan` | a video's frames and size as Wan makes them |
@@ -55,11 +55,16 @@ the sync's module, and the Queue alone asked for the sync's progress
 
 ### The page
 
-**A stopped Send's Resources dialog offers what the library holds** through
-the `useInstalled` the Send hands it: another file of the image's version
-when one is held, else the model's other versions - a tick for one, a
-dropdown for several (#278). Until #278 only your generations' Send handed
-it, and a Civitai image's offered nothing.
+**The Resources dialog's Send line offers your checkpoints** (#377), handed
+by Send to every dialog but the Civitai Browser's: a box, Choose the
+checkpoint to send with - ticked in every stop, by the tabs' box and Send
+as…; opened with the Resources button, as the image's checkpoint row says
+Installed or not, no plan asked - over a list of what Forge lists, asked of
+`send/checkpoints` only once the dialog's missing-resources lookup has
+answered, which is where the suggestions come from. Every pick is sent by
+Forge's name (`use_checkpoint`). #278's tick and dropdown offered another
+file or version of the image's model, and nothing when neither was held:
+Send stayed grey for ever.
 
 **The settings window holds every section's fields, and shows those of the
 tab it was opened from.** Opened from the Model Manager, the Civitai
@@ -94,8 +99,9 @@ is the primary: a checkpoint is loaded, a VAE or text encoder takes its kind's
 place (`pick(own=)`), an upscaler becomes Hires fix's, a LoRA or embedding a
 chip. The rest is picked as before, never over it. The image's checkpoint is
 the one thing Send cannot go without: one the library lacks, or this WebUI
-cannot load, stops the send and opens the image's Resources, whose own Send
-works once the server says it can (`checkpoint_problem`). An image that names
+cannot load, stops the send and opens the image's Resources, where one of
+yours can be picked, and whose own Send, its box unticked, works once the
+server says the image's can be loaded (`checkpoint_problem`). An image that names
 no checkpoint has Send disabled outside a checkpoint's gallery (`cannotSend`).
 Before, a LoRA's or VAE's gallery left Forge on whatever it had loaded.
 

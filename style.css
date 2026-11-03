@@ -2182,55 +2182,143 @@ body.mm-modal-open {
 
 /* Resources Modal */
 .mm-resources-modal {
-    max-width: min(80%, 800px);
+    max-width: min(80%, 1200px);
 }
 
-.mm-resources-table {
-    width: 100%;
-    border-collapse: collapse;
+/* The dialog's rows (#377, R4): two lines a row, as the list of your
+   checkpoints - the name, which opens the model, and the version; under them
+   the kind, the prompt's tag and the row's notes; its Download at the right. */
+.mm-resources-list {
+    display: flex;
+    flex-direction: column;
 }
 
-.mm-resources-table th,
-.mm-resources-table td {
-    padding: 10px 12px;
-    text-align: left;
-    border-bottom: 1px solid var(--border-color-primary, #374151);
-}
-
-.mm-resources-table th {
+/* The dialog's headings and the list's - "Checkpoint", "Other resources 7",
+   "Illustrious, like the image 10": small grey capitals, no fill. */
+.mm-res-head,
+.mm-pick-head {
+    padding: 10px 8px 4px;
+    font-size: 0.75em;
     font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #6b7280;
+}
+
+.mm-res-head:first-child {
+    padding-top: 0;
+}
+
+.dark .mm-res-head,
+.dark .mm-pick-head {
     color: var(--body-text-color-subdued, #9ca3af);
+}
+
+.mm-res-count {
+    font-weight: 400;
+}
+
+.mm-res-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 8px;
+    border-radius: 6px;
+}
+
+/* A row of the dialog or of the list, under the pointer. */
+.mm-res-row:hover,
+.mm-pick-row:hover {
     background: rgba(0, 0, 0, 0.04);
 }
 
-/* Dark only in dark mode: on a light page it was a grey or black box. */
-.dark .mm-resources-table th {
-    background: rgba(0, 0, 0, 0.2);
-}
-
-.mm-resources-table td {
-    color: var(--body-text-color, #fff);
-    vertical-align: middle;
-}
-
-.mm-res-type {
-    width: 100px;
-    text-transform: capitalize;
+.dark .mm-res-row:hover,
+.dark .mm-pick-row:hover {
+    background: rgba(255, 255, 255, 0.05);
 }
 
 .mm-res-name {
-    word-break: break-word;
+    flex: 1;
+    min-width: 0;
 }
 
-/* An ordinary table cell. It was briefly a flex container, to replace spacing
-   that the shared button rule's `margin: 0` had taken away - and a flex cell
-   stops honouring vertical-align, so the buttons drifted to the top of any row
-   whose name wrapped. The table already does this correctly; the only thing it
-   needed was the gap back. */
+.mm-res-line {
+    overflow-wrap: anywhere;
+}
+
+/* The name, a button that opens the model as View did: it reads as the name. */
+.mm-res-view {
+    margin: 0;
+    padding: 0;
+    font: inherit;
+    font-weight: 600;
+    color: inherit;
+    text-align: left;
+    background: none;
+    border: 0;
+    cursor: pointer;
+}
+
+.mm-res-view:hover:not(:disabled) {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.mm-res-view:disabled {
+    cursor: progress;
+    opacity: 0.7;
+}
+
+.mm-res-title {
+    font-weight: 600;
+}
+
+/* A row's second line, in the dialog and in the list. */
+.mm-res-sub,
+.mm-pick-sub {
+    font-size: 0.8em;
+    color: #6b7280;
+    overflow-wrap: anywhere;
+}
+
+.dark .mm-res-sub,
+.dark .mm-pick-sub {
+    color: var(--body-text-color-subdued, #9ca3af);
+}
+
+.mm-res-tag {
+    padding: 0;
+    font-family: var(--font-mono, ui-monospace, Consolas, monospace);
+    font-size: 1em;
+    color: inherit;
+    background: none;
+}
+
+/* The Download cell and View, each a column of fixed width, so nothing moves
+   while the dialog fills or a download runs (#377, R4): 9em holds every
+   everyday state - the widest, "Named only by its name", 131 px against 144
+   in headless Edge - and the rare long ones wrap inside it. */
 .mm-res-actions {
-    width: 150px;
+    flex: none;
+    width: 9em;
     text-align: right;
-    white-space: nowrap;
+}
+
+.mm-res-actions .mm-res-state,
+.mm-res-actions .mm-btn {
+    white-space: normal;
+}
+
+.mm-res-open {
+    flex: none;
+    width: 3.25em;
+    text-align: right;
+}
+
+/* Room for the scrollbar from the start: the columns stay put when the rows
+   outgrow the box. */
+.mm-resources-modal .mm-modal-body {
+    scrollbar-gutter: stable;
 }
 
 /* More specific than the shared rule, which pins margin to 0 to clear
@@ -2239,12 +2327,27 @@ body.mm-modal-open {
     margin-left: 5px !important;
 }
 
-.mm-resources-table tr:last-child td {
-    border-bottom: none;
+/* What has no Civitai version: in the same list, quieter. */
+.mm-res-unresolved .mm-res-title {
+    font-weight: 400;
+    color: #6b7280;
+}
+
+.dark .mm-res-unresolved .mm-res-title {
+    color: var(--body-text-color-subdued, #9ca3af);
+}
+
+/* The Send line at the dialog's foot, outside what scrolls (#377, R4): a
+   modal's footer, its line laid out as a block of its own. */
+.mm-resources-foot {
+    display: block;
+    flex: none;
+    padding: 4px 20px 14px;
 }
 
 /* Resource lookup states */
 .mm-res-loading {
+    padding: 6px 8px;
     color: #60a5fa !important;
     font-style: italic;
 }
@@ -2265,19 +2368,6 @@ body.mm-modal-open {
     font-size: 0.85em;
 }
 
-/* The heading over the resources nothing could be found for. They are listed
-   rather than dropped, but they are not offers, so they read quieter. */
-.mm-res-group {
-    padding-top: 16px !important;
-    color: var(--body-text-color-subdued, #9ca3af);
-    font-size: 0.85em;
-}
-
-.mm-res-unresolved .mm-res-type,
-.mm-res-unresolved .mm-res-name {
-    color: var(--body-text-color-subdued, #9ca3af);
-}
-
 /* The version, beside the model's name. */
 .mm-res-version {
     color: var(--body-text-color-subdued, #9ca3af);
@@ -2285,24 +2375,210 @@ body.mm-modal-open {
 }
 
 /* The file of the version the library holds, where the image used another (#233);
-   and a version Civitai deleted, its model still there (#372). */
+   and a version Civitai deleted, its model still there (#372): notes on the
+   row's second line, as quiet as it. */
 .mm-res-held, .mm-res-gone {
-    color: var(--body-text-color-subdued, #9ca3af);
-    font-size: 0.85em;
+    color: inherit;
 }
 
-/* A stopped send's tick that unlocks its Send with that file: beside the button. */
-.mm-res-use-installed {
+/* The Send line's box (#377): "Choose the checkpoint to send with", at its left. */
+.mm-res-choose {
     display: flex;
     align-items: center;
     gap: 6px;
     margin-right: auto;
     font-size: 0.9em;
+    white-space: nowrap;
 }
 
-/* The versions held, to send with one (#278): "Send with:" on one line beside its dropdown. */
-.mm-res-pick {
+/* The list of your checkpoints, under the line once the box is ticked (#377):
+   a search, the tabs - Suggested, a family each, All - and the rows, 300 px
+   tall, scrolling. */
+.mm-pick {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.mm-pick-search {
+    box-sizing: border-box;
+    width: 100%;
+    padding: 5px 8px;
+    font-size: 0.9em;
+    color: inherit;
+    background: rgba(0, 0, 0, 0.04);
+    border: 1px solid var(--border-color-primary, #d1d5db);
+    border-radius: 4px;
+}
+
+.dark .mm-pick-search {
+    color-scheme: dark;
+    background: rgba(255, 255, 255, 0.06);
+    border-color: var(--border-color-primary, #374151);
+}
+
+.mm-pick-search:focus {
+    outline: none;
+    border-color: var(--primary-500, #3b82f6);
+}
+
+/* The tabs (#377, R4): Suggested, a family each, All - an underlined strip, each its name and a
+   count; the preset key is in the tab's tooltip. */
+.mm-pick-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 14px;
+    border-bottom: 1px solid var(--border-color-primary, #d1d5db);
+}
+
+.dark .mm-pick-tabs {
+    border-bottom-color: var(--border-color-primary, #374151);
+}
+
+.mm-pick-tab {
+    margin: 0 0 -1px;
+    padding: 4px 0 6px;
+    font-size: 0.9em;
+    color: #4b5563;
+    background: none;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+}
+
+.dark .mm-pick-tab {
+    color: var(--body-text-color-subdued, #9ca3af);
+}
+
+.mm-pick-tab.active {
+    font-weight: 600;
+    color: var(--body-text-color, #1f2937);
+    border-bottom-color: var(--primary-500, #f97316);
+}
+
+.dark .mm-pick-tab.active {
+    color: var(--body-text-color, #f3f4f6);
+}
+
+/* A tab's or a heading's count, after its name. */
+.mm-pick-count {
+    margin-left: 2px;
+    font-size: 0.9em;
+    font-weight: 400;
+    color: #6b7280;
+    font-variant-numeric: tabular-nums;
+}
+
+.dark .mm-pick-count {
+    color: var(--body-text-color-subdued, #9ca3af);
+}
+
+/* The same height whatever a tab holds, and while the list is read: the dialog is centred, and
+   a box sized to its rows moved its top, the tabs with it, at every tab switch (#377, R4). */
+.mm-pick-rows {
+    height: 300px;
+    overflow-y: auto;
+}
+
+/* The tab strip's height while the list is read: a tab, unseen. */
+.mm-pick-tab-held {
+    visibility: hidden;
+}
+
+/* A row in two lines: the model and its version, the base model at the right; then why,
+   loaded now, the family and the file, smaller. */
+.mm-pick-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    column-gap: 10px;
+    align-items: baseline;
+    padding: 5px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.mm-pick-row.picked {
+    background: rgba(0, 0, 0, 0.06);
+}
+
+.dark .mm-pick-row.picked {
+    background: rgba(255, 255, 255, 0.09);
+}
+
+.mm-pick-row > input {
+    grid-row: span 2;
+    align-self: center;
+    margin: 0;
+}
+
+.mm-pick-name {
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+.mm-pick-ver {
+    margin-left: 4px;
+    font-weight: 400;
+    color: #4b5563;
+}
+
+.dark .mm-pick-ver {
+    color: var(--body-text-color-subdued, #9ca3af);
+}
+
+.mm-pick-base {
+    font-size: 0.85em;
+    color: #4b5563;
     white-space: nowrap;
+}
+
+.dark .mm-pick-base {
+    color: var(--body-text-color-subdued, #9ca3af);
+}
+
+.mm-pick-sub {
+    grid-column: 2 / 4;
+}
+
+.mm-pick-file {
+    font-family: var(--font-mono, ui-monospace, Consolas, monospace);
+}
+
+/* Why a row is suggested, in the accent; loaded now, in green. The theme's orange reads at
+   2.8:1 on white, so light mode takes a darker one. */
+.mm-pick-why {
+    font-weight: 600;
+    color: #c2410c;
+}
+
+.dark .mm-pick-why {
+    color: #fb923c;
+}
+
+.mm-pick-loaded {
+    font-weight: 600;
+    color: #15803d;
+}
+
+.dark .mm-pick-loaded {
+    color: #4ade80;
+}
+
+/* A family this WebUI has no UI preset for: shown, not pickable (#377, question 12). */
+.mm-pick-greyed {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.mm-pick-wait {
+    padding: 6px 8px;
+    font-size: 0.9em;
+    color: #4b5563;
+}
+
+.dark .mm-pick-wait {
+    color: var(--body-text-color-subdued, #9ca3af);
 }
 
 /* What a stopped send's Send waits for, beside it, and Check again (#211).

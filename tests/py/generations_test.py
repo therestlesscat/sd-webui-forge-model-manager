@@ -823,6 +823,48 @@ if has_fastapi:
               (None, os.path.basename(CHECKPOINT).lower(), [], ['sdxl_vae.safetensors']))
         check('a generation nobody recorded has no plan',
               plan_of(999999).status_code, 404)
+
+        # Sent with a checkpoint picked in the Resources dialog (#377): one of
+        # another model takes none of the recorded modules - its family's
+        # instead, as a Civitai image's Send picks them.
+        import model_manager.file_identity as fi                # noqa: E402
+        flux_pick = os.path.join(os.path.dirname(CHECKPOINT), 'flux_pick.safetensors')
+        open(flux_pick, 'wb').write(b'flux')
+        sd_pick = os.path.join(os.path.dirname(CHECKPOINT), 'sd_pick.safetensors')
+        open(sd_pick, 'wb').write(b'sd')
+        for path, version_id in ((flux_pick, 93001), (sd_pick, 93002)):
+            db.upsert_version({'id': version_id, 'model_id': 94000 + version_id, 'file_path': path,
+                               'file_name': os.path.basename(path), 'file_size': 4, 'file_extension': '.safetensors',
+                               'has_civitai_data': True, 'nsfw_level': 1})
+        db.set_architecture(flux_pick, 'flux', 'Flux', False, False, '1', file_type='Checkpoint')
+        db.set_architecture(sd_pick, 'sd', 'SD15', True, True, '1', file_type='Checkpoint')
+        listed = {'m': types.SimpleNamespace(filename=CHECKPOINT, title='linked/m.safetensors [abc]'),
+                  'f': types.SimpleNamespace(filename=flux_pick, title='flux_pick.safetensors [f1]'),
+                  's': types.SimpleNamespace(filename=sd_pick, title='sd_pick.safetensors [s1]')}
+        sd_models.checkpoints_list = listed
+        sd_models.checkpoint_aliases = {info.title: info for info in listed.values()}
+        kinds = {'sdxl_vae.safetensors': ('vae_sd', 2), 'clip_l.safetensors': ('clip_l', 2),
+                 't5xxl_fp16.safetensors': ('t5xxl', 2), 'ae.safetensors': ('vae_ae', 2)}
+        host.installed_modules = lambda: {label: label for label in kinds}
+        real_classify, real_saved = fi.classify_file, host.saved_modules
+        fi.classify_file = lambda path: kinds.get(os.path.basename(path), (None, 0))
+        host.saved_modules = lambda preset: []
+        try:
+            picked = lambda name: client.get('/model-manager/send/plan', params={
+                'kind': 'generation', 'generation': generation_id, 'use_checkpoint': name}).json()
+            plan = picked('flux_pick.safetensors [f1]')
+            check('6. an SD generation sent with a Flux pick: none of its recorded SD VAE, the Flux family\'s modules',
+                  (plan['preset'], plan['checkpoint'], plan['instead'], plan['pick'], plan['other_model'], plan['target']),
+                  ('flux', 'flux_pick.safetensors [f1]', 'flux_pick.safetensors', 'model', True,
+                   ['clip_l.safetensors', 't5xxl_fp16.safetensors', 'ae.safetensors']))
+            plan = picked('sd_pick.safetensors [s1]')
+            check('   and with an SD checkpoint of another model: none of its recorded modules either',
+                  (plan['preset'], plan['other_model'], plan['target']), ('sd', True, []))
+            plan = picked('linked/m.safetensors [abc]')
+            check('   its own checkpoint picked: as it was made, its modules kept, nothing said instead',
+                  (plan['other_model'], plan['target'], 'instead' in plan), (False, ['sdxl_vae.safetensors'], False))
+        finally:
+            fi.classify_file, host.saved_modules = real_classify, real_saved
     finally:
         store.needs_check, host.installed_modules = real_check, real_installed
 

@@ -11,7 +11,7 @@
 // real data: "stablydiffuseds_26" is "StablyDiffused's Aesthetic Mix". What
 // this checks is therefore which endpoint was asked and what came back, not
 // only the number of rows.
-import { ROOT, act, checker, mountTab, press, startTab, withGalleryPages } from './harness.mjs';
+import { ROOT, act, checker, mountTab, press, sharedModule, startTab, withGalleryPages } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, waitFor, done } = checker();
@@ -140,15 +140,11 @@ globalThis.fetch = withGalleryPages(async (url, init = {}) => {
 
 // --- run --------------------------------------------------------------------
 const panel = () => document.querySelector('.mm-resources-modal');
+// A row's name: its first line's button, or its words where it has none (#377, R4).
 const names = (selector) => Array.from(panel().querySelectorAll(selector))
-    .map((row) => row.querySelector('.mm-res-name'))
+    .map((row) => row.querySelector('.mm-res-view, .mm-res-title'))
     .filter(Boolean)
-    .map((cell) => {
-        // The version sits in a span in the same cell; the name is the rest.
-        const version = cell.querySelector('.mm-res-version');
-        const text = cell.textContent;
-        return (version ? text.replace(version.textContent, '') : text).trim();
-    });
+    .map((name) => name.textContent.trim());
 
 await startTab('modelManager');
 document.dispatchEvent(new window.Event('DOMContentLoaded', { bubbles: true }));
@@ -163,21 +159,21 @@ const button = document.querySelector('.mm-image-actions button[data-action="mod
 check('the image offers its resources', !!button, true);
 
 // The button counts what the panel would list - duplicates once, the model
-// itself not at all - from what is known. It used to add the two lists up
-// raw: "Resources (8)" over a panel of five.
+// itself only as the image's checkpoint (#377) - from what is known. It used to
+// add the two lists up raw: "Resources (8)" over a panel of five.
 await waitFor('the known answers', () => localCalls.length === 1);
 check('the gallery asks the server what it already knows, once, and asks Civitai nothing',
       [(localCalls[0] || '').split(',').sort(), resolveCalls.length],
       [['aaaaaaaaaa', 'bbbbbbbbbb', 'cccccccccc', 'dddddddddd'], 0]);
-check('with four hashes not looked up yet, the count is a floor: the two Civitai names '
+check('with four hashes not looked up yet, the count is a floor: the gallery\'s own checkpoint, the two Civitai names '
       + 'and the one hash-less file, with more to come',
-      button.textContent.trim(), 'Resources (3+)');
+      button.textContent.trim(), 'Resources (4+)');
 
 const showing = act('modelManager.showResources', { index: 0 });
 check('the panel goes up before the lookups finish, not after',
       !!panel() && panel().textContent.includes('Looking up 4 more'), true);
 check('already showing what needed no lookup',
-      names('tr:not(.mm-res-unresolved)').includes('Space Worlds'), true);
+      names('.mm-res-row:not(.mm-res-unresolved)').includes('Space Worlds'), true);
 await showing;
 await waitFor('the lookups', () => !!panel() && !panel().textContent.includes('Looking up'));
 
@@ -186,27 +182,31 @@ check('each distinct hash asked about once',
       resolveCalls[0].split(',').sort(),
       ['aaaaaaaaaa', 'bbbbbbbbbb', 'cccccccccc', 'dddddddddd']);
 
-const offered = names('tr:not(.mm-res-unresolved)').sort();
+const offered = names('.mm-res-row:not(.mm-res-unresolved)').sort();
 check('each resource appears once, under the name Civitai gives it',
-      offered, ['Sci-fi Environments', 'Space Worlds', 'VAE ft MSE']);
-check('the model this gallery belongs to is not among them',
-      offered.includes('The Model Itself'), false);
+      offered, ['Sci-fi Environments', 'Space Worlds', 'The Model Itself', 'VAE ft MSE']);
+// Left out it was, and an image naming nothing else opened on "Nothing here has a Civitai model behind it".
+check('the checkpoint this gallery belongs to: its first row, marked as the gallery\'s - the only one so (#377)',
+      [names('.mm-res-row:not(.mm-res-unresolved)')[0],
+       Array.from(panel().querySelectorAll('.mm-res-own')).map((n) => n.textContent.trim())],
+      ['The Model Itself', ['This gallery\'s model']]);
 check('nor the filename its duplicate was listed under',
       offered.includes('scifi_env_v1'), false);
 check("where both lists name it, the Civitai name is the one kept",
       offered.includes('Sci Fi Environments (resolved)'), false);
 check('one the legacy list alone knew about is still offered',
       offered.includes('VAE ft MSE'), true);
-check('and every offer can be viewed, or downloaded here',
-      [panel().querySelectorAll('.mm-res-actions button[data-action="resources.view"]').length,
+check('and every offer can be viewed, by its name and by View at its right, or downloaded here',
+      [panel().querySelectorAll('.mm-res-name button[data-action="resources.view"]').length,
+       panel().querySelectorAll('.mm-res-open button[data-action="resources.view"]').length,
        Array.from(panel().querySelectorAll('.mm-res-actions button'))
-           .filter((b) => b.textContent.trim() === 'Download').length], [3, 3]);
+           .filter((b) => b.textContent.trim() === 'Download').length], [4, 4, 4]);
 
 // View shows the model in the Civitai Browser (#260): this page has none, so
 // it opens the version on Civitai, as it always did.
-const viewButton = panel().querySelector('.mm-res-actions [data-action="resources.view"]');
-check("an offer's View is a button, and with no Civitai Browser opens its version on Civitai (#144, #260)",
-      [panel().querySelectorAll('.mm-res-actions a').length, viewButton?.tagName,
+const viewButton = panel().querySelector('.mm-res-name [data-action="resources.view"]');
+check("an offer's name is a button, and with no Civitai Browser opens its version on Civitai (#144, #260, #377 R4)",
+      [panel().querySelectorAll('.mm-res-row a').length, viewButton?.tagName,
        opens(viewButton).map(([url, ...rest]) => [/^https:\/\/civitai\.com\/model-versions\/\d+$/.test(url), ...rest])],
       [0, 'BUTTON', [[true, '_blank', 'noopener']]]);
 
@@ -217,16 +217,20 @@ check('listed once, not once per mention',
       unresolved.filter((n) => n === 'eulaHard').length, 1);
 check('with nothing to click',
       panel().querySelectorAll('.mm-res-unresolved a').length, 0);
-check('under a heading that says why',
-      panel().textContent.includes('not found on Civitai'), true);
+check('their View cell empty, so the columns stay in line with the rows above (#377, R4)',
+      Array.from(panel().querySelectorAll('.mm-res-unresolved')).map((r) => [r.children.length, r.querySelector('.mm-res-open')?.innerHTML.trim()]),
+      [[3, ''], [3, '']]);
+check('each greyed in the same list, saying why at its right (#377, R4)',
+      Array.from(panel().querySelectorAll('.mm-res-unresolved .mm-res-actions')).map((c) => c.textContent.trim()).sort(),
+      ['No hash recorded', 'Not on Civitai']);
 
 check('nothing offers a lookup any more, it has already happened',
       panel().textContent.includes('Lookup'), false);
 
-const listed = offered.length + unresolved.length;       // 3 offered, 2 not found
+const listed = offered.length + unresolved.length;       // 4 offered, 2 not found
 check('once looked up, the button says exactly what the panel lists',
       [document.querySelector('[data-resources-index="0"]')?.textContent.trim(), listed],
-      ['Resources (5)', 5]);
+      ['Resources (6)', 6]);
 
 // ------------------------------------------------------------- in rounds
 // The server asks Civitai about a bounded number per request and defers the
@@ -241,8 +245,8 @@ check('a capped server is asked again for what it deferred', resolveCalls.length
 check('each round asks only for what is still outstanding',
       resolveCalls.map((c) => c.split(',').length), [4, 3, 2, 1]);
 check('and the finished panel is the same as in one go',
-      names('tr:not(.mm-res-unresolved)').sort(),
-      ['Sci-fi Environments', 'Space Worlds', 'VAE ft MSE']);
+      names('.mm-res-row:not(.mm-res-unresolved)').sort(),
+      ['Sci-fi Environments', 'Space Worlds', 'The Model Itself', 'VAE ft MSE']);
 resolver.cap = null;
 
 // ----------------------------------------------- what could not be checked
@@ -254,9 +258,9 @@ await waitFor('the panel', () => !!panel() && !panel().textContent.includes('Loo
 const reasons = Array.from(panel().querySelectorAll('.mm-res-unresolved'))
     .map((row) => row.querySelector('.mm-res-actions').textContent.trim());
 check('a lookup that got no answer says it could not be checked',
-      reasons.includes('could not be checked'), true);
+      reasons.includes('Could not be checked'), true);
 check('rather than claiming Civitai does not have it',
-      reasons.includes('not on Civitai'), false);
+      reasons.includes('Not on Civitai'), false);
 resolver.answers = RESOLVED;
 
 // ------------------------------------------------ a newer panel wins
@@ -405,5 +409,107 @@ download(6004);
 await waitFor('the answer', () => !!cell(6004)?.textContent.includes('Not on Civitai'));
 check('one Civitai no longer has says so, and offers no retry',
       [cell(6004).textContent.trim(), !!cell(6004).querySelector('button')], ['Not on Civitai', false]);
+
+// ------------------------------- a checkpoint named only as text (#377)
+// An image whose data names its checkpoint only by `Model` - a ComfyUI path,
+// a merge - had no checkpoint row, and its stop pointed at nothing. The
+// dialog draws one, among what was not found; the Resources button's count,
+// which mergeImageResources makes, is left as it was.
+const { showImageResources, resourceButtonLabel } = await sharedModule('resources.mjs');
+document.querySelector('#mm_meta_modal')?.close();
+const textOnly = { meta: { prompt: 'a lighthouse', Model: 'workflows/my_merge_v3',
+                           resources: [{ type: 'lora', name: 'eulaHard' }] } };
+await showImageResources(textOnly, null);
+const unfound = () => Array.from(panel()?.querySelectorAll('.mm-res-unresolved') || [])
+    .map((row) => ['.mm-res-type', '.mm-res-title', '.mm-res-no-hash'].map((c) => row.querySelector(c)?.textContent.trim()));
+check('14. a checkpoint named only as text: a row of its own, first, among what was not found',
+      unfound(), [['Checkpoint', 'workflows/my_merge_v3', 'Named only by its name'], ['LoRA', 'eulaHard', 'No hash recorded']]);
+document.querySelector('#mm_meta_modal')?.close();
+const keptByName = { meta: { prompt: 'a lighthouse', Model: 'my_merge_v3',
+                             resources: [{ type: 'model', name: 'my_merge_v3' }] } };
+await showImageResources(keptByName, null);
+check('    one your generation already lists as its checkpoint: that row alone, not a second',
+      unfound(), [['Checkpoint', 'my_merge_v3', 'No hash recorded']]);
+document.querySelector('#mm_meta_modal')?.close();
+// A checkpoint's own gallery keeps the image's checkpoint, marked as the gallery's (#377):
+// left out, an image naming nothing else opened on "Nothing here has a Civitai model behind it".
+const known = () => Array.from(panel()?.querySelectorAll('.mm-res-row:not(.mm-res-unresolved)') || [])
+    .map((row) => [row.querySelector('.mm-res-view')?.textContent.trim(),
+                   row.querySelector('.mm-res-own')?.textContent.trim() || null]);
+const inOwnGallery = { meta: { prompt: 'a lighthouse', Model: 'animeBase_v10',
+                               civitaiResources: [{ type: 'Checkpoint', name: 'Anime Base', modelVersionId: 8800 }],
+                               resources: [{ type: 'lora', name: 'eulaHard' }] } };
+await showImageResources(inOwnGallery, 8800);
+check('    in the checkpoint\'s own gallery: its row, marked as the gallery\'s, and none for it as text',
+      [known(), unfound()], [[['Anime Base', 'This gallery\'s model']], [['LoRA', 'eulaHard', 'No hash recorded']]]);
+check('    and the Resources button counts it, as the dialog lists it',
+      resourceButtonLabel(inOwnGallery, 8800), 'Resources (2)');
+document.querySelector('#mm_meta_modal')?.close();
+// A LoRA's own gallery still leaves its LoRA out: only a checkpoint is kept.
+const inLoraGallery = { meta: { prompt: 'a lighthouse <lora:seaSpray:1>',
+                                civitaiResources: [{ type: 'Checkpoint', name: 'Anime Base', modelVersionId: 8800 },
+                                                   { type: 'LORA', name: 'Sea Spray', modelVersionId: 8801 }] } };
+await showImageResources(inLoraGallery, 8801);
+check('    in a LoRA\'s own gallery: the LoRA left out, the checkpoint not marked',
+      [known(), resourceButtonLabel(inLoraGallery, 8801)], [[['Anime Base', null]], 'Resources (1)']);
+document.querySelector('#mm_meta_modal')?.close();
+// Named by hash alone: while Civitai is asked, and once it answers with the gallery's version.
+RESOLVED.cccc000001 = { version_id: 8800, name: 'Anime Base', version_name: 'v1.0', model_type: 'Checkpoint' };
+let letHashGo;
+resolver.hold = new Promise((resolve) => { letHashGo = resolve; });
+const hashOnly = showImageResources({ meta: { prompt: 'a lighthouse', Model: 'animeBase_v10',
+                                              resources: [{ type: 'model', name: 'animeBase_v10', hash: 'cccc000001' }] } }, 8800);
+await waitFor('the dialog', () => panel());
+check('    named by a hash still being looked up: no row for it as text meanwhile', unfound(), []);
+letHashGo();
+resolver.hold = null;
+await hashOnly;
+check('    and once the hash is the gallery\'s own version: its row, marked, and none as text',
+      [known(), unfound()], [[['Anime Base', 'This gallery\'s model']], []]);
+document.querySelector('#mm_meta_modal')?.close();
+// ---------------- a LoRA named only by file name, its hash kept apart (#377, R4)
+// Civitai's data lists such a LoRA as a name alone and keeps its hash under
+// `hashes`, either case: read beside the name only, it came again under "not
+// found", the row above it the same version.
+RESOLVED.eeee000001 = { version_id: 9101, name: 'Grain Remover (resolved)', version_name: 'v0.9', model_type: 'LORA' };
+RESOLVED.eeee000002 = { version_id: null, name: null, version_name: null, model_type: null };
+const kept = { meta: { prompt: 'a lighthouse <lora:grainremover_v090:0.6> <lora:goodhands:1>',
+                       civitaiResources: [{ type: 'LORA', name: 'Grain Remover', modelVersionId: 9101, modelVersionName: 'v0.9' }],
+                       resources: [{ type: 'lora', name: 'grainremover_v090', weight: 0.6 }, { type: 'lora', name: 'goodhands', weight: 1 }],
+                       hashes: { 'LORA:grainremover_v090': 'EEEE000001', 'lora:goodhands': 'eeee000002' } } };
+resolveCalls.length = 0;
+await showImageResources(kept, null);
+await waitFor('the lookups', () => !!panel() && !panel().textContent.includes('Looking up'));
+check('35. a LoRA named by file name alone: its hash, kept apart, is asked',
+      (resolveCalls[0] || '').split(',').sort(), ['eeee000001', 'eeee000002']);
+check('    and its row is the Civitai one, not again under not found, the prompt\'s tag on its second line',
+      [names('.mm-res-row:not(.mm-res-unresolved)'),
+       panel().querySelector('[data-res-name="9101"] .mm-res-sub')?.textContent.replace(/\s+/g, ' ').trim()],
+      [['Grain Remover'], 'LoRA · <lora:grainremover_v090:0.6>']);
+check('    one Civitai does not know: a greyed row, its tag and why', [unfound(),
+      panel().querySelector('.mm-res-unresolved .mm-res-tag')?.textContent], [[['LoRA', 'goodhands', 'Not on Civitai']], '<lora:goodhands:1>']);
+check('    and the Resources button counts it once', resourceButtonLabel(kept, null), 'Resources (2)');
+document.querySelector('#mm_meta_modal')?.close();
+await showImageResources({ meta: { prompt: 'a lighthouse', civitaiResources: [
+    { type: 'LORA', name: 'Grain Remover', modelVersionId: 9101 }, { type: 'Checkpoint', name: 'Anime Base', modelVersionId: 9102 }] } }, null);
+check('37. the image\'s checkpoint first, under its heading, then the rest in the image\'s order',
+      [Array.from(panel().querySelectorAll('.mm-res-head')).map((h) => h.textContent.replace(/\s+/g, ' ').trim()),
+       names('.mm-res-row')], [['Checkpoint', 'Other resources 1'], ['Anime Base', 'Grain Remover']]);
+document.querySelector('#mm_meta_modal')?.close();
+check('22. the Resources button\'s count is the one it was: the dialog\'s row is not counted',
+      resourceButtonLabel(textOnly, null), 'Resources (1)');
+
+// ------------------------- a stop for an image listing no resources (#377)
+const bare = { meta: { prompt: 'a lighthouse' } };
+check('21. an image listing no resources: no dialog from its Resources button, as before',
+      [await showImageResources(bare, null), !!panel()], [false, false]);
+const stopped = { opened: 'stop', ready: false, why: 'The checkpoint is not in your library yet.', reason: 'missing',
+                  waits: {}, check: null, run: () => {}, pick: () => {}, list: null };
+check('    a stop for one opens the dialog all the same, with its note and Send line',
+      [await showImageResources(bare, null, { note: 'Not in your library.', send: stopped }),
+       panel()?.querySelector('[data-res-note]')?.textContent,
+       !!panel()?.querySelector('[data-action="resources.sendAgain"]')],
+      [true, 'Not in your library.', true]);
+document.querySelector('#mm_meta_modal')?.close();
 
 done();

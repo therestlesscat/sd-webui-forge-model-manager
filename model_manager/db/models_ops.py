@@ -1269,6 +1269,23 @@ class ModelsOps:
         return ({i: rows[p] for i, p in id_paths.items()},
                 {h: rows[p] for h, p in hash_paths.items()})
 
+    def files_described(self) -> List[Dict[str, Any]]:
+        """
+        Every library file as the Resources dialog's checkpoint list names it
+        (#377): its path, what it is and the family it runs under, whether a
+        sync has read it (`read`), its model's name, its version's name and
+        base model, and their ids. One read: the list matches Forge's
+        checkpoints to it by path, reading no file.
+        """
+        with self._cursor() as cursor:
+            cursor.execute(f"""
+                SELECT l.file_path, l.file_type, l.architecture, l.architecture_checked IS NOT NULL AS read,
+                       l.model_id, l.id AS version_id, l.version_name, l.base_model, m.name AS model_name
+                FROM {LIBRARY} l LEFT JOIN models m ON m.id = l.model_id
+                WHERE l.file_path IS NOT NULL
+            """)
+            return [dict(row) for row in cursor.fetchall()]
+
     def library_files(self, model_ids=None, version_ids=None, file_ids=None) -> List[Dict[str, Any]]:
         """
         The library's files of these models, versions or Civitai files - any

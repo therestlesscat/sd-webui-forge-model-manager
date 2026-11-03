@@ -145,8 +145,10 @@ export function imageDetailsHtml(img) {
  * A Civitai image's card, as both tabs draw it. `width` is how wide the
  * gallery draws a card's image; `exclude` the version the gallery is of,
  * which its Resources leave out; `actions` what the tab's buttons do
- * (shared/calls.mjs), each reading data-index - `send` (the Model Manager's
- * alone), `showAll`, `resources`; `sendBlocked`, why Send is disabled, if it is.
+ * (shared/calls.mjs), each reading data-index - `send` and `sendAs` (the
+ * Model Manager's alone: Send as… opens the Resources dialog with your
+ * checkpoints to pick from, #377), `showAll`, `resources`; `sendBlocked`, why
+ * Send is disabled, if it is - Send as… with it.
  */
 export function renderImageCard(img, index, { width, exclude, actions, sendBlocked = '', asUploaded = false }) {
     const src = img.url || '';
@@ -191,6 +193,10 @@ export function renderImageCard(img, index, { width, exclude, actions, sendBlock
                     ${actions.send ? `<button class="mm-btn primary mm-send-btn" data-action="${escapeHtml(actions.send)}" data-index="${index}"${
                         sendBlocked ? ` disabled title="${escapeHtml(sendBlocked)}"` : ''}>
                         Send to txt2img
+                    </button>` : ''}
+                    ${actions.sendAs ? `<button class="mm-btn secondary mm-send-as-btn" data-action="${escapeHtml(actions.sendAs)}" data-index="${index}"${
+                        sendBlocked ? ` disabled title="${escapeHtml(sendBlocked)}"` : ' title="Pick the checkpoint to send with"'}>
+                        Send as…
                     </button>` : ''}
                     <button class="mm-btn secondary" data-copy="${escapeHtml(prompt)}">
                         Copy Prompt

@@ -14,6 +14,11 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.74 - Pick the checkpoint to send with.** When Send cannot load an image's checkpoint, the
+Resources dialog lists your own checkpoints to send with, those that suit the image first. Pick
+on any Send with Choose checkpoint, in the Civitai Images and Generations tabs, or Send as… on
+the Model Manager's cards.
+
 **0.73 - Each file of a download apart.** A download is one file, not one version: a checkpoint's
 model, VAE and text encoder download side by side, each with its own Download button and row in
 the downloads panel. A file several versions share, such as a common VAE, downloads once.

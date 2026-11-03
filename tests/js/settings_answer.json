@@ -862,6 +862,28 @@
    "switch": null,
    "value": true
   },
+  "model_manager_send_choose_checkpoint": {
+   "label": "Choose the checkpoint at every Send",
+   "info": "Every Send in the Civitai Images and Generations tabs opens the Resources dialog first, where you pick the checkpoint to send with. Each tab also has a box of its own for this in its toolbar, which this setting ticks or clears. The Resources dialog's own box starts ticked too.",
+   "kind": "bool",
+   "default": false,
+   "name": "Choose the checkpoint at every Send",
+   "group": "send",
+   "heading": "Shared across tabs",
+   "tags": [
+    "gallery",
+    "generations",
+    "send"
+   ],
+   "shown_with": [
+    "gallery",
+    "generations"
+   ],
+   "under": null,
+   "badges": [],
+   "switch": null,
+   "value": false
+  },
   "model_manager_modules_flux": {
    "label": "Text encoders and VAE Send picks for Flux.1 / Chroma",
    "info": "Flux.1 and Flux.1 Schnell need CLIP-L, T5-XXL and Flux VAE (ae); Chroma needs T5-XXL and Flux VAE (ae). Download: clip_l, t5xxl fp16, t5xxl fp8, ae",
@@ -1445,6 +1467,7 @@
   "model_manager_send_clip_skip",
   "model_manager_send_clip_skip_max",
   "model_manager_send_rename_loras",
+  "model_manager_send_choose_checkpoint",
   "model_manager_modules_flux",
   "model_manager_modules_klein",
   "model_manager_modules_lumina",

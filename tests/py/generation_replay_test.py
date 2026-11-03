@@ -329,6 +329,14 @@ check('the hidden button hands each of Generate\'s inputs its value: the hires c
       attempt(lambda: (values[0][5], values[0][6], values[0][12], values[0][13], values[0][14])),
       (r'_Hyper\realisticVision.safetensors', ['clearvaeSD15_v23.safetensors'], r'_Hyper\realisticVision.safetensors',
        0.6, 3.0))
+check('   its refiner on, as pressed', attempt(lambda: values[0][11]), True)
+# Sent with a checkpoint of another model, picked in the Resources dialog
+# (#377): the press's hires checkpoint, Hires Module and refiner are of the
+# image's family, and would load beside the pick.
+values = attempt(lambda: load.generation_values('txt2img', generation_id, second['id'], skip=SKIP, other_model=True))
+check('9. a pick of another model: the hires checkpoint and modules "Use same", the refiner off, the rest as pressed',
+      attempt(lambda: (values[0][5], values[0][6], values[0][11], values[0][13])),
+      ('Use same checkpoint', ['Use same choices'], False, 0.6))
 other = db.record_generation({'created_at': '2026-10-09T12:00:01', 'mode': 'img2img', 'image_count': 1,
                               'inputs': generation_inputs}, [{'position': 0, 'path': 'c.png'}], [[]])
 bare = db.record_generation({'created_at': '2026-10-09T12:00:02', 'mode': 'txt2img', 'image_count': 1},
@@ -389,6 +397,12 @@ check('a hires module "Use same choices", or "Built-in", is said as Forge means 
       attempt(lambda: (load.corrections('txt2img', 'x\nSteps: 1, Hires Module 1: Use same choices', None, controls)[0],
                        load.corrections('txt2img', 'x\nSteps: 1, Hires Module 1: Built-in', None, controls)[0])),
       ({'hr_vae_te': ['Use same choices']}, {'hr_vae_te': []}))
+from model_manager.send import without_second_models   # noqa: E402
+check('9. pasted with a pick of another model: the text loses the image\'s hires checkpoint, modules and refiner',
+      without_second_models(CIVITAI), 'a lighthouse\nSteps: 20, Seed: 5')
+check('   and Hires fix\'s two "Use same", nothing of the image\'s - the record\'s paths neither',
+      attempt(lambda: load.corrections('txt2img', without_second_models(CIVITAI), stored, controls, True)),
+      ({'hr_checkpoint': 'Use same checkpoint', 'hr_vae_te': ['Use same choices']}, []))
 check('a file this WebUI lacks keeps what is on screen, and is named',
       attempt(lambda: load.corrections('txt2img', 'x\nSteps: 1, Hires checkpoint: gone [123], Hires Module 1: nope',
                                        None, controls)),

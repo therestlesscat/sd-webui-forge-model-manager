@@ -200,5 +200,23 @@ check('   as is a VAE of this library\'s filed as one - and Civitai is not asked
       (named(file_path=lora, version_ids=[version_id(vae)]), asked), ({'not_checkpoint': True}, []))
 check('   and an image that names none names none', named(file_path=lora), {})
 
+# What else a version Civitai is asked about can answer (#377): until then a
+# 404, a failed request and a family no UI preset runs all read "names no
+# checkpoint", and the stop offered nothing.
+CIVITAI[('v', '9005')] = {'baseModel': 'OpenAI', 'files': [{'name': 'o.safetensors'}]}
+check('10. a version Civitai answers 404 for: missing, by the name the image\'s own resource entry gives it',
+      named(file_path=lora, version_ids=[9404], names={9404: 'A Model - v1'}), {'missing': 'A Model - v1'})
+check('    with no entry naming it, by its version', named(file_path=lora, version_ids=[9404]),
+      {'missing': 'version 9404'})
+sp._remembered.clear()
+check('    asking Civitai fails: missing too, and asked again next time',
+      (sp.image_checkpoint(db, file_path=lora, version_ids=[9406], lookup=down, names={9406: 'B - v2'}),
+       ('v', '9406') in sp._remembered), ({'missing': 'B - v2'}, False))
+check('    Civitai files it under a family no UI preset runs: unsupported, its base model named',
+      named(file_path=lora, version_ids=[9005], names={9005: 'Image Gen - v1'}),
+      {'unsupported': 'OpenAI', 'name': 'Image Gen - v1'})
+check('    beside a VAE filed as a checkpoint ("Other"), the unsupported one still answers',
+      named(file_path=lora, version_ids=[9001, 9005]), {'unsupported': 'OpenAI', 'name': ''})
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

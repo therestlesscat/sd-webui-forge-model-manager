@@ -435,14 +435,18 @@ raw.execute("UPDATE files SET file_hashes = '{}' WHERE file_path = ?", (V_PATH,)
 raw.commit()
 check('nor one whose version\'s file has no SHA256 stored to tell by', other_files(db, ['aaaa000001'], {}), {})
 
-# Sent with the library's file of the version instead, chosen in the dialog.
+# Sent with a checkpoint of the library's instead, picked in the dialog by
+# Forge's name for it (#377). The generation names a hash nothing knows, so
+# the pick counts as another model's.
 sd_models = types.ModuleType('modules.sd_models')
-sd_models.checkpoints_list = {'v': types.SimpleNamespace(filename=V_PATH, title='model_v0.safetensors [aaaa]')}
+picked = types.SimpleNamespace(filename=V_PATH, title='model_v0.safetensors [aaaa]')
+sd_models.checkpoints_list = {'v': picked}
+sd_models.checkpoint_aliases = {'model_v0.safetensors [aaaa]': picked}
 sys.modules['modules.sd_models'] = sd_models
-plan = send_plan(db, gid_unmatched, use_version=V)
-check('asked to use the installed file, Send sets up the library\'s file of that version, and says which',
-      (plan.get('checkpoint'), plan.get('instead'), plan.get('checkpoint_missing')),
-      ('model_v0.safetensors [aaaa]', os.path.basename(V_PATH), None))
+plan = send_plan(db, gid_unmatched, use_checkpoint='model_v0.safetensors [aaaa]')
+check('a checkpoint picked, Send sets up that very file, and says which, and what it is to the image',
+      (plan.get('checkpoint'), plan.get('instead'), plan.get('checkpoint_missing'), plan.get('pick')),
+      ('model_v0.safetensors [aaaa]', os.path.basename(V_PATH), None, 'model'))
 del sys.modules['modules.sd_models']
 
 # ------------------------------------- a checkpoint this WebUI cannot load

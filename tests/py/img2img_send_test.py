@@ -87,7 +87,7 @@ pasted = []
 pasted_for = []                       # the generation each paste was corrected from
 
 
-def paste_values(tab, infotext, generation_id, outputs, skip=None):
+def paste_values(tab, infotext, generation_id, outputs, skip=None, other_model=False):
     """Forge's paste: the prompt from the text, everything else as on screen."""
     pasted.append(infotext)
     pasted_for.append(generation_id)
@@ -96,7 +96,7 @@ def paste_values(tab, infotext, generation_id, outputs, skip=None):
     return values, [], []
 
 
-def generation_values(tab, generation_id, image_id, skip=None):
+def generation_values(tab, generation_id, image_id, skip=None, other_model=False):
     """A kept press, replayed: its prompt, its size, its own Inpaint canvases.
     Generation 14's cannot be: a script it kept is gone."""
     if generation_id == 14:

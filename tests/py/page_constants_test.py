@@ -71,6 +71,21 @@ names = '|'.join(re.escape(n) for n in nsfw.LEVEL_TO_NAME.values() if n not in (
 check('no other file of the page names a level',
       sorted(f for f, text in files.items() if f != 'shared/nsfw.mjs' and re.search(r"'(%s)'" % names, text)), [])
 
+# ------------------------------------------------------------ family names
+# What a family a UI preset runs is called, one table on the server (#377):
+# the settings window's presets, the Resources dialog's list and the chips'
+# "made for SDXL". The chips kept three of their own (EMBEDDING_KINDS), the
+# settings window ten in other spellings; the page now reads them from
+# ui-options.
+from model_manager.forge_modules import FAMILY_NAMES, MODULE_PRESETS   # noqa: E402
+check('the settings window\'s presets are named from the one table',
+      [label for _, label, _ in MODULE_PRESETS], [FAMILY_NAMES[preset] for preset, _, _ in MODULE_PRESETS])
+family_words = '|'.join(re.escape(n) for n in FAMILY_NAMES.values())
+check('no file of the page names a family: it reads them from ui-options',
+      sorted(f for f, text in files.items() if re.search(r"'(%s)'" % family_words, text)), [])
+webui_api = open(os.path.join(ROOT, 'model_manager', 'api', 'webui.py'), encoding='utf-8').read()
+check('ui-options hands the table to the page', '"family_names": FAMILY_NAMES' in webui_api, True)
+
 # ------------------------------------------------------------ setting keys
 # A DOM id shares the prefix; so does the start of the modules' keys, which
 # the settings window adds a preset's name to.

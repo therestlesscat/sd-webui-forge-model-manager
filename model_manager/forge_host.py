@@ -137,6 +137,7 @@ DEFAULTS = {
     # Send, and a Resources dialog download, rename LoRA tags in the prompt
     # to the library's files (#205): on unless turned off.
     "model_manager_send_rename_loras": True,
+    "model_manager_send_choose_checkpoint": False,
 }
 
 
@@ -536,6 +537,20 @@ def checkpoint_file(name: str) -> Optional[str]:
     from modules import sd_models
     info = sd_models.checkpoint_aliases.get(name)
     return getattr(info, "filename", None) if info is not None else None
+
+
+def listed_checkpoints() -> List[Tuple[str, str]]:
+    """
+    Every checkpoint Forge lists, (its name, its file), in Forge's order: the
+    Resources dialog's list (#377). Both WebUIs keep them in
+    `sd_models.checkpoints_list`. Empty where Forge is not there to ask.
+    """
+    try:
+        from modules import sd_models
+        return [(title, info.filename) for title, info in sd_models.checkpoints_list.items()]
+    except Exception as e:
+        say(f"Could not ask Forge for its checkpoints: {e}")
+        return []
 
 
 def checkpoint_listed(name: str) -> bool:

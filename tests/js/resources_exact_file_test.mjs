@@ -8,9 +8,11 @@
 // Now, where the server proves the library holds another file of the
 // version, the row names the image's file and the one the library has, and
 // its Download fetches the image's own, by the file id Civitai gives for the
-// hash. Opened by a stopped send, the dialog's one Send is unlocked by a tick
-// - "use the file I have instead" - and then sends with that file. A hash the
-// server cannot prove another file takes the version's, as before.
+// hash. Opened by a stopped send, the file the library has is suggested in
+// its list of your checkpoints (#377; a tick until then), not picked - the
+// image may not come out the same - and once picked, sent with by Forge's
+// name for it. A hash the server cannot prove another file takes the
+// version's, as before.
 import { checker, mountTab, press, sharedModule, startServices } from './harness.mjs';
 
 const { document } = mountTab('model_manager/ui/tab_generations.py');
@@ -21,6 +23,9 @@ const asked = [];
 const posts = [];
 let heldHashes = {};
 let otherFiles = { [HASH]: { name: 'cyber_2202950.safetensors', fp: 'fp16', size: 'pruned', file_size: 2132651338 } };
+// The same file, as Forge lists it, for the dialog's list.
+const HELD_FILE = { name: 'cyber_2202950.safetensors [aa11]', file: 'cyber_2202950.safetensors', family: 'sd', read: true,
+                    supported: true, model: 'CyberRealistic Classic', version: 'Classic v5.0 (Final)', base_model: 'SD 1.5' };
 globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
     asked.push(href);
@@ -46,6 +51,10 @@ globalThis.fetch = async (url, init = {}) => {
         return reply({ success: true, versions: { 2312428: { version_id: 2312428 }, 9999: { version_id: 9999 } },
                        hashes: heldHashes, other_files: otherFiles, names: {}, embeddings: [] });
     }
+    if (href.includes('/model-manager/send/checkpoints')) {
+        return reply({ success: true, checkpoints: [HELD_FILE], suggested: [{ name: HELD_FILE.name, why: ['same version, other file'] }],
+                       picked: null, same_base: { base_model: null, names: [] }, loaded: null, family: 'sd' });
+    }
     if (href.includes('/ui-options')) return reply({ success: true, samplers: [], schedulers: [], has_api_key: true });
     return reply({ success: true });
 };
@@ -55,7 +64,7 @@ const { showImageResources } = await sharedModule('resources.mjs');
 await startServices('core.mjs', 'calls.mjs', 'downloads.mjs', 'resources.mjs');
 const image = { meta: { resources: [{ type: 'Checkpoint', name: 'CyberRealistic Classic', weight: null, hash: HASH }] } };
 const modal = () => document.querySelector('.mm-resources-modal');
-const row = () => modal()?.querySelector('.mm-resources-table tbody tr');
+const row = () => modal()?.querySelector('.mm-resources-list .mm-res-row');
 const close = () => document.querySelectorAll('#mm_meta_modal').forEach((n) => n.close());
 
 // ------------------------------------------------------- opened from a card
@@ -84,23 +93,23 @@ close();
 
 // ------------------------------------------------ opened by a stopped send
 const sent = [];
-const used = [];
 await showImageResources(image, null, { note: 'The checkpoint this image was made with is not in your library.',
-                                         send: { why: 'Not in your library yet.', check: null, run: () => sent.push('own'),
-                                                 useInstalled: (versionId) => used.push(versionId) } });
-await waitFor('the tick', () => modal()?.querySelector('[data-action="resources.useInstalledTick"]'));
+                                         send: { opened: 'stop', ready: false, why: 'Not in your library yet.', check: null,
+                                                 run: () => sent.push('own'), pick: (name) => sent.push(name),
+                                                 list: { hashes: HASH } } });
+const heldRow = () => [...(modal()?.querySelectorAll('.mm-pick-row') || [])]
+    .find((r) => r.querySelector('input')?.value === HELD_FILE.name);
+await waitFor('the list', () => heldRow());
 const sendButton = () => modal()?.querySelector('[data-action="resources.sendAgain"]');
-const tick = modal()?.querySelector('[data-action="resources.useInstalledTick"]');
-check('the one Send waits, and a tick offers the file of the version you have',
-      [sendButton()?.disabled, tick?.checked, (tick?.closest('label')?.textContent || '').includes('fp16 pruned')],
-      [true, false, true]);
-await waitFor('the note', () => (modal()?.querySelector('[data-res-note]')?.textContent || '').includes('fp32 full'));
-check('the note names the image\'s file',
-      (modal()?.querySelector('[data-res-note]')?.textContent || '').includes('fp32 full'), true);
-if (tick) { tick.checked = true; press(tick); }
-check('ticked, Send is unlocked', sendButton()?.disabled, false);
+check('the one Send waits, and the file of the version you have is suggested, not picked',
+      [sendButton()?.disabled, heldRow().querySelector('.mm-pick-why')?.textContent,
+       heldRow().querySelector('input')?.checked],
+      [true, 'Same version, other file', false]);
+const radio = heldRow()?.querySelector('input');
+if (radio) { radio.checked = true; press(radio); }
+check('picked, Send is unlocked', sendButton()?.disabled, false);
 if (sendButton() && !sendButton().disabled) press(sendButton());
-check('and sends with that version\'s file, closing the dialog', [used, sent, Boolean(modal())], [[2312428], [], false]);
+check('and sends with that file, by Forge\'s name, closing the dialog', [sent, Boolean(modal())], [[HELD_FILE.name], false]);
 
 // ------------------------------------------- a hash not proven another file
 otherFiles = {};

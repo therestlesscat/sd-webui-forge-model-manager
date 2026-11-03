@@ -49,6 +49,10 @@ let combineLoraKindsNow = { on: false };
 // the setting's default until one is in, or from a server too old to say.
 const IMAGES_AT_ONCE = 64;
 let imagesAtOnceNow = IMAGES_AT_ONCE;
+// What each family a UI preset runs is called (#377), the server's one table
+// (forge_modules.FAMILY_NAMES): none until an answer is in, and a family
+// with no name shows its preset's.
+let familyNamesNow = {};
 
 function learn(data) {
     if (data) {
@@ -58,6 +62,7 @@ function learn(data) {
         combineLoraKindsNow = { on: data.combine_lora_kinds === true };
         const atOnce = Number(data.images_at_once);
         imagesAtOnceNow = Number.isInteger(atOnce) && atOnce >= 1 ? atOnce : IMAGES_AT_ONCE;
+        if (data.family_names && typeof data.family_names === 'object') familyNamesNow = data.family_names;
     }
     return data;
 }
@@ -85,6 +90,46 @@ export function combineLoraKinds() {
 /** How many of Civitai's images may load at once, as the last answer said. */
 export function imagesAtOnce() {
     return imagesAtOnceNow;
+}
+
+/** What a family is called, as the last answer said - "SDXL" for xl - else its preset's own name. */
+export function familyName(preset) {
+    return familyNamesNow[preset] || preset || '';
+}
+
+// The Civitai Images and Generations tabs' "Choose the checkpoint at every
+// Send" boxes (#377), each kept in this browser like the tabs' other boxes.
+// With nothing kept, a box starts as the setting says; a change of the
+// setting forgets both (forgetChooseCheckpoint), so a tick kept from before
+// never outlives it.
+export const CHOOSE_CHECKPOINT_SETTING = 'model_manager_send_choose_checkpoint';
+const CHOOSE_CHECKPOINT_KEYS = { gallery: 'mm_gallery_choose_checkpoint',
+                                 generations: 'mm_generations_choose_checkpoint' };
+
+/** A tab's box as this browser kept it - true or false - or null where nothing is kept. */
+export function keptChooseCheckpoint(tab) {
+    try {
+        const kept = localStorage.getItem(CHOOSE_CHECKPOINT_KEYS[tab]);
+        return kept === null ? null : kept === 'true';
+    } catch (e) {
+        return null;
+    }
+}
+
+/** Keep a tab's box as the person left it. */
+export function keepChooseCheckpoint(tab, value) {
+    try {
+        localStorage.setItem(CHOOSE_CHECKPOINT_KEYS[tab], String(Boolean(value)));
+    } catch (e) { /* kept for this visit only */ }
+}
+
+/** Forget both tabs' boxes: the setting changed, and each starts from it again. */
+export function forgetChooseCheckpoint() {
+    for (const key of Object.values(CHOOSE_CHECKPOINT_KEYS)) {
+        try {
+            localStorage.removeItem(key);
+        } catch (e) { /* nothing kept */ }
+    }
 }
 
 /** The server's ui-options, as they are now. A failed call answers null. */
@@ -271,7 +316,9 @@ export async function galleryDefaults() {
              generationsHideNsfw: data?.generations_hide_nsfw !== false,
              // How each tab places its grid (#240): Fast unless Classic is chosen.
              generationsFast: data?.generations_grid !== 'Classic',
-             galleryFast: data?.gallery_grid !== 'Classic' };
+             galleryFast: data?.gallery_grid !== 'Classic',
+             // Where the tabs' "Choose the checkpoint at every Send" boxes start (#377).
+             chooseCheckpoint: data?.choose_checkpoint === true };
 }
 
 /** The note, as markup, while the trained model is in force; '' otherwise, or before the answer. */
