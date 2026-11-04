@@ -23,6 +23,7 @@ import re
 from typing import Any, Callable, Dict, List, Optional
 
 from .console import say
+from .db.params_table import RE_PARAM, read_settings_line, record_meta
 
 
 # ------------------------------------------------------------- the plan
@@ -929,7 +930,7 @@ def _text_field(infotext: Any, key: str) -> Any:
     """A field of an infotext's settings line, as Forge's pattern reads it - a
     line of three fields or more; None for none."""
     last = str(infotext or "").strip().split("\n")[-1]
-    fields = _RE_PARAM.findall(last)
+    fields = RE_PARAM.findall(last)
     if len(fields) < 3:
         return None
     return next((v.strip() for k, v in fields if k.strip() == key), None)
@@ -1151,42 +1152,15 @@ def _size_of(text: Any) -> Optional[tuple]:
     return (int(match.group(1)), int(match.group(2))) if match else None
 
 
-# Forge's pattern for a field of the settings line (`re_param`, Neo's
-# infotext_utils.py), and the image data's names for the line's own.
-_RE_PARAM = re.compile(r'\s*([\w\s\-\/]+):\s*("(?:\\.|[^\\"])+"|[^,]*)(?:,|$)')
-_DATA_NAMES = {"Steps": "steps", "Sampler": "sampler", "CFG scale": "cfgScale", "Seed": "seed"}
-
-
-def _read_settings_line(meta: Dict[str, Any]) -> None:
-    """
-    An image whose tool stored its whole settings line inside its negative
-    prompt (#313: 138 images of one library): the line - one that starts
-    with `Steps:` and holds three fields - read as the image's data where the
-    data gives no such field, in place, and the negative prompt without it.
-    Pasted as text, its settings were never set; read so, the schedule type,
-    Hires fix and the size rule follow from it as from any image's data.
-    """
-    lines = str(meta.get("negativePrompt") or "").split("\n")
-    at = next((n for n in range(len(lines) - 1, -1, -1)
-               if lines[n].lstrip().startswith("Steps:") and len(_RE_PARAM.findall(lines[n])) >= 3), None)
-    if at is None:
-        return
-    for key, value in _RE_PARAM.findall(lines[at]):
-        key = _DATA_NAMES.get(key.strip(), key.strip())
-        if meta.get(key) is None or meta.get(key) == "":
-            meta[key] = value.strip()
-    meta["negativePrompt"] = "\n".join(lines[:at] + lines[at + 1:]).rstrip()
-
-
 def civitai_meta(record: Dict[str, Any], frames: Any = None, video: bool = False) -> Dict[str, Any]:
     """
-    A Civitai image's data as Send reads it: its own, with a `Size` when it
-    gives none - the picture's, else its width and height - and the picture's
-    size where the data's shape differs from it by more than 3% (#299). For
-    an image-to-video model, its size as Wan makes it and its frames.
+    A Civitai image's data as Send reads it: its own (`record_meta`), with a
+    `Size` when it gives none - the picture's, else its width and height - and
+    the picture's size where the data's shape differs from it by more than 3%
+    (#299). For an image-to-video model, its size as Wan makes it and its
+    frames.
     """
-    meta = dict(record.get("meta") or {})
-    _read_settings_line(meta)
+    meta = record_meta(record)
     width, height = record.get("width"), record.get("height")
     if not _truthy(meta.get("Size")):
         if _truthy(width) and _truthy(height):
@@ -1237,7 +1211,7 @@ def civitai_infotext(record: Dict[str, Any], samplers: List[str], schedulers: Li
     if negative_prompt is not None:
         meta["negativePrompt"] = negative_prompt
         # The page's copy, renamed, still holds the line civitai_meta read.
-        _read_settings_line(meta)
+        read_settings_line(meta)
     return without_lora_hashes(build_infotext(meta, samplers, schedulers, denoising_strength, hires_upscaler, upscalers))
 
 
