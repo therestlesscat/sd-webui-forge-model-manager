@@ -199,7 +199,7 @@ def register(app: FastAPI):
         from ..grids import GALLERY_GRID, GENERATIONS_GRID, grid
         from ..scheduler import queue_enabled
         from ..forge_modules import FAMILY_NAMES
-        from ..send import CHOOSE_CHECKPOINT_SETTING, RENAME_LORAS_SETTING
+        from ..send import CHOOSE_CHECKPOINT_SETTING, RENAME_LORAS_SETTING, USUAL_SETTINGS_SETTING
         from ..tabs import TABS, built, on
         has_api_key = api_key_from_settings() is not None
         # How the Civitai Browser's gallery opens, asked each time a model is;
@@ -222,6 +222,9 @@ def register(app: FastAPI):
         # Where the tabs' "Choose the checkpoint at every Send" boxes start,
         # and the Resources button's dialog's (#377): the page asks afresh.
         choose_checkpoint = bool(setting(CHOOSE_CHECKPOINT_SETTING))
+        # Whether the Resources dialog's usual-settings tick starts ticked at
+        # each pick (#378): the dialog asks afresh as it opens.
+        usual_settings = bool(setting(USUAL_SETTINGS_SETTING))
         # How many of Civitai's images a page loads at once (#213): a whole
         # number of at least 1, else the default.
         try:
@@ -275,6 +278,7 @@ def register(app: FastAPI):
                 "combine_lora_kinds": combine_lora_kinds,
                 "rename_loras": rename_loras,
                 "choose_checkpoint": choose_checkpoint,
+                "usual_settings": usual_settings,
                 # What each family a UI preset runs is called (#377): the
                 # Resources dialog's list and the chips.
                 "family_names": FAMILY_NAMES,
@@ -312,7 +316,8 @@ def register(app: FastAPI):
                  "civitai_on_site_marks": civitai_on_site_marks,
                  "combine_lora_kinds": combine_lora_kinds,
                  "rename_loras": rename_loras,
-                 "choose_checkpoint": choose_checkpoint, "family_names": FAMILY_NAMES,
+                 "choose_checkpoint": choose_checkpoint, "usual_settings": usual_settings,
+                 "family_names": FAMILY_NAMES,
                  "images_at_once": images_at_once,
                  "generations_hide_nsfw": generations_hide_nsfw,
                  "generations_delete_files": generations_delete_files,

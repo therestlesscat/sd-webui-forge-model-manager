@@ -10,7 +10,7 @@
             "model_manager"
         ],
         "title": "Send with a checkpoint's usual settings",
-        "text": "When you pick one of your own checkpoints in the Resources dialog in place of the image's, the dialog now shows what that checkpoint is usually run with: its sampler, schedule type, steps and CFG scale, from your own generations with it or else from Civitai's images of it, beside the image's own. Tick Send with these instead of the image's, under them, and Send uses them; the image's own are kept for any setting too few uses record."
+        "text": "When you pick one of your own checkpoints in the Resources dialog in place of the image's, the dialog now shows what that checkpoint is usually run with: its sampler, schedule type, steps and CFG scale, from your own generations with it or else from Civitai's images of it, beside the image's own. Send uses them while Send with these instead of the image's, under them, is ticked: it starts ticked at each pick, and you can untick it to keep the image's own. The image's own are also kept for any setting too few uses record. To have the box start unticked, turn off Send with a picked checkpoint's usual settings by default, in Send's settings."
     },
     {
         "id": "shared-database-0-75-1",

@@ -248,5 +248,13 @@ check('34. the box\'s setting is registered: Send\'s group, its names, the tabs 
       ('send', 'Choose the checkpoint at every Send', 'Choose the checkpoint at every Send',
        ('gallery', 'generations', 'send'), False))
 
+# "Send with a picked checkpoint's usual settings by default" (#378): in
+# Send's group, acting wherever Send goes, on by default.
+usual = next((s for s in settings if s.key == 'model_manager_send_usual_settings'), None)
+check('35. the usual-settings tick\'s setting is registered: Send\'s group, its names, Send, on by default',
+      (usual.group, usual.name, usual.page_name, usual.tags, DEFAULTS.get(usual.key)) if usual else None,
+      ('send', 'Send with a picked checkpoint\'s usual settings by default',
+       'Send uses a picked checkpoint\'s usual settings by default', ('send',), True))
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

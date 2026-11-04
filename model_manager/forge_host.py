@@ -138,6 +138,9 @@ DEFAULTS = {
     # to the library's files (#205): on unless turned off.
     "model_manager_send_rename_loras": True,
     "model_manager_send_choose_checkpoint": False,
+    # The Resources dialog's tick, Send with a pick's usual settings, starts
+    # ticked at each pick (#378): on unless turned off.
+    "model_manager_send_usual_settings": True,
 }
 
 

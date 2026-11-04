@@ -1446,6 +1446,9 @@ RENAME_LORAS_SETTING = "model_manager_send_rename_loras"
 # every Send" boxes start, and whether a Resources button's dialog starts its
 # box ticked (#377). The boxes are the page's.
 CHOOSE_CHECKPOINT_SETTING = "model_manager_send_choose_checkpoint"
+# Whether the Resources dialog's tick, Send with a pick's usual settings,
+# starts ticked at each pick (#378). The tick is the page's.
+USUAL_SETTINGS_SETTING = "model_manager_send_usual_settings"
 
 
 def without_renames(source: Dict[str, Any]) -> Dict[str, Any]:

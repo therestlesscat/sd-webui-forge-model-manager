@@ -884,6 +884,23 @@
    "switch": null,
    "value": false
   },
+  "model_manager_send_usual_settings": {
+   "label": "Send uses a picked checkpoint's usual settings by default",
+   "info": "When you pick one of your own checkpoints in the Resources dialog in place of the image's, the dialog shows what that checkpoint is usually run with - its sampler, schedule type, steps and CFG scale - and a box under them, Send with these instead of the image's. When this is on, the box starts ticked at each pick, and Send uses them; you can still untick it for one Send. When off, it starts unticked, and Send keeps the image's own settings unless you tick it. A dialog already open keeps what it started with.",
+   "kind": "bool",
+   "default": true,
+   "name": "Send with a picked checkpoint's usual settings by default",
+   "group": "send",
+   "heading": "Shared across tabs",
+   "tags": [
+    "send"
+   ],
+   "shown_with": [],
+   "under": null,
+   "badges": [],
+   "switch": null,
+   "value": true
+  },
   "model_manager_modules_flux": {
    "label": "Text encoders and VAE Send picks for Flux.1 / Chroma",
    "info": "Flux.1 and Flux.1 Schnell need CLIP-L, T5-XXL and Flux VAE (ae); Chroma needs T5-XXL and Flux VAE (ae). Download: clip_l, t5xxl fp16, t5xxl fp8, ae",
@@ -1468,6 +1485,7 @@
   "model_manager_send_clip_skip_max",
   "model_manager_send_rename_loras",
   "model_manager_send_choose_checkpoint",
+  "model_manager_send_usual_settings",
   "model_manager_modules_flux",
   "model_manager_modules_klein",
   "model_manager_modules_lumina",

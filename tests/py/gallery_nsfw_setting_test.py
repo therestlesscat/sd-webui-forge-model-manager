@@ -122,6 +122,15 @@ check('the LoRA kinds are apart by default, and the page is told so',
 setattr(opts, 'model_manager_combine_lora_kinds', True)
 check('turned on, the page is told', client.get('/model-manager/ui-options').json().get('combine_lora_kinds'), True)
 delattr(opts, 'model_manager_combine_lora_kinds')
+# The Resources dialog's usual-settings tick (#378): ticked at each pick
+# unless turned off, and the page told either way.
+if hasattr(opts, 'model_manager_send_usual_settings'):
+    delattr(opts, 'model_manager_send_usual_settings')
+check('the usual-settings tick starts ticked by default, and the page is told so',
+      client.get('/model-manager/ui-options').json().get('usual_settings'), True)
+setattr(opts, 'model_manager_send_usual_settings', False)
+check('turned off, the page is told', client.get('/model-manager/ui-options').json().get('usual_settings'), False)
+delattr(opts, 'model_manager_send_usual_settings')
 
 # How many of Civitai's images a page loads at once (#213): a whole number of
 # at least 1, else the default - a box left blank, 0, or a word.

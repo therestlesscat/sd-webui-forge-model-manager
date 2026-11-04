@@ -5,9 +5,10 @@
 // they come from; a fifth row where the pick's preset takes one. It is asked
 // once per pick (`send/usual`), filled in place - the list's rows, its
 // scroll and the search box stay as they are - and an answer for an earlier
-// pick, or after the dialog closed, draws nothing. Its tick starts off at
-// each pick; ticked, the dialog's Send hands the pick on with the usual
-// settings, and Send's notice says what went.
+// pick, or after the dialog closed, draws nothing. Its tick starts ticked at
+// each pick, or unticked with the setting off (ui-options' `usual_settings`,
+// asked as the dialog opens); ticked, the dialog's Send hands the pick on
+// with the usual settings, and Send's notice says what went.
 import { checker, mountTab, press, sharedModule, startServices } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_generations.py');
@@ -52,6 +53,8 @@ const USUAL = {
 const usualAsked = [];
 const held = new Map();                  // a name whose answer waits
 let failing = false;
+let usualSetting = true;                 // ui-options' usual_settings
+let optionsHeld = null;                  // ui-options' answer waits
 globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
     const reply = (body, status = 200) => ({ ok: status === 200, status, json: async () => structuredClone(body) });
@@ -77,8 +80,9 @@ globalThis.fetch = async (url, init = {}) => {
         return reply({ success: true, versions: Object.fromEntries(wanted.map(({ version_id: id }) => [id, { model_id: 81 }])) });
     }
     if (href.includes('/ui-options')) {
+        if (optionsHeld) await optionsHeld;
         return reply({ success: true, samplers: [], schedulers: [], has_api_key: true, choose_checkpoint: false,
-                       family_names: { xl: 'SDXL' } });
+                       usual_settings: usualSetting, family_names: { xl: 'SDXL' } });
     }
     return reply({ success: true });
 };
@@ -139,7 +143,10 @@ check('    headed by the pick\'s name, saying where they come from and that Hire
 check('    asked with the pick\'s name and the image, as send/plan takes it',
       [usualAsked.length, usualAsked[0]?.checkpoint, usualAsked[0]?.kind, usualAsked[0]?.image, usualAsked[0]?.version_ids],
       [1, MIX.name, 'civitai', '7002', '8002']);
-check('    the tick, off at first', [Boolean(usualTick()), usualTick()?.checked], [true, false]);
+check('    the tick, on at first as the setting is, and Send\'s line says so',
+      [Boolean(usualTick()), usualTick()?.checked, status().endsWith('With its usual settings.')], [true, true, true]);
+tickUsual(false);
+check('    unticked: Send\'s line without it', status().includes('usual settings'), false);
 press(sendButton());
 check('    Send unticked: the pick alone, no usual settings', sent.at(-1)?.slice(0, 1).concat([sent.at(-1)?.[2]]), [MIX.name, null]);
 await open();
@@ -165,15 +172,15 @@ rowsBox.scrollTop = 120;
 searchBox.focus();
 pick(MIX.name);
 await waitFor('MIX drawn', () => values().length);
-tickUsual();
+tickUsual(false);
 check('18. the answer and the tick leave the list\'s rows, their scroll and the search box as they were',
       [modal()?.querySelector('.mm-pick-rows') === rowsBox, rowsBox.scrollTop,
        modal()?.querySelector('.mm-pick-search') === searchBox, document.activeElement === searchBox],
       [true, 120, true, true]);
 pick(FLUX.name);
 await waitFor('FLUX drawn', () => values().some(([k]) => k === 'distilled_cfg'));
-check('    a new pick: the tick off again, Send\'s line without it',
-      [usualTick()?.checked, status().includes('usual settings')], [false, false]);
+check('    a new pick: the tick on again, as the setting says, Send\'s line with it',
+      [usualTick()?.checked, status().includes('usual settings')], [true, true]);
 let release;
 held.set(REAL.name, { promise: new Promise((r) => { release = r; }) });
 pick(REAL.name);
@@ -254,5 +261,38 @@ await waitFor('thin drawn', () => values().length);
 check('    an answer with nothing the tick would send - too few uses, or not in this WebUI: drawn, no tick',
       [values().length, Boolean(usualTick())], [4, false]);
 close();
+
+// ------------------------------------------ 35. the setting turned off
+usualSetting = false;
+await open();
+pick(MIX.name);
+await waitFor('mix drawn', () => usualTick());
+check('35. the setting off: the tick starts unticked at a pick, Send\'s line without it',
+      [usualTick()?.checked, status().includes('usual settings')], [false, false]);
+tickUsual();
+pick(FLUX.name);
+await waitFor('flux drawn', () => values().some(([k]) => k === 'distilled_cfg'));
+check('    ticked, then a new pick: unticked again', usualTick()?.checked, false);
+press(sendButton());
+check('    and Send so: the pick alone, no usual settings', sent.at(-1)?.[2], null);
+// The setting's answer comes after a pick: the tick follows it, unless pressed meanwhile.
+for (const pressed of [false, true]) {
+    let releaseOptions;
+    optionsHeld = new Promise((r) => { releaseOptions = r; });
+    await open();
+    pick(MIX.name);
+    await waitFor('mix drawn', () => usualTick());
+    const before = usualTick()?.checked;
+    if (pressed) tickUsual(true);
+    releaseOptions();
+    optionsHeld = null;
+    await new Promise((r) => setTimeout(r, 20));
+    check(pressed ? '    pressed before the setting\'s answer came: kept as pressed'
+                  : '    picked before the setting\'s answer came: ticked, then unticked as the setting says',
+          [before, usualTick()?.checked, status().includes('usual settings')],
+          pressed ? [true, true, true] : [true, false, false]);
+    close();
+}
+usualSetting = true;
 
 done();

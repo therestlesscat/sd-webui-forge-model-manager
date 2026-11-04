@@ -357,6 +357,15 @@ SETTINGS: Tuple[Setting, ...] = (
             "Every Send in the Civitai Images and Generations tabs opens the Resources dialog first, where you pick "
             "the checkpoint to send with. Each tab also has a box of its own for this in its toolbar, which this "
             "setting ticks or clears. The Resources dialog's own box starts ticked too.", (CI, GEN, SEND)),
+    Setting("model_manager_send_usual_settings", "send", "checkbox",
+            "Send with a picked checkpoint's usual settings by default",
+            "Send uses a picked checkpoint's usual settings by default",
+            "When you pick one of your own checkpoints in the Resources dialog in place of the image's, the dialog "
+            "shows what that checkpoint is usually run with - its sampler, schedule type, steps and CFG scale - and "
+            "a box under them, Send with these instead of the image's. When this is on, the box starts ticked at "
+            "each pick, and Send uses them; you can still untick it for one Send. When off, it starts unticked, and "
+            "Send keeps the image's own settings unless you tick it. A dialog already open keeps what it started "
+            "with.", (SEND,)),
 
     # ------------------------------------------------------- Generations
     Setting("model_manager_generations_delete_files", "your_generations", "checkbox",

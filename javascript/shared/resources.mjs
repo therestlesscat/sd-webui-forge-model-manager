@@ -375,7 +375,9 @@ let resourcesLeaving = null;
 // `choosing`: the box ticked; `chosen`: the name picked; `touched`: the box
 // pressed, which nothing then changes. `usualSource`: what send/usual is
 // asked with for a pick (#378); `usualAnswers`: its answer per name, kept
-// while the dialog is open; `usual`: its tick, off at each pick.
+// while the dialog is open; `usual`: its tick, as the setting says at each
+// pick (`usualOn`, read as the dialog opens); `usualPressed`: the tick
+// pressed for this pick.
 let resourcesSend = null;
 // The dialog's resources, as last drawn: Send's line finds the checkpoint's row in them.
 let resourcesRows = [];
@@ -479,15 +481,21 @@ function startSendLine(send) {
     // Opened with the Resources button, `ready` stays unknown until the library has said (startBox).
     const line = { ...send, ready: send.opened === 'resources' ? undefined : send.ready ?? false,
                    choosing: send.opened !== 'resources',
-                   chosen: null, touched: false, pickList: null, usual: false, usualAnswers: new Map() };
-    if (send.opened === 'resources') {
-        // The setting asked afresh as the dialog opens: Forge's Settings page
-        // does not refresh the page's copy (#377).
-        fetchUiOptions().then((data) => {
-            line.settingOn = data?.choose_checkpoint === true;
-            startBox(line);
-        });
-    }
+                   chosen: null, touched: false, pickList: null, usualAnswers: new Map(),
+                   usualOn: true, usual: true, usualPressed: false };
+    // The settings asked afresh as the dialog opens: Forge's Settings page
+    // does not refresh the page's copy (#377).
+    fetchUiOptions().then((data) => {
+        line.usualOn = data?.usual_settings !== false;
+        // Picked before the answer came, the tick unpressed: it starts as the setting says.
+        if (line.chosen && !line.usualPressed && line.usual !== line.usualOn && resourcesSend === line) {
+            line.usual = line.usualOn;
+            redrawUsual();
+        }
+        if (send.opened !== 'resources') return;
+        line.settingOn = data?.choose_checkpoint === true;
+        startBox(line);
+    });
     return line;
 }
 
@@ -865,7 +873,8 @@ function redrawPickBody() {
 // Under the list, once a pick is made that the server says they apply to -
 // not as made: the pick's usual sampler, schedule type, steps and CFG scale,
 // and a fifth where its UI preset takes one, beside the image's own; where
-// they come from; and a tick, off at each pick, that sends with them.
+// they come from; and a tick that sends with them, ticked at each pick
+// unless the setting says otherwise.
 
 // The block as last drawn, so an answer that changes nothing writes nothing.
 let drawnUsual = { block: null, html: '' };
@@ -1463,14 +1472,16 @@ export function start(scope) {
         document.querySelectorAll('.mm-resources-modal .mm-pick-row').forEach((row) => {
             row.classList.toggle('picked', row.querySelector('input')?.value === radio.value);
         });
-        // A new pick: its usual settings asked, the tick off (#378).
-        resourcesSend.usual = false;
+        // A new pick: its usual settings asked, the tick as the setting says (#378).
+        resourcesSend.usual = resourcesSend.usualOn;
+        resourcesSend.usualPressed = false;
         askUsual(resourcesSend, radio.value);
         redrawUsual();
     });
     scope.provide('resources.usualTick', (data, box) => {
         if (!resourcesSend) return;
         resourcesSend.usual = Boolean(box?.checked);
+        resourcesSend.usualPressed = true;
         const status = document.querySelector('.mm-resources-modal .mm-res-send-status');
         if (status) status.textContent = sendLineStatus().text || '';
         drawnSendBar = sendAgainButton();
