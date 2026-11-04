@@ -72,16 +72,17 @@ def _user_comment(image) -> Optional[str]:
     return body.decode("utf-8", "ignore")
 
 
-def line_params(text: Optional[str]) -> Dict[str, str]:
+def line_params(text: Optional[str], pattern=None) -> Dict[str, str]:
     """
     An infotext's last line, `Key: value, ...`, as Forge's parser reads it:
     only when it has at least three such pairs, each value unquoted. Nothing
-    is dropped or renamed - unlike the parser's answer.
+    is dropped or renamed - unlike the parser's answer. `pattern`: another
+    than this WebUI's (`forge_host.fixed_line_pattern`).
     """
     if not text:
         return {}
     last = text.strip().split("\n")[-1]
-    pairs = infotext_line_pattern().findall(last)
+    pairs = (pattern or infotext_line_pattern()).findall(last)
     if len(pairs) < 3:
         return {}
     params = {}

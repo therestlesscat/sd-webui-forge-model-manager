@@ -758,6 +758,14 @@ def infotext_line_pattern():
             return re.compile(_PARAM_LINE)
 
 
+def fixed_line_pattern():
+    """The original Forge's pattern for an infotext's last line, whichever
+    WebUI asks: a generation's settings are stored read with it (#378), so a
+    row reads the same whichever of two WebUIs sharing a database wrote it."""
+    import re
+    return re.compile(_PARAM_LINE)
+
+
 def parse_generation_parameters(infotext: str) -> Dict[str, Any]:
     """Forge's own infotext parser - the one its paste uses."""
     try:

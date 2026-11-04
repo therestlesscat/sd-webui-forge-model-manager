@@ -6,6 +6,16 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.75 - A picked checkpoint's usual settings
+
+*3 November 2026*
+
+When you send with a checkpoint other than the image's own, the Resources dialog will show what that
+checkpoint is usually run with - its sampler, schedule type, steps and CFG scale, from your own
+generations with it or else from Civitai's images of it - and a tick sends with them instead.
+
+- **0.75.0** (build 609) - The settings an image or a generation was made with are now read in one place, for the settings stored next (#378): a Civitai image's by Send's own reading of its record, a generation's by its infotext's settings line, read the same in either WebUI, else by what Sync images read from its file name; each value as its column holds it, a list or object as no value, a steps or CFG of 0 as not recorded. Nothing you can see changes yet.
+
 ## 0.74 - Pick the checkpoint to send with
 
 *3 November 2026*
