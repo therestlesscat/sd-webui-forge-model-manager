@@ -143,6 +143,24 @@ check('use_checkpoint: the checkpoint is the very file picked; the answer names 
 body = plan(use_checkpoint='model_v0.safetensors [1111]')
 check('the image\'s model not known to the page: the pick counts as another model\'s',
       (body.get('pick'), body.get('other_model')), ('model', True))
+# What the loader is told of the same picks (#377: Hires fix's checkpoint and
+# the refiner left out for another model's), read from what the page sends
+# with the source rather than from the plan's answer.
+from model_manager import send                           # noqa: E402
+SOURCE = {'kind': 'civitai', 'use_checkpoint': 'model_v0.safetensors [1111]', 'version_ids': str(IMAGE_VERSION),
+          'hashes': ''}
+check('the loader: another version of the image\'s model is not another model\'s',
+      send._other_model(db, {**SOURCE, 'image_model': MODEL}), False)
+check('    the image\'s model not known to the page: another model\'s',
+      send._other_model(db, SOURCE), True)
+check('    no pick, a pick Forge no longer lists, no such generation: not another model\'s',
+      [send._other_model(db, s) for s in ({'kind': 'civitai'}, {**SOURCE, 'use_checkpoint': 'gone.safetensors [0000]'},
+                                          {'kind': 'generation', 'generation': 999999, 'use_checkpoint': SOURCE['use_checkpoint']})],
+      [False, False, False])
+check('    the kind it reads, as the plan names it',
+      [send._source_pick_kind(db, {**SOURCE, 'image_model': MODEL}), send._source_pick_kind(db, SOURCE),
+       send._source_pick_kind(db, {'kind': 'civitai'})],
+      ['version', 'model', None])
 check('a name Forge no longer lists: the stop, as for the image\'s own',
       plan(use_checkpoint='gone.safetensors [0000]').get('checkpoint_problem'),
       {'reason': 'missing', 'name': 'gone.safetensors [0000]'})

@@ -1462,27 +1462,36 @@ def settings(db, source: Dict[str, Any], into: bool = False) -> Optional[Dict[st
     return found
 
 
+def _source_pick_kind(db, source: Dict[str, Any]) -> Optional[str]:
+    """
+    What the checkpoint a source is sent with is to its image (pick_kind's
+    `own`, `same`, `file`, `version` or `model`), told by the pick as the plan
+    told it, from what the page sends with the source: `use_checkpoint`,
+    `image_model`, and a Civitai image's `version_ids` and `hashes`. None for
+    no pick, a pick Forge no longer lists, or no such generation.
+    """
+    picked = _picked(db, source.get("use_checkpoint") or "") if source.get("use_checkpoint") else None
+    if not picked:
+        return None
+    image_model = int(source.get("image_model") or 0) or None
+    if source.get("kind") == "generation":
+        generation = db.get_generation(int(source.get("generation") or 0))
+        return generation_pick_kind(db, generation, picked, image_model) if generation else None
+    from .send_plan import local_checkpoint, named_ids
+    version_ids = str(source.get("version_ids") or "").split(",")
+    hashes = str(source.get("hashes") or "").split(",")
+    own = local_checkpoint(db, "", *named_ids(version_ids, hashes))
+    return pick_kind(db, picked, version_ids, hashes, image_model, (own or {}).get("file_path") or "")
+
+
 def _other_model(db, source: Dict[str, Any]) -> bool:
     """
     Whether a source is sent with a checkpoint of another model than its
     image's (#377): the loader then sets Hires fix's checkpoint and module to
     "Use same" and leaves the refiner off - the image's own are of its
-    family. Told by the pick as the plan told it (pick_kind), from what the
-    page sends with the source: `use_checkpoint`, `image_model`, and a Civitai
-    image's `version_ids` and `hashes`.
+    family.
     """
-    picked = _picked(db, source.get("use_checkpoint") or "") if source.get("use_checkpoint") else None
-    if not picked:
-        return False
-    image_model = int(source.get("image_model") or 0) or None
-    if source.get("kind") == "generation":
-        generation = db.get_generation(int(source.get("generation") or 0))
-        return bool(generation) and generation_pick_kind(db, generation, picked, image_model) == "model"
-    from .send_plan import local_checkpoint, named_ids
-    version_ids = str(source.get("version_ids") or "").split(",")
-    hashes = str(source.get("hashes") or "").split(",")
-    own = local_checkpoint(db, "", *named_ids(version_ids, hashes))
-    return pick_kind(db, picked, version_ids, hashes, image_model, (own or {}).get("file_path") or "") == "model"
+    return _source_pick_kind(db, source) == "model"
 
 
 # --------------------------------------- a generation's, and a task's, plan
