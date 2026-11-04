@@ -134,6 +134,11 @@ check('17. nothing picked: the block says what a pick will show, nothing asked',
       [blockText(), usualAsked.length], ['Pick a checkpoint to see what it is usually run with.', 0]);
 check('    the block and the list in one area, the block after the list',
       [block()?.parentElement?.className, block()?.previousElementSibling?.className], ['mm-pick-area', 'mm-pick']);
+check('    and the Send line under them, last in the foot: the box, what Send will do, Send',
+      [...(modal()?.querySelector('.mm-resources-send-wrap')?.children || [])].map((e) => e.className)
+          .concat([modal()?.querySelector('.mm-resources-send > :first-child')?.className,
+                   modal()?.querySelector('.mm-resources-send > :last-child')?.dataset.action]),
+      ['mm-pick-area', 'mm-dialog-buttons mm-resources-send', 'mm-res-choose', 'resources.sendAgain']);
 pick(MIX.name);
 await waitFor('the answer drawn', () => values().length);
 check('    a pick the server says they apply to: each setting\'s usual value, its count, the image\'s own',

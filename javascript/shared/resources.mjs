@@ -613,8 +613,9 @@ function renderResourcesModal(resources, pending = 0) {
 const AS_MADE = ['this gallery\'s', 'the image\'s own', 'same file'];
 
 /**
- * The Send line: the box, the list once ticked, what Send will do, and Send -
- * disabled, saying why, until there is something to send with.
+ * The Send line: the list once ticked, and under it the box, what Send will
+ * do, and Send - disabled, saying why, until there is something to send with -
+ * at the dialog's foot, as a dialog's action is.
  */
 function sendAgainButton() {
     if (!resourcesSend) return '';
@@ -628,13 +629,13 @@ function sendAgainButton() {
     const again = status.again ? '<button type="button" class="mm-btn secondary mm-btn-small" '
                                  + 'data-action="resources.checkAgain">Check again</button>' : '';
     return `<div class="mm-resources-send-wrap">
+            ${line.choosing ? `<div class="mm-pick-area"><div class="mm-pick">${pickListHtml()}</div>`
+                              + `<div class="mm-usual" data-usual>${usualHtml()}</div></div>` : ''}
             <div class="mm-dialog-buttons mm-resources-send">${box}${text}${again}
                 <button type="button" class="mm-btn primary" data-action="resources.sendAgain"${
                     enabled ? '' : ` disabled title="${escapeHtml((line.choosing ? status.text : line.why) || status.text || '')}"`}>${
                     escapeHtml(line.button || 'Send to txt2img')}</button>
             </div>
-            ${line.choosing ? `<div class="mm-pick-area"><div class="mm-pick">${pickListHtml()}</div>`
-                              + `<div class="mm-usual" data-usual>${usualHtml()}</div></div>` : ''}
         </div>`;
 }
 

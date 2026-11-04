@@ -2341,13 +2341,35 @@ body.mm-modal-open {
    modal's footer, its line laid out as a block of its own. On a window too
    short for the list and the usual settings (#378), it shrinks and scrolls
    rather than run past the dialog's foot: at 720 px it held 575 px of a
-   576 px dialog, and the tick sat off the window. */
+   576 px dialog, and the tick sat off the window. Its bottom padding is the
+   Send line's own, so the line pinned there (below) keeps it while it scrolls. */
 .mm-resources-foot {
     display: block;
     flex: 0 1 auto;
     min-height: 0;
     overflow-y: auto;
-    padding: 4px 20px 14px;
+    padding: 4px 20px 0;
+}
+
+/* The Send line, last in the foot - under the list and the usual settings once the box is ticked
+   (#378) - and pinned to its bottom while the foot scrolls on a short window, so Send stays in
+   view: the rows pass under it. A rule above it where the list is. */
+.mm-resources-send {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    padding-bottom: 14px;
+    background: var(--background-fill-primary, #1f2937);
+}
+
+.mm-pick-area + .mm-resources-send {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-color-primary, #d1d5db);
+}
+
+.dark .mm-pick-area + .mm-resources-send {
+    border-top-color: var(--border-color-primary, #374151);
 }
 
 /* Resource lookup states */
@@ -2396,7 +2418,7 @@ body.mm-modal-open {
     white-space: nowrap;
 }
 
-/* The list of your checkpoints, under the line once the box is ticked (#377):
+/* The list of your checkpoints, above the Send line once the box is ticked (#377):
    a search, the tabs - Suggested, a family each, All - and the rows, 300 px
    tall, scrolling. */
 .mm-pick {
