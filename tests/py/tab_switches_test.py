@@ -2,7 +2,7 @@
 Which tabs are on, decided in one place (model_manager/tabs.py, #181): a tab
 switched off has its routes refuse and its startup work left out.
 
-What is checked here: every route naming its area - all 94 held to the table
+What is checked here: every route naming its area - all 95 held to the table
 below, which is the spec; with every tab off, every route but ui-options
 refusing, in the shape every failure answers; an off tab's routes refused
 through the app; the shared areas, on while any of their tabs is; the
@@ -169,6 +169,7 @@ SPEC = {
     ('GET', '/model-manager/send/plan'): 'send',
     # The Resources dialog's list of your checkpoints (#377), which /other-versions gave way to.
     ('GET', '/model-manager/send/checkpoints'): 'send',
+    ('GET', '/model-manager/send/usual'): 'send',
     ('GET', '/model-manager/queue/status'): 'queue',
     ('POST', '/model-manager/queue/start'): 'queue',
     ('POST', '/model-manager/queue/stop'): 'queue',
@@ -208,7 +209,7 @@ SPEC = {
     ('GET', '/model-manager/repairs/recorded-twice'): 'generations',
     ('POST', '/model-manager/repairs/recorded-twice/remove'): 'generations',
 }
-check('the spec holds 94 routes', len(SPEC), 94)
+check('the spec holds 95 routes', len(SPEC), 95)
 
 app = FastAPI()
 api.setup_api(app)

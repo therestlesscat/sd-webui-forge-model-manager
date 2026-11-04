@@ -143,6 +143,30 @@ def register(app: FastAPI):
             say_failure(f"Send checkpoints error: {e}")
             return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
+    @app.get("/model-manager/send/usual")
+    @gate("send")
+    def send_usual(checkpoint: str, kind: str = "civitai", image: int = 0, version_ids: str = "",
+                   hashes: str = "", image_model: int = 0, generation: int = 0, whole: int = 0):
+        """
+        What a checkpoint picked in the Resources dialog is usually run with
+        (#378): usual_settings.usual(). `checkpoint` is Forge's name for the
+        pick; the source as send/plan takes it. Reads the library alone: no
+        file, no Civitai.
+        """
+        from ..db import get_models_db
+        from ..tabs import on
+        from ..usual_settings import usual
+        # A generation's, as send/plan answers one, while the Generations tab is on.
+        if kind == "generation" and not on("generations"):
+            return refused("generations")
+        try:
+            return JSONResponse({"success": True, **usual(get_models_db(), checkpoint, {
+                "kind": kind, "image": image, "version_ids": version_ids, "hashes": hashes,
+                "image_model": image_model, "generation": generation, "whole": bool(whole)})})
+        except Exception as e:
+            say_failure(f"Send usual settings error: {e}")
+            return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
     @app.get("/model-manager/forge-modules/current")
     @gate("send")
     def forge_modules_current():

@@ -817,6 +817,14 @@ class ModelsDatabase:
         """Get total and filtered image counts for a version."""
         return self._images.get_image_counts(version_id, max_nsfw_level, require_prompt, min_nsfw_level)
 
+    def checkpoint_image_settings(self, version_id: int) -> List[Dict[str, Any]]:
+        """The stored Civitai images' settings of a checkpoint version, grouped. See db/images_ops.py."""
+        return self._images.checkpoint_image_settings(version_id)
+
+    def checkpoint_generation_settings(self, paths) -> List[Dict[str, Any]]:
+        """Your generations' settings with these checkpoint files, grouped. See db/generations_ops.py."""
+        return self._generations.checkpoint_generation_settings(paths)
+
     def stored_records(self, image_ids) -> List[Dict[str, Any]]:
         """The stored records of these images, whatever galleries show them. See db/images_ops.py."""
         return self._images.stored_records(image_ids)

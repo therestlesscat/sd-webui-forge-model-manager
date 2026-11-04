@@ -129,6 +129,17 @@ def _size(given: Dict[str, Any], size_key: str, width_key: str, height_key: str)
     return {"width": given.get(width_key), "height": given.get(height_key)}
 
 
+# A checkpoint's settings, grouped (checkpoint_image_settings,
+# checkpoint_generation_settings): the columns counted, then how many uses
+# give them and the newest use's id.
+GROUP_KEYS = ("sampler", "schedule_type", "scheduler", "steps", "cfg", "distilled_cfg", "shift", "uses", "newest")
+
+
+def settings_group(row: Any) -> Dict[str, Any]:
+    """One group of a checkpoint's settings, by GROUP_KEYS."""
+    return dict(zip(GROUP_KEYS, tuple(row)))
+
+
 def image_params_row(record: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
     A Civitai image's settings row, read from its record as Send reads it

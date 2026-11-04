@@ -651,6 +651,25 @@ def is_neo() -> bool:
         return False
 
 
+def extra_cfg(preset: Optional[str]) -> Optional[str]:
+    """
+    The fifth setting a UI preset takes beside the CFG scale (#378):
+    "distilled" (Distilled CFG Scale) or "shift" (Shift), or None. Neo says
+    by its presets module, where one slider is either (`use_distill`,
+    `use_shift`); the original Forge has Distilled CFG Scale for its flux
+    preset alone, and no Shift.
+    """
+    if not preset:
+        return None
+    if is_neo():
+        try:
+            from modules_forge.presets import use_distill, use_shift
+            return "distilled" if use_distill(preset) else "shift" if use_shift(preset) else None
+        except Exception:
+            return None
+    return "distilled" if preset == "flux" else None
+
+
 def short_name() -> str:
     """What the pages call this WebUI: "Neo" or "Forge" - "Ignored by Neo" (#195)."""
     return "Neo" if is_neo() else "Forge"

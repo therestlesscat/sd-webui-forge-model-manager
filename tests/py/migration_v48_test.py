@@ -300,5 +300,17 @@ def steps(n):
 small, large = steps(200), steps(800)
 check('four times the images: under six times the work (%d against %d)' % (large, small), large < 6 * small, True)
 
+# ---------------------------------------------- 26. no index of its own
+# Every read a library has today keeps its query plan: v48 adds two tables
+# no read before it joins, and no index a planner could take instead. The
+# usual settings' reads go through indexes v37 and v45 made
+# (usual_settings_test).
+conn, _ = v47('indexes')
+INDEXES = "SELECT name FROM sqlite_master WHERE type = 'index' AND name NOT LIKE 'sqlite_autoindex%'"
+before = {r[0] for r in conn.execute(INDEXES)}
+migrate(conn)
+check('26. v48 adds no index', sorted({r[0] for r in conn.execute(INDEXES)} - before), [])
+conn.close()
+
 print('\n'.join('FAIL ' + f for f in fails) if fails else 'All checks passed.')
 sys.exit(1 if fails else 0)

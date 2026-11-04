@@ -38,7 +38,7 @@ from ..gallery import nsfw_kept_sql, switch_counts_sql
 from ..nsfw import SFW_MAX
 from ..prompt_rules import MIN_PROMPT_LENGTH
 from .library import LIBRARY
-from .params_table import GENERATION_COLUMNS, generation_params_row
+from .params_table import GENERATION_COLUMNS, generation_params_row, settings_group
 from .prompt_table import PromptTable, like_pattern, tidy  # noqa: F401 - tidy is read from here
 
 # A generation's columns as the recorder hands them, by the table keeping them.
@@ -716,6 +716,30 @@ class GenerationsOps:
         return found
 
     # ----------------------------------------------------------- the scopes
+
+    def checkpoint_generation_settings(self, paths: Sequence[str]) -> List[Dict[str, Any]]:
+        """
+        The settings the generations made with these checkpoint files were
+        made with (#378), grouped as checkpoint_image_settings groups Civitai's:
+        each generation once, by its own checkpoint - never one it used for
+        Hires fix or as a refiner. The paths by their own index, as the
+        library spells them (gallery_files), with the role it holds through
+        the table's key; named, as SQLite would take the role's index and
+        walk every checkpoint row of the library.
+        """
+        paths = [p for p in paths if p]
+        if not paths:
+            return []
+        with self._cursor() as cursor:
+            cursor.execute(f"""
+                SELECT p.sampler, p.schedule_type, NULL, p.steps, p.cfg, p.distilled_cfg, p.shift,
+                       COUNT(*), MAX(p.generation_id)
+                FROM generation_params p
+                WHERE p.generation_id IN (
+                    SELECT generation_id FROM generation_resources INDEXED BY idx_resources_path
+                    WHERE file_path IN ({', '.join('?' * len(paths))}) AND role = 'checkpoint')
+                GROUP BY 1, 2, 3, 4, 5, 6, 7""", paths)
+            return [settings_group(row) for row in cursor.fetchall()]
 
     def gallery_files(self, path: str) -> List[str]:
         """

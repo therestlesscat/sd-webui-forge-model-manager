@@ -12,7 +12,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple
 
 from ..nsfw import SFW_MAX, image_level
 from ..prompt_rules import MIN_PROMPT_LENGTH
-from .params_table import IMAGE_COLUMNS, image_params_row
+from .params_table import IMAGE_COLUMNS, image_params_row, settings_group
 from .prompt_table import PromptTable
 
 # The order a gallery shows a version's images in: Civitai's, as stored in
@@ -252,6 +252,27 @@ class ImagesOps:
         return held
 
     # ==================== Reading ====================
+
+    def checkpoint_image_settings(self, version_id: int) -> List[Dict[str, Any]]:
+        """
+        The settings the stored Civitai images naming a checkpoint version were
+        made with (#378), grouped: each distinct sampler, schedule type,
+        scheduler, steps, CFG, Distilled CFG Scale and Shift, how many images
+        give it, and the newest of them. The version's rows by its own index,
+        which holds no role and answers alone: with `role = 'checkpoint'`
+        SQLite reads a row per image, 2,600 pages more for one version of 5,761
+        images; the version names the checkpoint anyway. An image listing the
+        version twice counts once.
+        """
+        with self._cursor() as cursor:
+            cursor.execute("""
+                SELECT p.sampler, p.schedule_type, p.scheduler, p.steps, p.cfg, p.distilled_cfg, p.shift,
+                       COUNT(DISTINCT p.image_id), MAX(p.image_id)
+                FROM image_resources r INDEXED BY idx_image_resources_version
+                JOIN image_params p ON p.image_id = r.image_id
+                WHERE r.version_id = ?
+                GROUP BY 1, 2, 3, 4, 5, 6, 7""", (version_id,))
+            return [settings_group(row) for row in cursor.fetchall()]
 
     def stored_records(self, image_ids: Iterable[int]) -> List[Dict[str, Any]]:
         """

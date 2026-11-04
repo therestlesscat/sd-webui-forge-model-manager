@@ -204,5 +204,36 @@ check('the original Forge: SD 2.x its own kind, SD 3 SD 1.x ones, and no Mugen',
 check('with no model class, the UI preset says it for SD and SDXL alone, else not known',
       [embedding_kind(None, p) for p in ('sd', 'xl', 'flux', None)], ['sd', 'xl', None, None])
 
+# -------------------------------- what a preset takes beside CFG (#378)
+# Neo says by its presets module (`use_distill`, `use_shift`, over its
+# DISTILL and SHIFT tables); the original Forge has Distilled CFG Scale for
+# its flux preset alone, and no Shift.
+presets = types.ModuleType('modules_forge.presets')
+presets.use_distill = lambda arch: arch in ('flux',)
+presets.use_shift = lambda arch: arch in ('xl', 'lumina', 'zit', 'wan', 'anima', 'ernie', 'pid', 'krea')
+held_presets = sys.modules.get('modules_forge.presets')
+sys.modules['modules_forge.presets'] = presets
+extra_cfg = getattr(host, 'extra_cfg', lambda preset: 'missing')
+ALL = ('sd', 'xl', 'flux', 'klein', 'qwen', 'lumina', 'zit', 'wan', 'anima', 'ernie', 'pid', 'krea', 'unheard', None, '')
+answers = {}
+for neo in (True, False):
+    host.is_neo = lambda neo=neo: neo
+    answers[neo] = {p: extra_cfg(p) for p in ALL}
+presets.use_distill = lambda arch: 1 / 0
+host.is_neo = lambda: True
+broken = extra_cfg('flux')
+host.is_neo = real_is_neo
+if held_presets is None:
+    del sys.modules['modules_forge.presets']
+else:
+    sys.modules['modules_forge.presets'] = held_presets
+check('31. Neo: Distilled CFG Scale for flux, Shift for its eight shift presets, nothing for the rest',
+      answers[True], {'sd': None, 'xl': 'shift', 'flux': 'distilled', 'klein': None, 'qwen': None,
+                      'lumina': 'shift', 'zit': 'shift', 'wan': 'shift', 'anima': 'shift', 'ernie': 'shift',
+                      'pid': 'shift', 'krea': 'shift', 'unheard': None, None: None, '': None})
+check('    the original Forge: Distilled CFG Scale for flux alone, never a Shift',
+      answers[False], {p: 'distilled' if p == 'flux' else None for p in ALL})
+check('    Neo\'s module failing to answer: nothing, not an error', broken, None)
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)
