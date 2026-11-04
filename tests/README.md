@@ -298,6 +298,16 @@ git-ignored: a probe is local, and written again when needed.
   modes"), from the page's own `<link>`s: their hrefs are relative
   (`./assets/...`, `file=...` with backslashes), so join each to the WebUI's
   address with forward slashes.
+- **A dialog's markup comes from its module, not by hand.** A Node script
+  beside the suite, using the suite's harness and fetch stand-ins, opens the
+  dialog and writes `modal().closest('dialog').outerHTML` to a file - run once
+  on the tree, once with HEAD's module copied in (`>|`, then `cmp` back):
+  HEAD's stylesheet over HEAD's markup is the "before" to measure against
+  (the root AGENTS.md, "Seen in both modes"). #378's round probed four states this way, light
+  and dark, at four window sizes. `--dump-dom` prints the page's script too:
+  read the result from its element (`id="out">RESULT...`) - grepping for
+  `RESULT` alone matched the script's own text in all 48 runs of the first
+  try.
 - **A whole tab module over HTTP.** From `file://`, `queue.mjs` never finished
   loading: `shared/send.mjs` stayed pending, even alone, though each of its
   imports loaded. Served by Windows' `python -m http.server 8765 --bind

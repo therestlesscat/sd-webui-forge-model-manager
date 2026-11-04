@@ -58,6 +58,15 @@ model's Sync sends its id, and the server finds the files. The owner, on the
 plan: "all information are calculated in the server, why does client has to
 send this info back?"
 
+**A box with a setting starts from it at every page load, and keeps nothing
+in the browser.** #377 kept the Civitai Images and Generations tabs' Choose
+checkpoint box in the browser's storage, like Preserve order, with its
+setting only where nothing was kept: once ticked, it stayed ticked across
+sessions while the setting stayed unticked, and the setting decided nothing
+more (#383). The owner: "idea of settings is to set default value for the
+checkbox". A tick now lasts until the page reloads (0.75.8). A box with no
+setting may still be kept.
+
 ## The WebUI's rules, which are not obvious
 
 - **Esc that reaches the page interrupts a generation.** The WebUI's
