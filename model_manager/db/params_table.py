@@ -88,12 +88,15 @@ GENERATION_COLUMNS = {k: v for k, v in IMAGE_COLUMNS.items() if k not in ("sched
 # Not recorded when 0: Send's paste writes no steps or CFG of 0 (`truthy`).
 _ZERO_IS_NONE = ("steps", "cfg")
 _NUMBER_TEXT = re.compile(r"\s*-?\d+(?:\.\d+)?\s*")
+# What an SQLite INTEGER holds; a larger int raises OverflowError when bound.
+_SQLITE_INTEGER = (-2 ** 63, 2 ** 63 - 1)
 
 
 def _typed(kind: str, value: Any) -> Any:
     """A value as its column holds it: text as written; a number, or text
     that reads as one, as a number; anything else - a list, an object, a
-    yes or no, nothing - None, so no value can fail a write."""
+    yes or no, nothing, or a whole number past SQLite's 64 bits, as 25 of
+    one library's stored seeds are - None, so no value can fail a write."""
     if kind == TEXT:
         return value if isinstance(value, str) and value.strip() else None
     if isinstance(value, bool):
@@ -104,7 +107,9 @@ def _typed(kind: str, value: Any) -> Any:
         return None
     # A whole count written `20.0` is 20; a REAL column keeps 7 and 7.0 as one.
     if kind == WHOLE and isinstance(value, float) and value.is_integer():
-        return int(value)
+        value = int(value)
+    if isinstance(value, int) and not _SQLITE_INTEGER[0] <= value <= _SQLITE_INTEGER[1]:
+        return None
     return value
 
 
@@ -130,7 +135,8 @@ def image_params_row(record: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     (`record_meta`): one value per column of IMAGE_COLUMNS, or None when the
     record gives none.
     """
-    meta = record_meta(record) if isinstance(record, dict) else {}
+    # A record's meta that is not an object - text, a list - gives no setting.
+    meta = record_meta(record) if isinstance(record, dict) and isinstance(record.get("meta") or {}, dict) else {}
     shift = meta.get("Shift")
     return _row(IMAGE_COLUMNS, {
         "sampler": meta.get("sampler"), "schedule_type": meta.get("Schedule type"), "scheduler": meta.get("scheduler"),

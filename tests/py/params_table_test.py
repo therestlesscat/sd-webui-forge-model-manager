@@ -71,6 +71,20 @@ check('a value that is neither text nor a number is no value: a list, an object,
 check('a steps or CFG of 0 is not recorded, as Send\'s paste writes none',
       pt.image_params_row({'meta': {'steps': 0, 'cfgScale': '0', 'seed': 5}}),
       {**{k: None for k in pt.IMAGE_COLUMNS}, 'seed': 5})
+check('a whole number past SQLite\'s 64 bits is no value, so it cannot fail a write (25 of one library\'s seeds)',
+      [col(pt.image_params_row({'meta': {'seed': v, 'steps': 20}}), 'seed') for v in
+       (18446744073709551615, '18446744073709551615', 1e20, -2 ** 63 - 1, 2 ** 63 - 1, -2 ** 63)],
+      [None, None, None, None, 2 ** 63 - 1, -2 ** 63])
+check('    the rest of its row kept', col(pt.image_params_row({'meta': {'seed': 2 ** 64, 'steps': 20}}), 'steps'), 20)
+def tried(call):
+    try:
+        return call()
+    except Exception as e:                               # noqa: BLE001 - a break shows as a failed check
+        return type(e).__name__
+
+
+check('a meta that is not an object - text, a list - gives no row, and does not fail',
+      [tried(lambda m=m: pt.image_params_row({'meta': m})) for m in ('steps 20', ['steps', 20])], [None, None])
 check('nothing is filled in: an image giving its sampler alone has only its sampler',
       none_but(pt.image_params_row({'meta': {'sampler': 'Euler a'}}), sampler='Euler a'))
 

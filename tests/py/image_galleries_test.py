@@ -85,6 +85,38 @@ changed = db.restamp_image_levels()
 check('4. restamping judges every row, shared ones included, without error',
       isinstance(changed, tuple), True)
 
+# ------------------------------------------------- each image's settings (#378)
+PROMPT = 'a shared image with a long enough prompt'
+
+
+def settings(image_id):
+    row = db._get_connection().execute("SELECT sampler, steps, cfg FROM image_params WHERE image_id = ?",
+                                       (image_id,)).fetchone()
+    return tuple(row) if row else None
+
+
+def made(image_id, meta):
+    return {'id': image_id, 'url': 'https://example.invalid/%d.jpeg' % image_id, 'nsfwLevel': 1,
+            'modelVersionIds': [first], 'meta': meta}
+
+
+db.store_images(first, page=2, images=[made(9101, {'prompt': PROMPT, 'sampler': 'Euler a', 'steps': 20,
+                                                    'cfgScale': 7})])
+check('6. a fetch writes the image\'s settings row', settings(9101), ('Euler a', 20, 7.0))
+db.store_images(first, page=2, images=[made(9101, {'prompt': PROMPT, 'sampler': 'DPM++ 2M', 'steps': 30,
+                                                    'cfgScale': 5})])
+check('   fetched again with other settings: they replace it', settings(9101), ('DPM++ 2M', 30, 5.0))
+db.store_images(first, page=2, images=[made(9101, None)])
+check('   fetched again without generation data: kept, as the stored record is', settings(9101), ('DPM++ 2M', 30, 5.0))
+db.store_images(first, page=2, images=[made(9101, {'prompt': PROMPT})])
+check('   fetched again with generation data giving no setting: the row goes', settings(9101), None)
+db.store_images(first, page=2, images=[made(9102, {'prompt': PROMPT, 'steps': [20], 'sampler': 'Euler'})])
+check('   a list where a value goes is no value, and the page\'s write goes through',
+      (settings(9102), 9102 in ids(first)), (('Euler', None, None), True))
+db.clear_version_images(first)
+check('   a forgotten image takes its row', (settings(9102), db._get_connection().execute(
+    "SELECT COUNT(*) FROM image_params WHERE image_id NOT IN (SELECT id FROM images)").fetchone()[0]), (None, 0))
+
 # ------------------------------------------------------------ the migration
 # A database from before: images keyed on id alone, at schema v24.
 OLD = os.path.join(WORK, 'old.db')

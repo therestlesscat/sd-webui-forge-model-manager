@@ -38,6 +38,7 @@ from ..gallery import nsfw_kept_sql, switch_counts_sql
 from ..nsfw import SFW_MAX
 from ..prompt_rules import MIN_PROMPT_LENGTH
 from .library import LIBRARY
+from .params_table import GENERATION_COLUMNS, generation_params_row
 from .prompt_table import PromptTable, like_pattern, tidy  # noqa: F401 - tidy is read from here
 
 # A generation's columns as the recorder hands them, by the table keeping them.
@@ -520,6 +521,7 @@ class GenerationsOps:
             f"INSERT INTO generation_details (generation_id{''.join(', ' + c for c in details)}) "
             f"VALUES ({', '.join('?' * (len(details) + 1))})",
             [generation_id] + [_stored(c, generation[c]) for c in details])
+        self._write_settings(cursor, generation_id, generation, images)
         module_roles = self._module_roles(cursor, [f for used in files for f in used])
         for image, used in zip(images, files):
             columns = [c for c in _IMAGE_COLUMNS if c in image]
@@ -541,6 +543,29 @@ class GenerationsOps:
                 [(image_id, generation_id, *row)
                  for row in resource_rows(generation, image, list(dict.fromkeys(used)), module_roles)])
         return generation_id
+
+    def _write_settings(self, cursor, generation_id: int, generation: Dict[str, Any],
+                        images: List[Dict[str, Any]]) -> None:
+        """
+        A generation's settings row (#378): its own text's settings line, else
+        its first image's that has one, else what Sync images read from its
+        first image's file name; none where none gives a setting. Its images
+        were made with one press, so the first image's settings are the
+        generation's - an X/Y/Z plot's too, as Send pastes the first.
+        """
+        ordered = sorted(images, key=lambda i: i.get("position") or 0)
+        text = generation.get("infotext") or next((i.get("infotext") for i in ordered if i.get("infotext")), None)
+        name = ordered[0].get("meta") if ordered and not text else None
+        if isinstance(name, str):
+            try:
+                name = json.loads(name)
+            except ValueError:
+                name = None
+        settings = generation_params_row(text, name)
+        if settings:
+            cursor.execute(f"INSERT OR REPLACE INTO generation_params (generation_id, {', '.join(GENERATION_COLUMNS)}) "
+                           f"VALUES (?, {', '.join('?' * len(GENERATION_COLUMNS))})",
+                           (generation_id, *(settings[c] for c in GENERATION_COLUMNS)))
 
     def _module_roles(self, cursor, paths: Iterable[str]) -> Dict[str, str]:
         """What the library read each of these files to be, for a module's role."""
@@ -1106,6 +1131,7 @@ class GenerationsOps:
                        "(SELECT id FROM generation_images WHERE generation_id = ?)", (generation_id,))
         cursor.execute("DELETE FROM generation_images WHERE generation_id = ?", (generation_id,))
         cursor.execute("DELETE FROM generation_details WHERE generation_id = ?", (generation_id,))
+        cursor.execute("DELETE FROM generation_params WHERE generation_id = ?", (generation_id,))
         cursor.execute("DELETE FROM generations WHERE id = ?", (generation_id,))
         cursor.execute("DELETE FROM task_generations WHERE generation_id = ?", (generation_id,))
         own = []
@@ -1172,6 +1198,7 @@ class GenerationsOps:
             cursor.execute("SELECT prompt_id, negative_id FROM generations WHERE id = ?", (generation_id,))
             freed.update(p for row in cursor.fetchall() for p in row if p)
             cursor.execute("DELETE FROM generation_details WHERE generation_id = ?", (generation_id,))
+            cursor.execute("DELETE FROM generation_params WHERE generation_id = ?", (generation_id,))
             cursor.execute("DELETE FROM generations WHERE id = ?", (generation_id,))
             cursor.execute("DELETE FROM task_generations WHERE generation_id = ?", (generation_id,))
             gone = generation_id
@@ -1334,6 +1361,7 @@ class GenerationsOps:
             paths = [row[0] for row in cursor.fetchall() if row[0]]
             cursor.execute(f"DELETE FROM generation_images WHERE generation_id IN ({made})", (source,))
             cursor.execute(f"DELETE FROM generation_details WHERE generation_id IN ({made})", (source,))
+            cursor.execute(f"DELETE FROM generation_params WHERE generation_id IN ({made})", (source,))
             cursor.execute(f"DELETE FROM task_generations WHERE generation_id IN ({made})", (source,))
             cursor.execute("DELETE FROM generations WHERE source_id = ?", (source,))
             removed = cursor.rowcount

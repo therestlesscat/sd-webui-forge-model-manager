@@ -17,6 +17,7 @@ a column, and use CREATE ... IF NOT EXISTS.
 """
 import json
 import os
+import re
 import shutil
 import sqlite3
 from datetime import datetime
@@ -2674,6 +2675,258 @@ def _migrate_to_v47(cursor):
     print(f"[ModelManager] Migration to v47 complete: {len(kept)} kept download(s)")
 
 
+# v48's frozen copy of how a settings row is read (db/params_table.py, 0.75.1):
+# a migration carries the rules it was written with, never today's.
+_V48_IMAGE_COLUMNS = {
+    "sampler": "text", "schedule_type": "text", "scheduler": "text", "steps": "whole", "cfg": "number",
+    "distilled_cfg": "number", "shift": "number", "seed": "whole", "width": "whole", "height": "whole",
+    "clip_skip": "whole", "hires_upscale": "number", "hires_steps": "whole", "hires_upscaler": "text",
+    "denoise": "number",
+}
+_V48_GENERATION_COLUMNS = {k: v for k, v in _V48_IMAGE_COLUMNS.items() if k not in ("scheduler", "seed")}
+_V48_TABLES = f"""
+    CREATE TABLE IF NOT EXISTS image_params (
+        image_id INTEGER PRIMARY KEY,
+        {', '.join(f'{k} {"TEXT" if v == "text" else "INTEGER" if v == "whole" else "REAL"}'
+                   for k, v in _V48_IMAGE_COLUMNS.items())}
+    );
+    CREATE TABLE IF NOT EXISTS generation_params (
+        generation_id INTEGER PRIMARY KEY,
+        {', '.join(f'{k} {"TEXT" if v == "text" else "INTEGER" if v == "whole" else "REAL"}'
+                   for k, v in _V48_GENERATION_COLUMNS.items())}
+    )
+"""
+# Neo's pattern for a settings line kept in a negative prompt, as Send read it;
+# the original Forge's for a generation's own line, in either WebUI.
+_V48_RE_PARAM = re.compile(r'\s*([\w\s\-\/]+):\s*("(?:\\.|[^\\"])+"|[^,]*)(?:,|$)')
+_V48_FIXED_LINE = re.compile(r'\s*(\w[\w \-/]+):\s*("(?:\\.|[^\\"])+"|[^,]*)(?:,|$)')
+_V48_DATA_NAMES = {"Steps": "steps", "Sampler": "sampler", "CFG scale": "cfgScale", "Seed": "seed"}
+_V48_CLIP_SKIP_KEYS = ("Clip skip", "clipSkip", "CLIP Skip", "Clip Skip")
+_V48_NUMBER_TEXT = re.compile(r"\s*-?\d+(?:\.\d+)?\s*")
+_V48_SQLITE_INTEGER = (-2 ** 63, 2 ** 63 - 1)
+# How often it says how far it has got: on a hard disk 134,890 records took 102 s cold.
+V48_REPORT_EVERY = 20000
+
+
+def _v48_truthy(value):
+    if value is None or value is False or value == "":
+        return False
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return value == value and value != 0
+    return True
+
+
+def _v48_size(text):
+    match = re.fullmatch(r"\s*(\d+)\s*x\s*(\d+)\s*", str(text or ""))
+    return (int(match.group(1)), int(match.group(2))) if match else None
+
+
+def _v48_typed(kind, value):
+    if kind == "text":
+        return value if isinstance(value, str) and value.strip() else None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, str) and _V48_NUMBER_TEXT.fullmatch(value):
+        value = float(value)
+    if not isinstance(value, (int, float)) or value != value or value in (float("inf"), float("-inf")):
+        return None
+    if kind == "whole" and isinstance(value, float) and value.is_integer():
+        value = int(value)
+    if isinstance(value, int) and not _V48_SQLITE_INTEGER[0] <= value <= _V48_SQLITE_INTEGER[1]:
+        return None
+    return value
+
+
+def _v48_row(columns, given):
+    row = {k: _v48_typed(kind, given.get(k)) for k, kind in columns.items()}
+    for k in ("steps", "cfg"):
+        if row.get(k) == 0:
+            row[k] = None
+    return row if any(v is not None for v in row.values()) else None
+
+
+def _v48_sized(given, size_key, width_key, height_key):
+    size = _v48_size(given.get(size_key))
+    if size:
+        return {"width": size[0], "height": size[1]}
+    return {"width": given.get(width_key), "height": given.get(height_key)}
+
+
+def _v48_image_row(record):
+    """image_params_row as 0.75.1 read a record."""
+    given = record.get("meta") if isinstance(record, dict) else None
+    meta = dict(given) if isinstance(given, dict) else {}
+    lines = str(meta.get("negativePrompt") or "").split("\n")
+    at = next((n for n in range(len(lines) - 1, -1, -1)
+               if lines[n].lstrip().startswith("Steps:") and len(_V48_RE_PARAM.findall(lines[n])) >= 3), None)
+    if at is not None:
+        for key, value in _V48_RE_PARAM.findall(lines[at]):
+            key = _V48_DATA_NAMES.get(key.strip(), key.strip())
+            if meta.get(key) is None or meta.get(key) == "":
+                meta[key] = value.strip()
+    shift = meta.get("Shift")
+    return _v48_row(_V48_IMAGE_COLUMNS, {
+        "sampler": meta.get("sampler"), "schedule_type": meta.get("Schedule type"), "scheduler": meta.get("scheduler"),
+        "steps": meta.get("steps"), "cfg": meta.get("cfgScale"), "distilled_cfg": meta.get("Distilled CFG Scale"),
+        "shift": shift if _v48_truthy(shift) else meta.get("shift"), "seed": meta.get("seed"),
+        **_v48_sized(meta, "Size", "width", "height"),
+        "clip_skip": next((meta[k] for k in _V48_CLIP_SKIP_KEYS if _v48_truthy(meta.get(k))), None),
+        "hires_upscale": meta.get("Hires upscale"), "hires_steps": meta.get("Hires steps"),
+        "hires_upscaler": meta.get("Hires upscaler"), "denoise": meta.get("Denoising strength"),
+    })
+
+
+def _v48_line(text):
+    if not isinstance(text, str) or not text:
+        return {}
+    pairs = _V48_FIXED_LINE.findall(text.strip().split("\n")[-1])
+    if len(pairs) < 3:
+        return {}
+    fields = {}
+    for key, value in pairs:
+        value = value.strip()
+        if len(value) >= 2 and value[0] == '"' and value[-1] == '"':
+            try:
+                value = json.loads(value)
+            except ValueError:
+                pass
+        fields[key.strip()] = value
+    return fields
+
+
+def _v48_generation_row(infotext, name_fields):
+    """generation_params_row as 0.75.1 read a generation."""
+    fields = _v48_line(infotext)
+    if not fields and isinstance(name_fields, dict):
+        fields = name_fields
+    return _v48_row(_V48_GENERATION_COLUMNS, {
+        "sampler": fields.get("Sampler"), "schedule_type": fields.get("Schedule type"),
+        "steps": fields.get("Steps"), "cfg": fields.get("CFG scale"),
+        "distilled_cfg": fields.get("Distilled CFG Scale"), "shift": fields.get("Shift"),
+        **_v48_sized(fields, "Size", "Size-1", "Size-2"),
+        "clip_skip": fields.get("Clip skip"), "hires_upscale": fields.get("Hires upscale"),
+        "hires_steps": fields.get("Hires steps"), "hires_upscaler": fields.get("Hires upscaler"),
+        "denoise": fields.get("Denoising strength"),
+    })
+
+
+def _v48_check(cursor, table, key, columns, expected):
+    """Every row written is the one expected, and every one expected is
+    written: each value, and the type SQLite stored it as. `expected` holds
+    each row's values in the columns' order, as a tuple: as dicts, one
+    library's 117,920 rows held 80 MB through the migration."""
+    kinds = {"text": "text", "whole": "integer", "number": "real"}
+    names = list(columns)
+    reader = cursor.connection.cursor()
+    seen = 0
+    # Read row by row, not all at once: only the expected rows are held.
+    for row in reader.execute(f"SELECT {key}, {', '.join(names)}, {', '.join(f'typeof({n})' for n in names)} "
+                              f"FROM {table}"):
+        row_key, values, types = row[0], row[1:1 + len(names)], row[1 + len(names):]
+        want = expected.get(row_key)
+        if want is None:
+            raise RuntimeError(f"v48: {table} holds row {row_key}, which was not expected")
+        seen += 1
+        for name, value, stored, given in zip(names, values, types, want):
+            if given is None:
+                ok = stored == "null"
+            else:
+                kind = kinds[columns[name]]
+                # A whole count that is not whole (one record's steps of 20.5) stays a real.
+                ok = value == given and (stored == kind or (kind == "integer" and stored == "real"
+                                                            and isinstance(given, float)))
+            if not ok:
+                raise RuntimeError(f"v48: {table} row {row_key}, {name}: wrote {value!r} ({stored}), "
+                                   f"expected {given!r}")
+    reader.close()
+    if seen != len(expected):
+        raise RuntimeError(f"v48: {table} lacks {len(expected) - seen} row(s) expected")
+
+
+def _migrate_to_v48(cursor, progress=None):
+    """
+    What each stored image and generation was made with (#378): a settings row
+    per Civitai image whose record gives any setting (`image_params`), and per
+    generation (`generation_params`), so the Resources dialog can count a
+    checkpoint's usual settings without reading every record - one seek a
+    record on a hard disk, 20.7 s for one checkpoint's 5,761 images. Read
+    from each record and generation as 0.75.1 reads them (_v48_image_row,
+    _v48_generation_row), in one transaction, and every row compared with the
+    one expected, both ways, before it ends. It adds tables and changes no
+    value, so it takes no backup; a database lacking `image_records` or
+    `generations` gets its tables empty, and a second run writes the same.
+    """
+    print("[ModelManager] Migrating to v48: each image's and generation's settings...")
+    tell = progress or (lambda text: None)
+    tables = {row[0] for row in cursor.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    connection = cursor.connection
+    if connection.in_transaction:
+        connection.commit()
+    # One transaction for every step: the caller's commit ends it, a raise
+    # rolls it back.
+    cursor.execute("BEGIN")
+    for statement in _V48_TABLES.split(";"):
+        if statement.strip():
+            cursor.execute(statement)
+
+    images = {}
+    if "image_records" in tables:
+        total = cursor.execute("SELECT COUNT(*) FROM image_records").fetchone()[0]
+        reader = connection.cursor()
+        names = list(_V48_IMAGE_COLUMNS)
+        insert = (f"INSERT OR REPLACE INTO image_params (image_id, {', '.join(names)}) "
+                  f"VALUES (?, {', '.join('?' * len(names))})")
+        done = 0
+        for image_id, data in reader.execute("SELECT image_id, data FROM image_records ORDER BY image_id"):
+            try:
+                record = json.loads(data)
+            except (TypeError, ValueError):
+                record = None
+            row = _v48_image_row(record)
+            if row:
+                images[image_id] = tuple(row[n] for n in names)
+                cursor.execute(insert, (image_id, *(row[n] for n in names)))
+            done += 1
+            # A hard disk takes minutes (102 s cold for 134,890 records): said as it goes.
+            if done % V48_REPORT_EVERY == 0:
+                print(f"[ModelManager] v48: {done:,} of {total:,} images...")
+                tell(f"{done:,} of {total:,} images")
+        reader.close()
+
+    generations = {}
+    if {"generations", "generation_details", "generation_images", "generation_image_details"} <= tables:
+        names = list(_V48_GENERATION_COLUMNS)
+        insert = (f"INSERT OR REPLACE INTO generation_params (generation_id, {', '.join(names)}) "
+                  f"VALUES (?, {', '.join('?' * len(names))})")
+        # Its own text, else its first image's that has one, else what Sync
+        # images read from its first image's file name.
+        reader = connection.cursor()
+        for generation_id, own, first_text, first_meta in reader.execute("""
+                SELECT g.id, d.infotext,
+                       (SELECT i.infotext FROM generation_images gi JOIN generation_image_details i ON i.image_id = gi.id
+                        WHERE gi.generation_id = g.id AND i.infotext IS NOT NULL AND i.infotext != ''
+                        ORDER BY gi.position, gi.id LIMIT 1),
+                       (SELECT i.meta FROM generation_images gi JOIN generation_image_details i ON i.image_id = gi.id
+                        WHERE gi.generation_id = g.id ORDER BY gi.position, gi.id LIMIT 1)
+                FROM generations g LEFT JOIN generation_details d ON d.generation_id = g.id ORDER BY g.id"""):
+            text = own or first_text
+            try:
+                name_fields = json.loads(first_meta) if first_meta and not text else None
+            except (TypeError, ValueError):
+                name_fields = None
+            row = _v48_generation_row(text, name_fields)
+            if row:
+                generations[generation_id] = tuple(row[n] for n in names)
+                cursor.execute(insert, (generation_id, *(row[n] for n in names)))
+        reader.close()
+
+    tell(f"{len(images):,} images and {len(generations):,} generations written; checking them")
+    _v48_check(cursor, "image_params", "image_id", _V48_IMAGE_COLUMNS, images)
+    _v48_check(cursor, "generation_params", "generation_id", _V48_GENERATION_COLUMNS, generations)
+    print(f"[ModelManager] Migration to v48 complete: settings of {len(images):,} images and "
+          f"{len(generations):,} generations")
+
+
 def run_migrations(cursor, from_version: int, to_version: int,
                    db_path: str, db_dir: str, progress=None):
     """
@@ -2703,6 +2956,7 @@ def run_migrations(cursor, from_version: int, to_version: int,
         42: lambda c: _migrate_to_v42(c, db_path, progress),
         43: _migrate_to_v43, 44: _migrate_to_v44, 45: _migrate_to_v45, 46: _migrate_to_v46,
         47: _migrate_to_v47,
+        48: lambda c: _migrate_to_v48(c, progress),
     }
     for version in sorted(steps):
         if from_version < version <= to_version:

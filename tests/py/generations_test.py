@@ -53,7 +53,8 @@ check('the database has the generation tables',
       sorted(r[0] for r in db._get_connection().execute(
           "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'generation%'")),
       ['generation_details', 'generation_image_details', 'generation_images', 'generation_images_removed',
-       'generation_input_files', 'generation_prompts', 'generation_resources', 'generation_sources',
+       'generation_input_files', 'generation_params', 'generation_prompts', 'generation_resources',
+       'generation_sources',
        'generation_thumbnails',
        'generations'])
 
@@ -1134,6 +1135,106 @@ for module in ('generations_ops.py', 'database.py'):
         if deletes_images and 'drop_unused_prompts' not in ours:
             missing.append('%s %s' % (module, node.name))
 check('each method that deletes images runs the step that drops their unused prompts', missing, [])
+
+# ------------------------------------------------- a generation's settings row
+# What each generation was made with (#378), one row a generation, written
+# with it and gone with it, whichever way it goes.
+SETS = os.path.join(WORK, 'settings')
+LINE = 'a cat\nNegative prompt: blurry\nSteps: 20, Sampler: Euler a, CFG scale: 7, Seed: 1, Size: 512x512'
+
+
+def settings_of(generation_id):
+    row = db._get_connection().execute("SELECT sampler, steps, cfg FROM generation_params WHERE generation_id = ?",
+                                       (generation_id,)).fetchone()
+    return tuple(row) if row else None
+
+
+def orphan_settings():
+    return db._get_connection().execute("SELECT COUNT(*) FROM generation_params WHERE generation_id NOT IN "
+                                        "(SELECT id FROM generations)").fetchone()[0]
+
+
+def a_generation(name, line=LINE, images=1, source=None, meta=None):
+    generation = {'created_at': '2026-02-01T00:00:00', 'mode': 'txt2img', 'image_count': images}
+    if line is not None:
+        generation['infotext'] = line
+    if source is not None:
+        generation['source_id'] = source
+    rows = [{'position': i, 'path': os.path.join(SETS, '%s-%d.png' % (name, i)), 'meta': meta or {},
+             'prompt_nsfw_level': 1,
+             **({'infotext': line} if line is not None else {})} for i in range(images)]
+    return generation, rows, [[] for _ in rows]
+
+
+recorded = db.record_generation(*a_generation('recorded'))
+check('a recorded generation gets its settings row, from its settings line',
+      settings_of(recorded), ('Euler a', 20, 7.0))
+named = db.record_generation(*a_generation('named', line=None,
+                                           meta={'Sampler': 'DPM++ 2M', 'Steps': '28', 'CFG scale': '5'}))
+check('    one with no text, by what Sync images read from its file name', settings_of(named), ('DPM++ 2M', 28, 5.0))
+bare = db.record_generation(*a_generation('bare', line='just a prompt'))
+check('    one whose text gives no setting: no row', settings_of(bare), None)
+
+SYNCED = os.path.join(SETS, 'synced')
+source = db.image_source_id(SYNCED)
+one, two, three = db.record_generations([a_generation('s1', source=source), a_generation('s2', source=source, images=2),
+                                         a_generation('s3', source=source)])
+check('synced generations each get one', [settings_of(g) is not None for g in (one, two, three)], [True] * 3)
+again = db.replace_synced_generations([a_generation('s1', source=source,
+                                                    line='x\nSteps: 30, Sampler: Euler, CFG scale: 4')])
+check('Force sync: the old row goes with its generation, the new one has the new settings',
+      (settings_of(one), settings_of(again[0]) if again else None, orphan_settings()), (None, ('Euler', 30, 4.0), 0))
+
+images = [i['id'] for i in db.get_generation(two)['images']]
+db.delete_generation_image(images[0])
+check('one of a generation\'s images deleted: its settings stay', settings_of(two), ('Euler a', 20, 7.0))
+db.delete_generation_image(images[1])
+check('    its last image deleted: they go with it', (settings_of(two), orphan_settings()), (None, 0))
+db.delete_generation(recorded)
+check('a generation deleted: its settings go', (settings_of(recorded), orphan_settings()), (None, 0))
+
+four, five = db.record_generations([a_generation('s4', source=source), a_generation('s5', source=source)])
+db.drop_synced_copies([(db.get_generation(four)['images'][0]['id'], db.get_generation(five)['images'][0]['id'])])
+check('Sync images dropping a copy, the generation\'s last image: its settings go',
+      (settings_of(four), settings_of(five) is not None, orphan_settings()), (None, True, 0))
+db.replace_imported_images([os.path.join(SETS, 's5-0.png')])
+check('the recorder replacing a synced row: the synced generation\'s settings go',
+      (settings_of(five), orphan_settings()), (None, 0))
+db.delete_synced_from(SYNCED)
+check('Remove folder: every synced generation\'s settings go, before its generation',
+      (settings_of(three), orphan_settings()), (None, 0))
+
+task = db.add_task({'install': 'install-here', 'forge': 'neo', 'mode': 'txt2img', 'inputs': {'prompt': 'p'},
+                    'checkpoint': 'model.safetensors', 'modules': []})
+made_by_task = db.record_generation(*a_generation('task'))
+db.link_task_generation(task, made_by_task)
+db.delete_task(task, True)
+check('a task deleted with its data: its generations\' settings go',
+      (settings_of(made_by_task), orphan_settings()), (None, 0))
+
+from model_manager.repairs import recorded_twice      # noqa: E402
+early = db.record_generation(*a_generation('twice'))
+kept = db.record_generation(*a_generation('twice'))
+recorded_twice.remove(db, [early])
+check('the recorded-twice repair removing an early copy: its settings go, the copy kept keeps its own',
+      (settings_of(early), settings_of(kept), orphan_settings()), (None, ('Euler a', 20, 7.0), 0))
+
+# And any way of deleting a generation's row added later: a method whose SQL
+# deletes from generations deletes its settings row too.
+unmatched = []
+for folder, _, names in os.walk(os.path.join(ROOT, 'model_manager')):
+    for name in names:
+        if not name.endswith('.py') or name == 'migrations.py':
+            continue
+        with open(os.path.join(folder, name), encoding='utf-8') as source_file:
+            tree = ast.parse(source_file.read())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                texts = [c.value for c in ast.walk(node) if isinstance(c, ast.Constant) and isinstance(c.value, str)]
+                if any(re.search(r'DELETE FROM generations\b', t) for t in texts) \
+                        and not any('DELETE FROM generation_params' in t for t in texts):
+                    unmatched.append('%s %s' % (name, node.name))
+check('each method that deletes a generation\'s row deletes its settings row', unmatched, [])
 
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

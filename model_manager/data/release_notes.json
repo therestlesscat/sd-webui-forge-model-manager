@@ -1,5 +1,28 @@
 [
     {
+        "id": "shared-database-0-75-1",
+        "version": "0.75.1",
+        "kind": "warning",
+        "audience": "update",
+        "important": true,
+        "when": "custom_database",
+        "tabs": [
+            "model_manager",
+            "civitai_browser",
+            "generations"
+        ],
+        "title": "This update changed the database: update the extension in your other WebUI too",
+        "text": "If Forge Neo and the original Forge share one database (Database file, in the settings), update the copy of this extension in the other WebUI before starting it. This version keeps what each stored image and generation was made with, its sampler, steps, CFG scale and the rest, beside it; an older copy cannot open the database any more, and its tabs would fail until it is updated. If you use this extension in one WebUI only, there is nothing to do.",
+        "action": {
+            "id": "settings",
+            "label": "Open settings",
+            "section": "files"
+        },
+        "replaces": [
+            "shared-database-0-73-0"
+        ]
+    },
+    {
         "id": "choose-checkpoint",
         "version": "0.74.0",
         "kind": "feature",

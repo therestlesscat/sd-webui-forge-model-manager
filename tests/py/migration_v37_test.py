@@ -119,7 +119,8 @@ check('the old tables are gone, and nothing temporary is left',
                                        "(name LIKE 'generation%' OR name LIKE '%v37' OR name = 'prompts' "
                                        "OR name = 'image_details')")),
       ['generation_details', 'generation_image_details', 'generation_images', 'generation_images_removed',
-       'generation_input_files', 'generation_prompts', 'generation_resources', 'generation_sources', 'generation_thumbnails',
+       'generation_input_files', 'generation_params', 'generation_prompts', 'generation_resources',
+       'generation_sources', 'generation_thumbnails',
        'generations'])
 check('backed up first, beside it', any(f.startswith('models.db.backup_') for f in os.listdir(os.path.dirname(path))))
 

@@ -512,14 +512,17 @@ conn.commit()
 
 # What a later migration adds, which v44 does not touch: v46's column on
 # models (#262), and v47's key on downloads (#374). Such a table is compared
-# by its other columns, not its SQL.
+# by its other columns, not its SQL. v48's two settings tables (#378) are new,
+# and not compared.
 LATER = {'models': {'civitai_gone_at'}, 'downloads': set()}
+LATER_TABLES = ('image_params', 'generation_params')
 
 
 def dump(path):
     with sqlite3.connect(path) as c:
         tables = [r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type = 'table' "
-                                          "AND name NOT IN ('schema_info', 'generation_input_files') ORDER BY name")]
+                                          "AND name NOT IN ('schema_info', 'generation_input_files', %s) "
+                                          "ORDER BY name" % ', '.join("'%s'" % t for t in LATER_TABLES))]
         out = {}
         for t in tables:
             cols = [r[1] for r in c.execute('PRAGMA table_info("%s")' % t) if r[1] not in LATER.get(t, ())]

@@ -12,6 +12,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple
 
 from ..nsfw import SFW_MAX, image_level
 from ..prompt_rules import MIN_PROMPT_LENGTH
+from .params_table import IMAGE_COLUMNS, image_params_row
 from .prompt_table import PromptTable
 
 # The order a gallery shows a version's images in: Civitai's, as stored in
@@ -33,6 +34,9 @@ _READABLE = f"COALESCE(ip.length, 0) >= {MIN_PROMPT_LENGTH}"
 _UNREADABLE = f"COALESCE(ip.length, 0) < {MIN_PROMPT_LENGTH}"
 # SQLite's limit on bound values is 999 in older builds.
 _CHUNK = 500
+# An image's settings row (#378): every column of image_params, by name.
+_PARAMS_UPSERT = (f"INSERT OR REPLACE INTO image_params (image_id, {', '.join(IMAGE_COLUMNS)}) "
+                  f"VALUES (?, {', '.join('?' * len(IMAGE_COLUMNS))})")
 
 
 def resource_rows(record: Any) -> List[tuple]:
@@ -103,7 +107,8 @@ def forget_unshown(cursor, image_ids: Iterable[int]) -> int:
         if not unshown:
             continue
         marks = ", ".join("?" * len(unshown))
-        for table, column in (("images", "id"), ("image_records", "image_id"), ("image_resources", "image_id")):
+        for table, column in (("images", "id"), ("image_records", "image_id"), ("image_resources", "image_id"),
+                              ("image_params", "image_id")):
             cursor.execute(f"DELETE FROM {table} WHERE {column} IN ({marks})", unshown)
         gone += len(unshown)
     IMAGE_PROMPTS.drop_unused(cursor, prompts)
@@ -173,6 +178,13 @@ class ImagesOps:
                            (version_id, image_id, page, position, level))
             cursor.execute("UPDATE image_galleries SET effective_nsfw_level = ? WHERE image_id = ? "
                            "AND effective_nsfw_level IS NOT ?", (level, image_id, level))
+            # Its settings (#378), from the record as written: a fresh record
+            # giving none takes the stored row with it.
+            settings = image_params_row(record)
+            if settings:
+                cursor.execute(_PARAMS_UPSERT, (image_id, *(settings[c] for c in IMAGE_COLUMNS)))
+            else:
+                cursor.execute("DELETE FROM image_params WHERE image_id = ?", (image_id,))
         IMAGE_PROMPTS.drop_unused(cursor, touched)
 
     # How often restamp_levels() says how far it has got: on 109,738 images
