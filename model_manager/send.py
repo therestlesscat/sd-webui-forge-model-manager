@@ -23,7 +23,8 @@ import re
 from typing import Any, Callable, Dict, List, Optional
 
 from .console import say
-from .db.params_table import RE_PARAM, read_settings_line, record_meta
+from .db.params_table import (RE_PARAM, image_clip_skip, read_settings_line, record_meta, size_of as _size_of,
+                              truthy as _truthy)
 
 
 # ------------------------------------------------------------- the plan
@@ -541,16 +542,6 @@ _NOT_A_FILE = re.compile(r"(?:automatic|none|null|default.*|baked vae|use same v
 _MODULE_KEY = re.compile(r"Module (\d+)")
 
 
-def _truthy(value: Any) -> bool:
-    """Truth as the page's JavaScript read it, which the readers below were
-    ported from: an empty list or object is true there."""
-    if value is None or value is False or value == "":
-        return False
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        return value == value and value != 0
-    return True
-
-
 def _is_file_name(value: Any) -> bool:
     """Whether a VAE field names a file, or says "the checkpoint's own"."""
     name = str(value if value is not None else "").strip()
@@ -842,20 +833,10 @@ _HANDLED = ("prompt", "negativePrompt", "steps", "sampler", "Schedule type", "cf
             "resources", "civitaiResources", "Lora hashes")
 
 
-# An image's clip skip (#318): Forge's own field, else Civitai's `clipSkip`
-# (65,773 of one library's 107,469 images) and two spellings of it. Not
-# `Clip slip`, an uploader's typo, nor ComfyUI's `clipstopatlayer`, which
-# counts the other way.
-_CLIP_SKIP_KEYS = ("Clip skip", "clipSkip", "CLIP Skip", "Clip Skip")
 # Forge's Clip Skip setting and its range (shared_options.py, both WebUIs).
 CLIP_SKIP_OPTION = "CLIP_stop_at_last_layers"
 CLIP_SKIP_SETTING = "model_manager_send_clip_skip"
 CLIP_SKIP_MAX_SETTING = "model_manager_send_clip_skip_max"
-
-
-def image_clip_skip(meta: Dict[str, Any]) -> Any:
-    """The clip skip an image's data gives, as it gives it; None for none."""
-    return next((meta[k] for k in _CLIP_SKIP_KEYS if _truthy(meta.get(k))), None)
 
 
 def clip_skip_value(value: Any) -> Optional[int]:
@@ -1145,11 +1126,6 @@ def _js_round(x: float) -> float:
 # from it by more than this: then the picture's (#299). One library's 472 of
 # 120,104 stored images were sent squashed or stretched at their data's size.
 SHAPE_TOLERANCE = 0.03
-
-
-def _size_of(text: Any) -> Optional[tuple]:
-    match = re.fullmatch(r"\s*(\d+)\s*x\s*(\d+)\s*", str(text or ""))
-    return (int(match.group(1)), int(match.group(2))) if match else None
 
 
 def civitai_meta(record: Dict[str, Any], frames: Any = None, video: bool = False) -> Dict[str, Any]:
