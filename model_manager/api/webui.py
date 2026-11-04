@@ -72,7 +72,7 @@ def register(app: FastAPI):
                   use_checkpoint: str = "", image_model: int = 0, text: int = 0, upscaler: str = "",
                   denoise: Optional[float] = None,
                   video: str = "", frames: int = 0, prompt: Optional[str] = None,
-                  negative_prompt: Optional[str] = None, renames: str = "", into: int = 0):
+                  negative_prompt: Optional[str] = None, renames: str = "", into: int = 0, usual: str = ""):
         """
         How to set Forge up before a Send, for any source (#302): see
         send.plan(). `kind` is civitai - the image's id, the gallery's
@@ -87,11 +87,14 @@ def register(app: FastAPI):
         the infotext, its scheduler, whether it had Hires fix (send.settings)
         - for Forge's own paste button where the tab's loader was not built:
         the source as the page hands the loader, `upscaler` to
-        `negative_prompt` for an image, `renames` (JSON) for a generation.
+        `negative_prompt` for an image, `renames` (JSON) for a generation,
+        `usual` for the pick's usual settings, ticked (#378): `true`, as the
+        page writes a source's flag (fetchSendText).
         """
         from ..db import get_models_db
         from ..send import plan, settings
         from ..tabs import on
+        from ..usual_settings import chosen
         area = {"generation": "generations", "task": "queue"}.get(kind)
         if area and not on(area):
             return refused(area)
@@ -100,12 +103,13 @@ def register(app: FastAPI):
                 pairs = json.loads(renames) if renames else []
             except ValueError:
                 pairs = []
-            found = settings(get_models_db(), {
+            source = {
                 "kind": kind, "image": image, "upscaler": upscaler or None, "denoise": denoise,
                 "video": video == "true", "frames": frames or None, "prompt": prompt,
                 "negative_prompt": negative_prompt, "generation": generation, "renames": pairs,
                 "use_checkpoint": use_checkpoint, "image_model": image_model, "version_ids": version_ids,
-                "hashes": hashes}, bool(into))
+                "hashes": hashes, "usual": usual in ("true", "1")}
+            found = settings(get_models_db(), source, bool(into), chosen(get_models_db(), source))
             if found is None:
                 return JSONResponse({"success": False, "error": "The image is not in the library" if kind == "civitai"
                                      else f"No generation #{generation}"}, status_code=404)

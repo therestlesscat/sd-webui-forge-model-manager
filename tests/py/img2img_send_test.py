@@ -96,9 +96,13 @@ def paste_values(tab, infotext, generation_id, outputs, skip=None, other_model=F
     return values, [], []
 
 
-def generation_values(tab, generation_id, image_id, skip=None, other_model=False):
+replayed_with = []                    # the usual settings each replay was handed (#378)
+
+
+def generation_values(tab, generation_id, image_id, skip=None, other_model=False, usual=None):
     """A kept press, replayed: its prompt, its size, its own Inpaint canvases.
     Generation 14's cannot be: a script it kept is gone."""
+    replayed_with.append(usual)
     if generation_id == 14:
         raise RuntimeError('Script "X" is gone')
     values = [skip] * COUNT
@@ -325,6 +329,20 @@ check('a kept press replayed, nothing pasted, the renames applied to its prompt,
       [[], True, 'a pressed <lora:file_y:1> prompt', 2, True])
 values, answer = asked(source={'kind': 'generation', 'generation': 12, 'image': 5},
                        into={**INTO, 'mode': 1, 'picture': {'generation_image': 7}})
+# The pick's usual settings, ticked (#378): the loader hands Send's answer on to the replay.
+try:
+    import model_manager.usual_settings as usual_module
+except ImportError:
+    usual_module = types.SimpleNamespace()
+real_chosen = getattr(usual_module, 'chosen', None)
+usual_module.chosen = lambda db_, source: {'steps': 9} if source.get('usual') else None
+replayed_with.clear()
+asked(source={'kind': 'generation', 'generation': 15, 'image': 5, 'usual': True})
+asked(source={'kind': 'generation', 'generation': 15, 'image': 5})
+check('13. the loader hands the replay the usual settings Send worked out; none without the tick',
+      replayed_with, [{'steps': 9}, None])
+if real_chosen:
+    usual_module.chosen = real_chosen
 check('into a mode: an img2img press replayed, with the mode sent', [answer.get('replayed'), answer.get('mode'),
       value(values, 'mode')], [True, 1, 1])
 pasted.clear()

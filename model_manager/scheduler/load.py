@@ -234,6 +234,35 @@ def for_another_model(tab: str, named: Dict[str, Any]) -> Dict[str, Any]:
     return named
 
 
+# The Sampler script's controls, by the usual settings' keys: the same ids in
+# both WebUIs (processing_scripts/sampler.py).
+_USUAL_CONTROLS = {"_sampling": "sampler", "_scheduler": "schedule_type", "_steps": "steps"}
+
+
+def with_usual(tab: str, named: Dict[str, Any], usual: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    A kept press with the pick's usual settings (#378, usual_settings.chosen):
+    the Sampler script's sampler, schedule type and steps, CFG scale, and a
+    Distilled CFG Scale or Shift in `distilled_cfg_scale` - the one slider
+    Neo fills for either. A setting the usual ones leave out keeps the
+    press's.
+    """
+    named = copy.deepcopy(named)
+    fixed = named.get("fixed") or {}
+    if usual.get("cfg") is not None and "cfg_scale" in fixed:
+        fixed["cfg_scale"] = usual["cfg"]
+    fifth = usual.get("distilled_cfg", usual.get("shift"))
+    if fifth is not None and "distilled_cfg_scale" in fixed:
+        fixed["distilled_cfg_scale"] = fifth
+    keys = {tab + suffix: key for suffix, key in _USUAL_CONTROLS.items()}
+    for controls in (named.get("scripts") or {}).values():
+        for entry in controls:
+            key = keys.get(entry.get("id"))
+            if key and usual.get(key) is not None:
+                entry["value"] = usual[key]
+    return named
+
+
 def respelled(tab: str, named: Dict[str, Any], components: List[Any]) -> Tuple[Dict[str, Any], List[Tuple[Any, str]]]:
     """
     A generation's hires and refiner checkpoints as this WebUI's controls
@@ -272,12 +301,14 @@ def respelled(tab: str, named: Dict[str, Any], components: List[Any]) -> Tuple[D
 
 
 def generation_values(tab: str, generation_id: int, image_id: Optional[int],
-                      skip: Any = None, other_model: bool = False) -> Tuple[List[Any], List[str], List[str]]:
+                      skip: Any = None, other_model: bool = False,
+                      usual: Optional[Dict[str, Any]] = None) -> Tuple[List[Any], List[str], List[str]]:
     """
     One image of a generation of your own, for its tab: see _values_for. A
     checkpoint this WebUI does not have keeps what is on screen, and is named.
     `other_model`: sent with a checkpoint of another model (#377) - see
-    for_another_model().
+    for_another_model(). `usual`: the pick's usual settings, ticked (#378) -
+    see with_usual().
     """
     generation = get_models_db().get_generation(generation_id)
     if generation is None:
@@ -294,6 +325,8 @@ def generation_values(tab: str, generation_id: int, image_id: Optional[int],
     if other_model:
         named = for_another_model(tab, named)
         gone = []
+    if usual:
+        named = with_usual(tab, named, usual)
     shown, skipped, notes = _values_for(tab, named, skip)
     for control, name in gone:
         at = next((n for n, c in enumerate(components[1:]) if c is control), None)
@@ -734,9 +767,11 @@ def _loader(tab: str, kept: List[int], extras: List[Any] = (), names: List[Optio
             # replayed instead, and a replay that fails is pasted.
             if request.get("source") is not None:
                 from ..send import match_detectors, renamed, settings, without_renames, without_second_models
+                from ..usual_settings import chosen
                 source = without_renames(request["source"])
                 generation_id = int(source["generation"]) if source.get("kind") == "generation" else None
-                found = settings(get_models_db(), source, bool(into))
+                # The pick's usual settings, where the person ticked them (#378).
+                found = settings(get_models_db(), source, bool(into), chosen(get_models_db(), source))
                 if found is None:
                     raise replay.TaskError(f"No generation #{generation_id}" if generation_id is not None
                                            else "The image is not in the library")
@@ -753,7 +788,8 @@ def _loader(tab: str, kept: List[int], extras: List[Any] = (), names: List[Optio
                     try:
                         values, skipped, notes = generation_values(tab, generation_id, source.get("image"),
                                                                    skip=gr.update(),
-                                                                   other_model=bool(found.get("other_model")))
+                                                                   other_model=bool(found.get("other_model")),
+                                                                   usual=found.get("usual"))
                         values = kept_only(values)
                         # The chips' renames, in the prompt the press is set back with.
                         at = list(names).index("prompt") if "prompt" in names else None

@@ -443,5 +443,49 @@ check('   a generation\'s refused while the Generations tab is off, as send/plan
                                                        'generation': ids_a[1]}).status_code, 403)
 generations_on[0] = True
 
+# ----------------------------------------- Send, with the tick (#378, 0.75.3)
+# D's usual settings come from 5 of your generations: Euler a, Karras, 24
+# steps, CFG 6. The image sent has Euler a, Simple, 28 and 4.5.
+def line_of(found):
+    return ((found or {}).get('text') or '').split('\n')[-1] if isinstance(found, dict) else str(found)
+
+
+def sent(name, usual_on, **source):
+    """Send's settings as its callers ask them: the ticked usual ones first (usual_settings.chosen)."""
+    source = {**OTHER_MODEL, 'use_checkpoint': name, **({'usual': True} if usual_on else {}), **source}
+    try:
+        # Without the tick, as Send was called before #378's.
+        return send.settings(db, source, False, getattr(us, 'chosen', lambda *a: None)(db, source)) if usual_on \
+            else send.settings(db, source)
+    except Exception as e:                               # noqa: BLE001 - a break fails a check, not the suite
+        return 'raised %s' % type(e).__name__
+
+
+def picked(line, *keys):
+    return [f for f in line.split(', ') if f.split(': ')[0] in keys]
+
+
+SETTINGS4 = ('Steps', 'Sampler', 'Schedule type', 'CFG scale')
+check('10. Send with the tick: the usual four in the paste, worked out again at the Send',
+      picked(line_of(sent('ck_d', True)), *SETTINGS4),
+      ['Steps: 24', 'Sampler: Euler a', 'Schedule type: Karras', 'CFG scale: 6'])
+check('    without it, the image\'s', picked(line_of(sent('ck_d', False)), *SETTINGS4),
+      ['Steps: 28', 'Sampler: Euler a', 'Schedule type: Simple', 'CFG scale: 4.5'])
+check('14. a pick with nothing to go by, ticked: the image\'s', line_of(sent('ck_a', True)), line_of(sent('ck_a', False)))
+check('    an as-made pick, ticked: the image\'s',
+      line_of(sent('ck_a', True, version_ids='2005')), line_of(sent('ck_a', False, version_ids='2005')))
+text_params = {'kind': 'civitai', 'image': 7001, 'version_ids': '2999', 'image_model': 999, 'use_checkpoint': 'ck_d',
+               'text': 1}
+# The page writes a source's flag as `true` (fetchSendText).
+routed = [client.get('/model-manager/send/plan', params={**text_params, **extra}).json()
+          for extra in ({'usual': 'true'}, {'usual': '1'}, {})]
+check('12. send/plan?text=1 with usual=true, as the page sends it: the usual text, for Forge\'s own paste button;'
+      ' without, the image\'s', [picked(line_of(r), 'Steps') for r in routed], [['Steps: 24'], ['Steps: 24'], ['Steps: 28']])
+real_kind = send._source_pick_kind
+send._source_pick_kind = lambda db_, source: 'same'
+check('14. a same pick - the image\'s file under another model - ticked: nothing applied',
+      getattr(us, 'chosen', lambda *a: 'missing')(db, {**OTHER_MODEL, 'use_checkpoint': 'ck_d', 'usual': True}), None)
+send._source_pick_kind = real_kind
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

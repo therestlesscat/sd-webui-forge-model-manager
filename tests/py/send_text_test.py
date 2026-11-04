@@ -482,5 +482,156 @@ send.forge_lists = lambda: (SAMPLERS, SCHEDULERS)
 check('stamped on each image in place, beside its level', send.stamp_readings(images)[0],
       {'meta': {'sampler': 'euler_a_karras'}, 'mm_sampler': 'Euler a', 'mm_scheduler': 'Karras'})
 
+# ------------------------------------------ the pick's usual settings (#378)
+# Ticked in the Resources dialog, Send pastes the picked checkpoint's usual
+# settings in place of the image's own (usual_settings.chosen):
+# a Civitai image's split first and written as two plain fields, a
+# generation's settings line's fields replaced or added; the rest as it was.
+# Looked up, not imported: on the code before #378 its checks fail, rather than the suite.
+with_line = getattr(send, 'with_usual_line', lambda t, u: t)
+
+
+def fields(t):
+    """A text's settings line as its fields, in order; its other lines apart."""
+    head, _, last = t.rpartition('\n')
+    return head, [f.split(': ', 1)[0] + ': ' + f.split(': ', 1)[1] for f in re.findall(r'(?:"[^"]*"|[^,])+', last)
+                  if ': ' in f]
+
+
+def without(t, *keys):
+    head, line = fields(t)
+    return head, [f.strip() for f in line if f.strip().split(': ', 1)[0] not in keys]
+
+
+def usual_text(meta, usual):
+    return attempt(lambda: text(meta, usual=usual))
+
+
+def attempt(fn):
+    try:
+        return fn()
+    except Exception as e:                               # noqa: BLE001 - a break fails a check, not the suite
+        return 'raised %s' % type(e).__name__
+
+
+FOUR = {'sampler': 'DPM++ 2M', 'schedule_type': 'Simple', 'steps': 30, 'cfg': 5}
+KARRAS = {**IMAGE, 'sampler': 'Euler a Karras', 'Hires upscale': 2, 'Denoising strength': 0.4, 'Clip skip': 2}
+plain, used = text(KARRAS), usual_text(KARRAS, FOUR)
+check('10. a Civitai image\'s paste with the usual four: each the usual one',
+      [f for f in (settings(used) if isinstance(used, str) else '').split(', ')
+       if f.split(': ')[0] in ('Steps', 'Sampler', 'Schedule type', 'CFG scale')],
+      ['Steps: 30', 'Sampler: DPM++ 2M', 'Schedule type: Simple', 'CFG scale: 5'])
+check('    every other line and field byte for byte the text without it',
+      attempt(lambda: without(used, 'Steps', 'Sampler', 'Schedule type', 'CFG scale')),
+      without(plain, 'Steps', 'Sampler', 'Schedule type', 'CFG scale'))
+only = usual_text(KARRAS, {'sampler': 'DPM++ 2M'})
+check('    only the sampler usual: the schedule type folded into the image\'s sampler is kept',
+      [f for f in settings(only if isinstance(only, str) else '').split(', ') if f.split(': ')[0] in ('Sampler', 'Schedule type')],
+      ['Sampler: DPM++ 2M', 'Schedule type: Karras'])
+comfy = usual_text({**IMAGE, 'sampler': 'euler', 'scheduler': 'simple'}, {'schedule_type': 'Karras'})
+unlisted = usual_text({**IMAGE, 'sampler': 'euler', 'scheduler': 'beta'}, {'sampler': 'DPM++ 2M'})
+check('    ComfyUI\'s scheduler this WebUI lists none of, only the sampler usual: kept, for Send\'s notice (#307)',
+      [f for f in settings(unlisted if isinstance(unlisted, str) else '').split(', ') if f.lower().startswith('sched')],
+      ['scheduler: beta'])
+check('    ComfyUI\'s lowercase scheduler: none left beside the usual schedule type',
+      [f for f in settings(comfy if isinstance(comfy, str) else '').split(', ') if f.lower().startswith(('sampler', 'schedule', 'scheduler'))],
+      ['Sampler: Euler', 'Schedule type: Karras'])
+record = {'meta': KARRAS, 'width': 832, 'height': 1216}
+one = type('Db', (), {'stored_records': lambda self, ids: [record]})()
+pasted_with = attempt(lambda: send.civitai_settings(one, {'image': 1}, FOUR))
+check('    the schedule type the paste\'s event sets is the one written, and the answer names what went',
+      [pasted_with.get('scheduler'), pasted_with.get('usual')] if isinstance(pasted_with, dict) else pasted_with,
+      ['Simple', FOUR])
+
+FLUX = {**IMAGE, 'Distilled CFG Scale': 3, 'Shift': 2, 'shift': 2}
+distilled = usual_text(FLUX, {'distilled_cfg': 3.5, 'cfg': 1})
+check('32. a usual Distilled CFG Scale under its name, in place of the image\'s, the image\'s Shift left out',
+      [f for f in settings(distilled if isinstance(distilled, str) else '').split(', ')
+       if f.split(': ')[0].lower() in ('distilled cfg scale', 'shift', 'cfg scale')],
+      ['CFG scale: 1', 'Distilled CFG Scale: 3.5'])
+kept_fifth = usual_text(FLUX, FOUR)
+check('    the usual four alone: the image\'s own Distilled CFG Scale and Shift kept',
+      [f for f in settings(kept_fifth if isinstance(kept_fifth, str) else '').split(', ')
+       if f.split(': ')[0].lower() in ('distilled cfg scale', 'shift')], ['Distilled CFG Scale: 3', 'Shift: 2', 'shift: 2'])
+shifted = usual_text(FLUX, {'shift': 9})
+check('    a usual Shift the same way, the image\'s Distilled CFG Scale left out',
+      [f for f in settings(shifted if isinstance(shifted, str) else '').split(', ')
+       if f.split(': ')[0].lower() in ('distilled cfg scale', 'shift')], ['Shift: 9'])
+
+LINE = 'a tower\nNegative prompt: fog\nSteps: 20, Sampler: Euler a, CFG scale: 7, Seed: 3, Size: 512x768, ' \
+       'Lora hashes: "a: 1, b: 2", Version: f2.0'
+check('11. a generation\'s paste: the line\'s fields replaced, a missing Schedule type added, every other byte as before',
+      attempt(lambda: with_line(LINE, FOUR)),
+      'a tower\nNegative prompt: fog\nSteps: 30, Sampler: DPM++ 2M, CFG scale: 5, Seed: 3, Size: 512x768, '
+      'Lora hashes: "a: 1, b: 2", Version: f2.0, Schedule type: Simple')
+check('    a value Forge quotes is quoted', attempt(lambda: with_line(LINE, {'sampler': 'Odd, sampler'})).split('\n')[-1],
+      'Steps: 20, Sampler: "Odd, sampler", CFG scale: 7, Seed: 3, Size: 512x768, Lora hashes: "a: 1, b: 2", Version: f2.0')
+check('32. a usual Shift in place of the line\'s Distilled CFG Scale, wherever it stands; the last field left with no comma',
+      [attempt(lambda: with_line('p\nSteps: 4, Distilled CFG Scale: 3.5, Seed: 1, Size: 512x512', {'shift': 9})),
+       attempt(lambda: with_line('p\nSteps: 4, Seed: 1, Size: 512x512, Distilled CFG Scale: 3.5', {'shift': 9}))],
+      ['p\nSteps: 4, Seed: 1, Size: 512x512, Shift: 9', 'p\nSteps: 4, Seed: 1, Size: 512x512, Shift: 9'])
+check('    a text with no settings line left as it is', attempt(lambda: with_line('a prompt\nSteps: 20', FOUR)),
+      'a prompt\nSteps: 20')
+check('    one ending in a line break: its settings line given them, as Forge reads it stripped; the break kept',
+      attempt(lambda: with_line('p\nSteps: 20, Sampler: Euler, Seed: 1\r\n', {'steps': 30})),
+      'p\nSteps: 30, Sampler: Euler, Seed: 1\r\n')
+check('    the usual four alone: the line\'s own Distilled CFG Scale kept',
+      attempt(lambda: with_line('p\nSteps: 4, Distilled CFG Scale: 3.5, Seed: 1', {'steps': 8})),
+      'p\nSteps: 8, Distilled CFG Scale: 3.5, Seed: 1')
+check('    a line ending in a comma: one comma before what is added',
+      attempt(lambda: with_line('p\nSteps: 4, Seed: 1, Distilled CFG Scale: 3.5,', {'shift': 9})),
+      'p\nSteps: 4, Seed: 1, Shift: 9')
+lined = Generations({9: {'mode': 'txt2img', 'inputs': None, 'infotext': None, 'images': [
+    {'id': 90, 'infotext': 'third\nSteps: 20, Sampler: Euler, Schedule type: Karras, Seed: 4', 'meta': {}}]}})
+gen_used = attempt(lambda: send.generation_settings(lined, {'generation': 9, 'image': 90}, False, FOUR))
+bare = Generations({10: {'mode': 'txt2img', 'inputs': None, 'infotext': None, 'images': [
+    {'id': 100, 'infotext': 'a prompt alone\nSteps: 20', 'meta': {'Schedule type': 'Karras'}}]}})
+check('    a text with no settings line: the paste\'s schedule type the image\'s, as the text it goes with',
+      attempt(lambda: send.generation_settings(bare, {'generation': 10}, False, FOUR)['scheduler']), 'Karras')
+check('15. without the tick, the answers as before: no key of the usual settings in them',
+      ['usual' in send.generation_settings(db, {'generation': 7, 'image': 71}),
+       'usual' in send.civitai_settings(one, {'image': 1})], [False, False])
+check('    the answer: the usual schedule type for the paste\'s event, and the usual ones for the replay',
+      [gen_used.get('text'), gen_used.get('scheduler'), gen_used.get('usual')] if isinstance(gen_used, dict) else gen_used,
+      ['third\nSteps: 30, Sampler: DPM++ 2M, Schedule type: Simple, Seed: 4, CFG scale: 5, ADetailer enable: False',
+       'Simple', FOUR])
+
+# 14. `usual` with no pick, or a pick it does not apply to: the image's values
+# (usual_settings.chosen, which Send's callers ask and hand to send.settings).
+real_usual = None
+try:
+    import model_manager.usual_settings as us
+    real_usual = us.usual
+    us.usual = lambda db_, name, source: {'applies': False, 'kind': 'own'}
+except ImportError:
+    pass
+chosen = getattr(us, 'chosen', lambda *a: 'missing') if real_usual else (lambda *a: 'missing')
+check('14. usual with no pick, an as-made pick, or a row thin or missing: none of it applied',
+      [chosen(None, {'usual': True}), chosen(None, {'usual': True, 'use_checkpoint': 'x'})], [None, None])
+if real_usual:
+    us.usual = lambda db_, name, source: {'applies': True, 'settings': [
+        {'key': 'sampler', 'value': 'Euler', 'thin': False, 'missing': False},
+        {'key': 'schedule_type', 'value': 'Karras', 'thin': True, 'missing': False},
+        {'key': 'steps', 'value': 30, 'thin': False, 'missing': False},
+        {'key': 'cfg', 'value': None, 'thin': True, 'missing': False},
+        {'key': 'distilled_cfg', 'value': 3.5, 'thin': False, 'missing': False}]}
+check('    only what 5 or more uses record and this WebUI lists',
+      chosen(None, {'usual': True, 'use_checkpoint': 'x'}), {'sampler': 'Euler', 'steps': 30, 'distilled_cfg': 3.5})
+check('    without the tick, nothing asked', chosen(None, {'use_checkpoint': 'x'}), None)
+if real_usual:
+    us.usual = lambda db_, name, source: {'applies': True, 'settings': [
+        {'key': 'sampler', 'value': 'Gone sampler', 'thin': False, 'missing': True}]}
+check('    a value this WebUI lacks: none', chosen(None, {'usual': True, 'use_checkpoint': 'x'}), None)
+if real_usual:
+    us.usual = lambda db_, name, source: 1 / 0
+check('    their read failing: none, the Send going with the image\'s',
+      attempt(lambda: chosen(None, {'usual': True, 'use_checkpoint': 'x'})), None)
+if real_usual:
+    us.usual = real_usual
+
+with_meta = getattr(send, 'with_usual_meta', lambda meta, usual, *a: meta)
+check('15. no usual: a Civitai image\'s data and a generation\'s line as they are, the very objects',
+      [with_meta(KARRAS, None, SAMPLERS, SCHEDULERS) is KARRAS, with_line(LINE, None) is LINE], [True, True])
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

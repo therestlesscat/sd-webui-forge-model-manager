@@ -128,6 +128,31 @@ def _image_own(db, source: Dict[str, Any], samplers: List[Any], schedulers: List
     return {**own, "hires": had_hires(meta)}
 
 
+def chosen(db, source: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    The usual settings a Send applies, by key: each with a value 5 or more
+    uses record that this WebUI lists. None without `usual` in the source,
+    without a pick it applies to - an as-made one, or one Forge no longer
+    lists - or with nothing to apply. Worked out again at the Send, by the
+    function the dialog asked: the page sends the tick, never the values.
+    Asked by Send's callers and handed to send.settings(), which this module
+    reads. A failure to read them is said, and the Send goes with the image's.
+    """
+    if not source.get("usual") or not source.get("use_checkpoint"):
+        return None
+    try:
+        answer = usual(db, source["use_checkpoint"], source)
+    except Exception as e:
+        # The Send goes with the image's settings, and says what went.
+        from .console import say_failure
+        say_failure(f"Send: the usual settings could not be read: {e}")
+        return None
+    # A pick they do not apply to answers no settings.
+    found = {row["key"]: row["value"] for row in answer.get("settings") or []
+             if row.get("value") is not None and not row.get("thin") and not row.get("missing")}
+    return found or None
+
+
 def usual(db, checkpoint: str, source: Dict[str, Any]) -> Dict[str, Any]:
     """
     What the checkpoint Forge lists as `checkpoint` is usually run with, for

@@ -1175,11 +1175,13 @@ def civitai_meta(record: Dict[str, Any], frames: Any = None, video: bool = False
 def civitai_infotext(record: Dict[str, Any], samplers: List[str], schedulers: List[str], *,
                      denoising_strength: Any = None, hires_upscaler: Any = None, frames: Any = None,
                      video: bool = False, prompt: Any = None, negative_prompt: Any = None,
-                     upscalers: Optional[List[str]] = None) -> str:
+                     upscalers: Optional[List[str]] = None, usual: Optional[Dict[str, Any]] = None) -> str:
     """
     The infotext a Send of a Civitai image pastes: civitai_meta(), with the
     page's prompts where it renamed a LoRA tag to the library's file (the
-    chips' rule), built (build_infotext), its Lora hashes left out.
+    chips' rule), and the pick's usual settings where the person ticked them
+    (`usual`, with_usual_meta), built (build_infotext), its Lora hashes left
+    out.
     """
     meta = civitai_meta(record, frames, video)
     if prompt is not None:
@@ -1188,7 +1190,101 @@ def civitai_infotext(record: Dict[str, Any], samplers: List[str], schedulers: Li
         meta["negativePrompt"] = negative_prompt
         # The page's copy, renamed, still holds the line civitai_meta read.
         read_settings_line(meta)
+    meta = with_usual_meta(meta, usual, samplers, schedulers)
     return without_lora_hashes(build_infotext(meta, samplers, schedulers, denoising_strength, hires_upscaler, upscalers))
+
+
+# ------------------------------------------- the pick's usual settings (#378)
+# Each setting as the usual settings name it, and as a settings line does.
+_USUAL_LINE = {"sampler": "Sampler", "schedule_type": "Schedule type", "steps": "Steps", "cfg": "CFG scale",
+               "distilled_cfg": "Distilled CFG Scale", "shift": "Shift"}
+# The fields that hold the fifth setting, in a Civitai record and in a line:
+# written once, the pick's, never beside the image's - Neo's parser keeps the
+# last one written.
+_FIFTH_FIELDS = ("Distilled CFG Scale", "Shift", "shift")
+
+
+def with_usual_meta(meta: Dict[str, Any], usual: Optional[Dict[str, Any]], samplers: List[Any],
+                    schedulers: List[Any]) -> Dict[str, Any]:
+    """
+    A Civitai image's data with the pick's usual settings in place of its
+    own (#378). The sampler and schedule type are split first, as the paste
+    would read them, and written as two plain fields: a schedule type folded
+    into the image's sampler (`DPM++ 2M Karras`) stays when only the sampler
+    changes. A fifth setting goes under its own name, every field of either
+    fifth the image gives left out. Without `usual`, the data as it is.
+    """
+    if not usual:
+        return meta
+    meta = dict(meta)
+    if "sampler" in usual or "schedule_type" in usual:
+        named = sampler_and_scheduler(meta, samplers, schedulers)
+        meta["sampler"] = usual.get("sampler", named["sampler"])
+        meta["Schedule type"] = usual.get("schedule_type", named["scheduler"])
+        # ComfyUI's own field goes once it is read into the schedule type; one
+        # this WebUI lists none of stays, for Send's notice to name (#307).
+        if "schedule_type" in usual or match_scheduler(meta.get("scheduler"), schedulers):
+            meta.pop("scheduler", None)
+    if "steps" in usual:
+        meta["steps"] = usual["steps"]
+    if "cfg" in usual:
+        meta["cfgScale"] = usual["cfg"]
+    for key in ("distilled_cfg", "shift"):
+        if key in usual:
+            for field in _FIFTH_FIELDS:
+                meta.pop(field, None)
+            meta[_USUAL_LINE[key]] = usual[key]
+    return meta
+
+
+def with_usual_line(infotext: Any, usual: Optional[Dict[str, Any]]) -> Any:
+    """
+    A generation's infotext with the pick's usual settings (#378): each in
+    its settings line replaced where the line has the field, added at its
+    end where it has none, quoted as Forge quotes (`_field`); a fifth
+    setting in place of the line's own of either kind. Every other byte as
+    it was. A text with no settings line - three fields or more, as Forge's
+    paste reads one - is left as it is.
+    """
+    if not usual or not settings_line(infotext):
+        return infotext
+    # Forge reads the last line of the text stripped; what follows it is kept.
+    whole = str(infotext)
+    text = whole.rstrip()
+    tail = whole[len(text):]
+    start = text.rfind("\n") + 1
+    last = text[start:]
+    found = list(RE_PARAM.finditer(last))
+    wanted = {_USUAL_LINE[k]: v for k, v in usual.items() if k in _USUAL_LINE}
+    dropped = set(_FIFTH_FIELDS) - set(wanted) if any(k in usual for k in ("distilled_cfg", "shift")) else set()
+    out, at, written = [], 0, set()
+    for match in found:
+        out.append(last[at:match.start()])
+        at = match.end()
+        key = match.group(1).strip()
+        piece = match.group(0)
+        if key in dropped:
+            continue
+        if key in wanted:
+            lead = piece[:len(piece) - len(piece.lstrip())]
+            piece = lead + _field(key, wanted[key]) + ("," if piece.rstrip().endswith(",") else "")
+            written.add(key)
+        out.append(piece)
+    out.append(last[at:])
+    line = "".join(out)
+    # A fifth left out goes with another written, so the line always gains
+    # a field: after the comma a field left out at its end leaves, or a new one.
+    added = [_field(k, v) for k, v in wanted.items() if k not in written]
+    if added:
+        line = line.rstrip() + (" " if line.rstrip().endswith(",") else ", ") + ", ".join(added)
+    return text[:start] + line + tail
+
+
+def settings_line(infotext: Any) -> bool:
+    """Whether a text ends in a settings line, as Forge's paste reads one: the
+    last line of the text stripped, three fields or more."""
+    last = str(infotext or "").strip().split("\n")[-1]
+    return len(RE_PARAM.findall(last)) >= 3
 
 
 def forge_lists() -> tuple:
@@ -1211,7 +1307,7 @@ def forge_upscalers() -> List[str]:
         return []
 
 
-def civitai_settings(db, source: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def civitai_settings(db, source: Dict[str, Any], usual: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     """
     What the loader sets a tab with for a Civitai image's source (#302): the
     infotext Forge's paste reads, and what the page set after the paste and
@@ -1221,25 +1317,28 @@ def civitai_settings(db, source: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     `source`, as the page sends it: `image` (its id), `upscaler` (an
     upscaler's gallery's own, for Hires fix), `denoise` (img2img's for an
     image-to-video model), `video` and `frames`, and `prompt` /
-    `negative_prompt` where the chips renamed a LoRA tag. None for no such
-    image.
+    `negative_prompt` where the chips renamed a LoRA tag. `usual`: the pick's
+    usual settings, ticked (usual_settings.chosen). None for no such image.
     """
     record = next(iter(db.stored_records([int(source.get("image") or 0)])), None)
     if record is None:
         return None
     samplers, schedulers = forge_lists()
-    meta = civitai_meta(record, source.get("frames"), bool(source.get("video")))
+    meta = with_usual_meta(civitai_meta(record, source.get("frames"), bool(source.get("video"))), usual,
+                           samplers, schedulers)
     return {
         "text": civitai_infotext(record, samplers, schedulers, denoising_strength=source.get("denoise"),
                                  hires_upscaler=source.get("upscaler"), frames=source.get("frames"),
                                  video=bool(source.get("video")), prompt=source.get("prompt"),
-                                 negative_prompt=source.get("negative_prompt"), upscalers=forge_upscalers()),
+                                 negative_prompt=source.get("negative_prompt"), upscalers=forge_upscalers(),
+                                 usual=usual),
         "scheduler": image_scheduler(meta, samplers, schedulers) or "Automatic",
         "hires": had_hires(meta),
         # For Forge's Clip Skip setting (#318): none for Flux, which takes
         # only CLIP's final summary and so changes nothing by it.
         "clip_skip": None if "flux" in str(record.get("baseModel") or "").lower()
                      else clip_skip_value(image_clip_skip(meta)),
+        **({"usual": usual} if usual else {}),
     }
 
 
@@ -1369,7 +1468,8 @@ def replays(generation: Dict[str, Any], into: bool) -> bool:
     return bool(generation.get("inputs")) and (not into or generation.get("mode") == "img2img")
 
 
-def generation_settings(db, source: Dict[str, Any], into: bool = False) -> Optional[Dict[str, Any]]:
+def generation_settings(db, source: Dict[str, Any], into: bool = False,
+                        usual: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     """
     What the loader sets a tab with for a generation of your own (#302): the
     image's own infotext, the chips' renames applied and its Lora hashes left
@@ -1381,7 +1481,9 @@ def generation_settings(db, source: Dict[str, Any], into: bool = False) -> Optio
     `renames`, the page's `{from, to}`, and `whole` for the Model Manager's
     card, which sends the generation's own infotext - its first image's
     where it has none - as the page did (`card.infotext || first.infotext`:
-    2 of one library's 7,174 differ). None for no such generation.
+    2 of one library's 7,174 differ). `usual`: the pick's usual settings,
+    ticked (usual_settings.chosen), in its settings line and handed on for the
+    replay. None for no such generation.
     """
     generation = db.get_generation(int(source.get("generation") or 0))
     if not generation:
@@ -1391,22 +1493,33 @@ def generation_settings(db, source: Dict[str, Any], into: bool = False) -> Optio
     meta = image.get("meta") or {}
     infotext = (generation.get("infotext") if source.get("whole") else None) or image.get("infotext") or ""
     samplers, schedulers = forge_lists()
+    text = with_usual_line(renamed(infotext, source.get("renames")), usual) if infotext else ""
+    # The paste's event sets the schedule type the line was given: none where
+    # the text has no settings line to give the usual ones to.
+    pasted = (usual or {}).get("schedule_type") if settings_line(text) else None
     return {
-        "text": with_adetailer_switches(without_lora_hashes(renamed(infotext, source.get("renames")))) if infotext else "",
-        "scheduler": image_scheduler(meta, samplers, schedulers) or "Automatic",
+        "text": with_adetailer_switches(without_lora_hashes(text)) if infotext else "",
+        "scheduler": pasted or image_scheduler(meta, samplers, schedulers) or "Automatic",
         "hires": had_hires(meta),
         # Neo writes `Clip skip` into its own text for SD 1.x alone.
         "clip_skip": clip_skip_value(_text_field(infotext, "Clip skip")),
         "replay": replays(generation, into),
         "mode": generation.get("mode"),
+        # For the replay, and the notice of what went.
+        **({"usual": usual} if usual else {}),
     }
 
 
-def settings(db, source: Dict[str, Any], into: bool = False) -> Optional[Dict[str, Any]]:
-    """The loader's settings for a source: a Civitai image's or a generation's."""
+def settings(db, source: Dict[str, Any], into: bool = False,
+             usual: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+    """
+    The loader's settings for a source: a Civitai image's or a generation's.
+    `usual`: the pick's usual settings, where the person ticked them - its
+    callers ask usual_settings.chosen(), which reads Send's own rules.
+    """
     source = without_renames(source)
-    found = generation_settings(db, source, into) if source.get("kind") == "generation" \
-        else civitai_settings(db, source)
+    found = generation_settings(db, source, into, usual) if source.get("kind") == "generation" \
+        else civitai_settings(db, source, usual)
     if found is not None:
         found["other_model"] = _other_model(db, source)
     return found

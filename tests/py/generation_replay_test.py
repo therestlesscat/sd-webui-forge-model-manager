@@ -103,9 +103,13 @@ REFINER_ON = Slider('Refiner', 'txt2img_enable', value=False)
 REFINER = Dropdown('Checkpoint', 'txt2img_checkpoint', value='', choices=[])
 REFINER_SWITCH = Slider('Switch at', 'txt2img_switch_at', value=0.875)
 REFINER_CFG = Slider('Refiner CFG Scale', 'txt2img_cfg', value=1.0)
+# Forge's Sampler script (processing_scripts/sampler.py): the same ids in both WebUIs.
+SAMPLING = Dropdown('Sampling method', 'txt2img_sampling', value='Euler a')
+SCHEDULE = Dropdown('Schedule type', 'txt2img_scheduler', value='Automatic')
+STEPS = Slider('Sampling steps', 'txt2img_steps', value=20)
 RUNNER = types.SimpleNamespace(
-    inputs=[SCRIPT_LIST, SEED, SUBSEED, REFINER_ON, REFINER, REFINER_SWITCH, REFINER_CFG],
-    scripts=[script('Seed', 1, 3), script('Refiner', 3, 7)])
+    inputs=[SCRIPT_LIST, SEED, SUBSEED, REFINER_ON, REFINER, REFINER_SWITCH, REFINER_CFG, SAMPLING, SCHEDULE, STEPS],
+    scripts=[script('Seed', 1, 3), script('Refiner', 3, 7), script('Sampler', 7, 10)])
 
 PATHS = {'chill': r'F:\webui\models\Stable-diffusion\_SD_1_5\chilloutmix.safetensors',
          'rv': r'F:\webui\models\Stable-diffusion\_Hyper\realisticVision.safetensors'}
@@ -119,11 +123,14 @@ FIXED = [Textbox(None, None, value=''), Textbox('Prompt', 'txt2img_prompt', valu
          Textbox('Negative prompt', 'txt2img_neg_prompt', value=''),
          Dropdown('Styles', 'txt2img_styles', value=[], multiselect=True),
          Slider('Batch count', 'txt2img_batch_count', value=1), Slider('Batch size', 'txt2img_batch_size', value=1),
-         HR_CHECKPOINT, HR_MODULES, Textbox('Hires prompt', 'txt2img_hr_prompt', value='')]
+         HR_CHECKPOINT, HR_MODULES, Textbox('Hires prompt', 'txt2img_hr_prompt', value=''),
+         Slider('CFG Scale', 'txt2img_cfg_scale', value=7.0),
+         Slider('Distilled CFG Scale', 'txt2img_distilled_cfg_scale', value=3.5)]
 
 
 def txt2img_create_processing(id_task, request, prompt, negative_prompt, prompt_styles, n_iter, batch_size,
-                              hr_checkpoint_name, hr_additional_modules, hr_prompt, *args):
+                              hr_checkpoint_name, hr_additional_modules, hr_prompt, cfg_scale, distilled_cfg_scale,
+                              *args):
     pass
 
 
@@ -255,7 +262,8 @@ check("and Generate's own listener is still told apart from it",
 # kept under the run's id, without its files.
 record = wiring.get('fn') or (lambda *a: None)
 press = ['task(abc)', 'a red apple', 'blurry', ['Style one'], 2, 3, r'_Hyper\realisticVision.safetensors',
-         ['clearvaeSD15_v23.safetensors'], '', 0, -1, -1, True, r'_Hyper\realisticVision.safetensors', 0.6, 3.0]
+         ['clearvaeSD15_v23.safetensors'], '', 6.5, 3.0, 0, -1, -1, True, r'_Hyper\realisticVision.safetensors', 0.6,
+         3.0, 'Euler a', 'Karras', 25]
 attempt(lambda: record(*press))
 kept = attempt(lambda: capture.pressed_inputs('task(abc)'))
 check('a press is kept under its run\'s id, named as a task is',
@@ -326,17 +334,61 @@ check('and the record itself is not changed', generation_inputs['fixed']['n_iter
 SKIP = object()
 values = attempt(lambda: load.generation_values('txt2img', generation_id, second['id'], skip=SKIP))
 check('the hidden button hands each of Generate\'s inputs its value: the hires checkpoint and VAE, the refiner',
-      attempt(lambda: (values[0][5], values[0][6], values[0][12], values[0][13], values[0][14])),
+      attempt(lambda: (values[0][5], values[0][6], values[0][14], values[0][15], values[0][16])),
       (r'_Hyper\realisticVision.safetensors', ['clearvaeSD15_v23.safetensors'], r'_Hyper\realisticVision.safetensors',
        0.6, 3.0))
-check('   its refiner on, as pressed', attempt(lambda: values[0][11]), True)
+check('   its refiner on, as pressed', attempt(lambda: values[0][13]), True)
 # Sent with a checkpoint of another model, picked in the Resources dialog
 # (#377): the press's hires checkpoint, Hires Module and refiner are of the
 # image's family, and would load beside the pick.
 values = attempt(lambda: load.generation_values('txt2img', generation_id, second['id'], skip=SKIP, other_model=True))
 check('9. a pick of another model: the hires checkpoint and modules "Use same", the refiner off, the rest as pressed',
-      attempt(lambda: (values[0][5], values[0][6], values[0][11], values[0][13])),
+      attempt(lambda: (values[0][5], values[0][6], values[0][13], values[0][15])),
       ('Use same checkpoint', ['Use same choices'], False, 0.6))
+# Sent with the pick's usual settings, ticked (#378): the press's Sampler
+# script and CFG sliders set to them, every other input as pressed.
+PRESS = {'fixed': {'prompt': 'p', 'cfg_scale': 7.0, 'distilled_cfg_scale': 3.5, 'hr_cfg': 1.0},
+         'scripts': {'Sampler': [{'id': 'txt2img_sampling', 'value': 'Euler a'},
+                                 {'id': 'txt2img_scheduler', 'value': 'Karras'},
+                                 {'id': 'txt2img_steps', 'value': 20}],
+                     'Seed': [{'id': 'txt2img_seed', 'value': 5}]}}
+with_usual = getattr(load, 'with_usual', lambda tab, named, usual: named)
+USUAL = {'sampler': 'DPM++ 2M', 'schedule_type': 'Simple', 'steps': 30, 'cfg': 5, 'distilled_cfg': 4.0}
+done = attempt(lambda: with_usual('txt2img', PRESS, USUAL))
+check('13. a replay with the usual ones: the press\'s sampler, schedule type, steps, CFG and Distilled CFG Scale',
+      attempt(lambda: ([c['value'] for c in done['scripts']['Sampler']], done['fixed']['cfg_scale'],
+                       done['fixed']['distilled_cfg_scale'])), (['DPM++ 2M', 'Simple', 30], 5, 4.0))
+check('    every other input as pressed, and the press itself not changed',
+      attempt(lambda: (done['fixed']['prompt'], done['fixed']['hr_cfg'], done['scripts']['Seed'],
+                       PRESS['fixed']['cfg_scale'], PRESS['scripts']['Sampler'][0]['value'])),
+      ('p', 1.0, [{'id': 'txt2img_seed', 'value': 5}], 7.0, 'Euler a'))
+some = attempt(lambda: with_usual('txt2img', PRESS, {'steps': 30}))
+check('14. a setting the usual ones leave out keeps the press\'s',
+      attempt(lambda: ([c['value'] for c in some['scripts']['Sampler']], some['fixed']['cfg_scale'],
+                       some['fixed']['distilled_cfg_scale'])), (['Euler a', 'Karras', 30], 7.0, 3.5))
+check('32. a usual Shift goes in the one slider Neo fills for either',
+      attempt(lambda: with_usual('txt2img', PRESS, {'shift': 9})['fixed']['distilled_cfg_scale']), 9)
+check('    another tab\'s controls are not this tab\'s',
+      attempt(lambda: [c['value'] for c in with_usual('img2img', PRESS, USUAL)['scripts']['Sampler']]),
+      ['Euler a', 'Karras', 20])
+plain = attempt(lambda: load.generation_values('txt2img', generation_id, second['id'], skip=SKIP))
+rebuilt = []
+real_with_usual = getattr(load, 'with_usual', None)
+load.with_usual = lambda tab, named, usual: (rebuilt.append((tab, usual)), (real_with_usual or with_usual)(tab, named, usual))[1]
+replayed = attempt(lambda: load.generation_values('txt2img', generation_id, second['id'], skip=SKIP, usual=USUAL))
+# Generate's inputs, the run's id left out: CFG Scale 8, Distilled CFG Scale 9, the Sampler script 17-19.
+USUAL_AT = {8: 5, 9: 4.0, 17: 'DPM++ 2M', 18: 'Simple', 19: 30}
+check('13. a real replay with the usual ones: its CFG Scale, Distilled CFG Scale, sampler, schedule type and steps',
+      attempt(lambda: {n: replayed[0][n] for n in USUAL_AT}), USUAL_AT)
+check('    every other input as the replay without them sets it, the press as pressed',
+      attempt(lambda: ([v for n, v in enumerate(replayed[0]) if n not in USUAL_AT],
+                       [v for n, v in enumerate(plain[0]) if n not in USUAL_AT], [plain[0][n] for n in USUAL_AT])),
+      attempt(lambda: ([v for n, v in enumerate(plain[0]) if n not in USUAL_AT],
+                       [v for n, v in enumerate(plain[0]) if n not in USUAL_AT], [6.5, 3.0, 'Euler a', 'Karras', 25])))
+check('13. the replay rebuilds its press with the usual ones, after the pick\'s own changes; without, not at all',
+      rebuilt, [('txt2img', USUAL)])
+if real_with_usual:
+    load.with_usual = real_with_usual
 other = db.record_generation({'created_at': '2026-10-09T12:00:01', 'mode': 'img2img', 'image_count': 1,
                               'inputs': generation_inputs}, [{'position': 0, 'path': 'c.png'}], [[]])
 bare = db.record_generation({'created_at': '2026-10-09T12:00:02', 'mode': 'txt2img', 'image_count': 1},
@@ -359,14 +411,14 @@ HR_CHECKPOINT.choices, REFINER.choices = SHORT_CHOICES, [('', '')] + SHORT_CHOIC
 theirs = list(press)
 theirs[0] = 'task(theirs)'
 theirs[6] = r'_Their_Folder\realisticVision.safetensors'
-theirs[13] = r'_Their_Folder\chilloutmix.safetensors'
+theirs[15] = r'_Their_Folder\chilloutmix.safetensors'
 their_id = db.record_generation({'created_at': '2026-10-09T12:00:03', 'mode': 'txt2img', 'image_count': 1,
                                  'inputs': capture.name_inputs('txt2img', OWN.inputs, theirs,
                                                                Keeper(os.path.join(WORK, 'unused')))},
                                 [{'position': 0, 'path': 'e.png', 'seed': 9}], [[]])
 values = attempt(lambda: load.generation_values('txt2img', their_id, None, skip=SKIP))
 check("the other WebUI's generation: its hires and refiner checkpoints as this WebUI lists them",
-      attempt(lambda: (values[0][5], values[0][12])), ('realisticVision [f47e942ad4]', 'chilloutmix [fc2511737a]'))
+      attempt(lambda: (values[0][5], values[0][14])), ('realisticVision [f47e942ad4]', 'chilloutmix [fc2511737a]'))
 gone = list(theirs)
 gone[0], gone[6] = 'task(gone)', r'_Their_Folder\notHere.safetensors'
 gone_id = db.record_generation({'created_at': '2026-10-09T12:00:04', 'mode': 'txt2img', 'image_count': 1,
