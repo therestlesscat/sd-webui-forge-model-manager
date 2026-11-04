@@ -633,8 +633,8 @@ function sendAgainButton() {
                     enabled ? '' : ` disabled title="${escapeHtml((line.choosing ? status.text : line.why) || status.text || '')}"`}>${
                     escapeHtml(line.button || 'Send to txt2img')}</button>
             </div>
-            ${line.choosing ? `<div class="mm-pick">${pickListHtml()}</div>`
-                              + `<div class="mm-usual" data-usual>${usualHtml()}</div>` : ''}
+            ${line.choosing ? `<div class="mm-pick-area"><div class="mm-pick">${pickListHtml()}</div>`
+                              + `<div class="mm-usual" data-usual>${usualHtml()}</div></div>` : ''}
         </div>`;
 }
 
@@ -870,8 +870,9 @@ function redrawPickBody() {
 }
 
 // ------------------------------------------- the pick's usual settings (#378)
-// Under the list, once a pick is made that the server says they apply to -
-// not as made: the pick's usual sampler, schedule type, steps and CFG scale,
+// Beside the list's rows - under them on a narrow dialog - once a pick is made
+// that the server says they apply to - not as made: until then a line saying
+// what a pick will show. The pick's usual sampler, schedule type, steps and CFG scale,
 // and a fifth where its UI preset takes one, beside the image's own; where
 // they come from; and a tick that sends with them, ticked at each pick
 // unless the setting says otherwise.
@@ -892,20 +893,29 @@ function usualApplies(answer) {
 /** A value as the block shows it; a dash for none. */
 const shownValue = (value) => (value === null || value === undefined || value === '' ? '–' : String(value));
 
-/** The block's markup for the pick: asking, its answer, or nothing for an as-made one. */
+// The block's column before a pick, and for an as-made one; on a dialog too
+// narrow for the column, the block under the rows is not drawn for it (style.css).
+const USUAL_HINT = {
+    none: 'Pick a checkpoint to see what it is usually run with.',
+    asMade: 'Sends as made: the image\'s own settings go with it.',
+};
+const usualHint = (text) => `<div class="mm-usual-note mm-usual-hint">${escapeHtml(text)}</div>`;
+
+/** The block's markup for the pick: asking, its answer, or a hint before a pick and for an as-made one. */
 function usualHtml() {
     const line = resourcesSend;
-    const row = line?.chosen && pickRows().find((r) => r.name === line.chosen);
-    if (!row) return '';
+    if (!line) return '';
+    const row = line.chosen && pickRows().find((r) => r.name === line.chosen);
+    if (!row) return usualHint(USUAL_HINT.none);
     const answer = line.usualAnswers.get(line.chosen);
     const name = escapeHtml(pickRowName(row));
     if (!answer || answer.loading) {
-        // A pick the list says is as made draws no block while it asks: the server decides.
-        return (row.why || []).some((why) => AS_MADE.includes(why)) ? ''
+        // A pick the list says is as made draws no values while it asks: the server decides.
+        return (row.why || []).some((why) => AS_MADE.includes(why)) ? usualHint(USUAL_HINT.asMade)
             : `<div class="mm-usual-note">Reading what ${name} is usually run with…</div>`;
     }
     if (answer.error) return `<div class="mm-usual-note">Could not read its usual settings: ${escapeHtml(answer.error)}.</div>`;
-    if (!answer.applies) return '';
+    if (!answer.applies) return usualHint(USUAL_HINT.asMade);
     if (!answer.source) {
         return '<div class="mm-usual-note">Not enough to go by: fewer than 5 of your generations or Civitai\'s stored '
                + 'images use it.</div>';
@@ -927,7 +937,9 @@ function usualHtml() {
         ? `<label class="mm-usual-tick"><input type="checkbox" data-action="resources.usualTick"${
             line.usual ? ' checked' : ''}> Send with these instead of the image's</label>` : '';
     return `<div class="mm-usual-grid"><span class="mm-usual-head">${name} is usually run with</span>`
-        + `<span class="mm-usual-head mm-usual-own">The image has</span>${cells}</div>`
+        + `<span class="mm-usual-head mm-usual-own">The image has</span>`
+        // Beside the rows the name takes the whole row, and this heads the image's column under it.
+        + `<span class="mm-usual-colhead mm-usual-own">The image has</span>${cells}</div>`
         + `<div class="mm-usual-from">${escapeHtml(from + hires)}</div>${tick}`;
 }
 

@@ -1,6 +1,7 @@
 // What a checkpoint picked in the Resources dialog is usually run with (#378):
-// a block under the list, drawn once the server says the usual settings
-// apply to the pick - not for one it says is as made - with each setting's
+// a block beside the list's rows, in one area with the list, drawn once the
+// server says the usual settings apply to the pick - before a pick, and for
+// one it says is as made, a line saying so - with each setting's
 // usual value, how many of the uses give it, the image's own value and where
 // they come from; a fifth row where the pick's preset takes one. It is asked
 // once per pick (`send/usual`), filled in place - the list's rows, its
@@ -129,14 +130,20 @@ const open = async () => {
 
 // --------------------------------------------- 17. drawn where it applies
 await open();
-check('17. nothing picked: no block, nothing asked', [blockText(), usualAsked.length], ['', 0]);
+check('17. nothing picked: the block says what a pick will show, nothing asked',
+      [blockText(), usualAsked.length], ['Pick a checkpoint to see what it is usually run with.', 0]);
+check('    the block and the list in one area, the block after the list',
+      [block()?.parentElement?.className, block()?.previousElementSibling?.className], ['mm-pick-area', 'mm-pick']);
 pick(MIX.name);
 await waitFor('the answer drawn', () => values().length);
 check('    a pick the server says they apply to: each setting\'s usual value, its count, the image\'s own',
       [values(), [...(block()?.querySelectorAll('.mm-usual-count') || [])].map((c) => c.textContent),
        [...(block()?.querySelectorAll('span.mm-usual-own') || [])].map((c) => c.textContent)],
       [[['sampler', 'DPM++ 2M'], ['schedule_type', 'Karras'], ['steps', '20'], ['cfg', '7']],
-       ['349 of 526', '357 of 526', '364 of 526', '494 of 526'], ['The image has', 'Euler a', 'Automatic', '30', '5']]);
+       ['349 of 526', '357 of 526', '364 of 526', '494 of 526'], ['The image has', 'The image has', 'Euler a', 'Automatic', '30', '5']]);
+check('    "The image has" twice: beside the name, and heading its column where the block is beside the rows',
+      [...(block()?.querySelectorAll('.mm-usual-own') || [])].slice(0, 2).map((e) => e.className),
+      ['mm-usual-head mm-usual-own', 'mm-usual-colhead mm-usual-own']);
 check('    headed by the pick\'s name, saying where they come from and that Hires fix keeps the image\'s',
       [block()?.querySelector('.mm-usual-head')?.textContent, block()?.querySelector('.mm-usual-from')?.textContent],
       ['Anime Mix v12 is usually run with', 'From 526 of your generations with it. Hires fix keeps the image\'s settings.']);
@@ -162,7 +169,8 @@ await open();
 pick(OWN.name);
 await waitFor('own answered', () => usualAsked.length === 3);
 await new Promise((r) => setTimeout(r, 10));
-check('    one the server says is as made: no block, no tick', [blockText(), Boolean(usualTick())], ['', false]);
+check('    one the server says is as made: said so, no values, no tick',
+      [blockText(), values().length, Boolean(usualTick())], ['Sends as made: the image\'s own settings go with it.', 0, false]);
 
 // ------------------------- 18. in place, and only for the pick still picked
 const rowsBox = modal()?.querySelector('.mm-pick-rows');
@@ -213,6 +221,15 @@ check('    nor one after the dialog closed: no block anywhere', [Boolean(modal()
 
 // ------------------------------- 19. nothing to go by, a failure, the notice
 await open();
+// A fresh dialog: no answer kept for the image's own checkpoint yet.
+let releaseOwn;
+held.set(OWN.name, { promise: new Promise((r) => { releaseOwn = r; }) });
+pick(OWN.name);
+check('17. an as-made pick while it asks: said it sends as made, never "Reading"',
+      [blockText(), Boolean(usualTick())], ['Sends as made: the image\'s own settings go with it.', false]);
+releaseOwn();
+held.delete(OWN.name);
+await new Promise((r) => setTimeout(r, 10));
 pick(LEAN.name);
 await waitFor('lean drawn', () => blockText().startsWith('Not enough'));
 check('19. nothing to go by: said, no tick, Send still enabled',

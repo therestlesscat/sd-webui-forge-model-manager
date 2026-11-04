@@ -2677,6 +2677,107 @@ body.mm-modal-open {
     margin: 0;
 }
 
+/* The image's column heading for the block beside the rows, drawn there alone (below). */
+.mm-usual-colhead {
+    display: none;
+}
+
+/* The list and the usual settings side by side (#378): the search and the tab bar across the
+   whole width; under them the rows and, beside them, the block in a column of its own - there
+   from the start, saying what a pick will show. The list's boxes give way (display: contents),
+   so the search, the tabs and the rows are the grid's own cells. With a pick, at a 1,000 px
+   page, the dialog stood 800 px tall with the block under the rows, and stands 676 beside them. */
+.mm-resources-send-wrap {
+    container: mm-send / inline-size;
+}
+
+.mm-pick-area {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 400px;
+    column-gap: 20px;
+    align-items: start;
+    margin-top: 8px;
+}
+
+.mm-pick-area > .mm-pick,
+.mm-pick-area .mm-pick-body {
+    display: contents;
+}
+
+.mm-pick-area .mm-pick-search,
+.mm-pick-area .mm-pick-tabs {
+    grid-column: 1 / -1;
+}
+
+/* The list's own gap, which it had only under the search: the tabs sit on the rows. */
+.mm-pick-area .mm-pick-search {
+    margin-bottom: 6px;
+}
+
+.mm-pick-area .mm-pick-rows {
+    grid-column: 1;
+}
+
+.mm-pick-area > .mm-usual {
+    grid-column: 2;
+    grid-row: 3;
+    align-self: stretch;
+    box-sizing: border-box;
+    margin-top: 0;
+    padding: 5px 0 0 20px;
+    border-left: 1px solid var(--border-color-primary, #d1d5db);
+}
+
+.dark .mm-pick-area > .mm-usual {
+    border-left-color: var(--border-color-primary, #374151);
+}
+
+/* In a 400 px column a long name pushed "The image has" into a column a word wide: the name
+   takes the whole row, and the heading heads the image's column on the next. */
+.mm-pick-area .mm-usual-head {
+    grid-column: 1 / -1;
+}
+
+.mm-pick-area .mm-usual-head.mm-usual-own {
+    display: none;
+}
+
+.mm-pick-area .mm-usual-colhead {
+    display: block;
+    grid-column: 4;
+    font-weight: 600;
+}
+
+/* Under 900 px of room - 480 for the rows, the gap, 400 for the block - the block goes back
+   under the rows, laid out as before, and the hint is not drawn. */
+@container mm-send (max-width: 900px) {
+    .mm-pick-area {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .mm-pick-area > .mm-usual {
+        grid-column: 1;
+        grid-row: auto;
+        margin-top: 8px;
+        padding: 0;
+        border-left: 0;
+    }
+
+    .mm-pick-area .mm-usual-head:not(.mm-usual-own) {
+        grid-column: 1 / 4;
+    }
+
+    .mm-pick-area .mm-usual-head.mm-usual-own {
+        display: block;
+        grid-column: 4;
+    }
+
+    .mm-pick-area .mm-usual-colhead,
+    .mm-pick-area > .mm-usual:has(> .mm-usual-hint) {
+        display: none;
+    }
+}
+
 /* ==================== Version Grouping ==================== */
 
 /* Versions badge on model cards */
