@@ -481,6 +481,16 @@ routed = [client.get('/model-manager/send/plan', params={**text_params, **extra}
           for extra in ({'usual': 'true'}, {'usual': '1'}, {})]
 check('12. send/plan?text=1 with usual=true, as the page sends it: the usual text, for Forge\'s own paste button;'
       ' without, the image\'s', [picked(line_of(r), 'Steps') for r in routed], [['Steps: 24'], ['Steps: 24'], ['Steps: 28']])
+check('19. its answer names what the text took, for the notice; nothing without the tick',
+      [routed[0].get('usual'), 'usual_text' in routed[0], 'usual' in routed[2]],
+      [{'sampler': 'Euler a', 'schedule_type': 'Karras', 'steps': 24, 'cfg': 6}, False, False])
+# A generation whose text has no settings line takes none of them: the text
+# route, which only pastes, names none.
+LINELESS = record(generation(X, 'a prompt alone\nSteps: 20'))[0]
+lineless = client.get('/model-manager/send/plan', params={'kind': 'generation', 'generation': LINELESS, 'text': 1,
+                                                          'use_checkpoint': 'ck_d', 'image_model': 999, 'usual': 'true'}).json()
+check('    a generation with no settings line, through the text route: its text, nothing named as applied',
+      [lineless.get('text'), 'usual' in lineless], ['a prompt alone\nSteps: 20', False])
 real_kind = send._source_pick_kind
 send._source_pick_kind = lambda db_, source: 'same'
 check('14. a same pick - the image\'s file under another model - ticked: nothing applied',

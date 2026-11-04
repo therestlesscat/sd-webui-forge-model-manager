@@ -88,14 +88,15 @@ export function sendTab(card) {
  */
 export async function sendInfotext({ infotext, mode, meta = {}, generationId = null, imageId = null,
                                      useCheckpoint = null, imageModel = null, into = null, whole = false,
-                                     choose = false }) {
+                                     choose = false, usual = null }) {
     // Into img2img (#299), the image's own file with it: any image goes,
     // with no infotext too.
     const sending = into ? { mode: Number(into.mode), picture: { generation_image: Number(imageId) },
                              width: into.width ?? null, height: into.height ?? null } : null;
     if ((!infotext && !sending) || generationId === null || generationId === undefined) return false;
     meta = meta || {};
-    const pick = useCheckpoint ? { checkpoint: useCheckpoint, imageModel } : null;
+    // `usual`: the pick's usual settings, ticked in the Resources dialog (#378) - `{ name }`, the pick as it says it.
+    const pick = useCheckpoint ? { checkpoint: useCheckpoint, imageModel, usual } : null;
     const askPlan = () => fetchGenerationPlan(generationId, pick);
     const plan = await whenListed(await askPlan(), askPlan);
     // The server builds what is set (#302): with no plan, there is nothing to send.
@@ -167,7 +168,9 @@ export async function sendInfotext({ infotext, mode, meta = {}, generationId = n
                      image: imageId === null || imageId === undefined ? null : Number(imageId),
                      renames: resources?.renames || [], ...(whole ? { whole: true } : {}),
                      // A pick (#377): the loader leaves the image's Hires fix and refiner out for another model's.
-                     ...(pick ? { use_checkpoint: pick.checkpoint, image_model: pick.imageModel || null } : {}) };
+                     ...(pick ? { use_checkpoint: pick.checkpoint, image_model: pick.imageModel || null } : {}),
+                     // Ticked (#378): the server works the values out again at the Send.
+                     ...(pick?.usual ? { usual: true } : {}) };
     // A press set back: its modules, the mode it was made in, its canvases
     // through the mode's own button - the picture sent in (#299), or the
     // press's own (#34) - and what kept what was on screen.
@@ -186,7 +189,7 @@ export async function sendInfotext({ infotext, mode, meta = {}, generationId = n
         sourceNotice();
         return applyModules(plan);
     };
-    if (!pasteInfotext(tab, { source, into: sending, afterPaste, whenReplayed })) return false;
+    if (!pasteInfotext(tab, { source, into: sending, afterPaste, whenReplayed, usual: pick?.usual })) return false;
     showGenerationTab(tab, sending?.mode);
     showChips();
     return true;
@@ -973,6 +976,25 @@ function waitReason(problem) {
     return CHECKPOINT_WAITS[problem.reason] ? problem.reason : 'missing';
 }
 
+// Each of the usual settings as Send's notice names it (#378).
+const USUAL_WORDS = {
+    sampler: (v) => String(v), schedule_type: (v) => String(v), steps: (v) => `${v} steps`, cfg: (v) => `CFG ${v}`,
+    distilled_cfg: (v) => `Distilled CFG Scale ${v}`, shift: (v) => `Shift ${v}`,
+};
+
+/**
+ * What a ticked Send applied of the pick's usual settings (#378), by the
+ * server's answer at the Send - a generation recorded since the dialog asked
+ * can move a count - or that none went, the image's own sent.
+ */
+export function usualNotice(usual, applied) {
+    const name = usual?.name || 'the checkpoint';
+    const words = Object.entries(USUAL_WORDS).filter(([key]) => applied?.[key] !== undefined && applied?.[key] !== null)
+        .map(([key, word]) => word(applied[key]));
+    if (!words.length) return `${name}'s usual settings could not be applied: the image's own were sent.`;
+    return `Sent with ${name}'s usual settings: ${words.join(', ')}.`;
+}
+
 /**
  * Sent with a checkpoint picked in the Resources dialog (#377), said after
  * the send as #278's was: what the pick is to the image, by the server's
@@ -1079,7 +1101,11 @@ function civitaiSendLine({ img, model, version, into = null }, { opened, problem
                                       || { checkpoint_problem: problem }).checkpoint_problem)
             : null,
         run: () => sendGalleryImage({ img, model, version, into }),
-        pick: (name, imageModel) => sendGalleryImage({ img, model, version, into, useCheckpoint: name, imageModel }),
+        pick: (name, imageModel, usual = null) => sendGalleryImage({ img, model, version, into, useCheckpoint: name,
+                                                                     imageModel, usual }),
+        // What send/usual is asked with for a pick (#378): the image, as send/plan takes it.
+        usualSource: { kind: 'civitai', image: img.id, version_ids: named.versionIds.join(','),
+                       hashes: named.hashes.join(',') },
         button: sendButtonLabel(into),
         list: { version_ids: named.versionIds.join(','), hashes: named.hashes.join(','),
                 gallery_file: version?.file_path || '', gallery_base_model: version?.base_model || model?.base_model || '' },
@@ -1101,7 +1127,10 @@ function generationSendLine(args, { opened, problem = null, goesOn = false } = {
             }
             : null,
         run: () => sendInfotext(args),
-        pick: (name, imageModel) => sendInfotext({ ...args, useCheckpoint: name, imageModel }),
+        pick: (name, imageModel, usual = null) => sendInfotext({ ...args, useCheckpoint: name, imageModel, usual }),
+        usualSource: { kind: 'generation', generation: Number(args.generationId),
+                       ...(args.imageId === null || args.imageId === undefined ? {} : { image: Number(args.imageId) }),
+                       ...(args.whole ? { whole: 1 } : {}) },
         button: sendButtonLabel(args.into, sendTab({ mode: args.mode })),
         list: { generation: Number(args.generationId) },
     };
@@ -1334,7 +1363,7 @@ export function whenSendSettled() {
  *
  * @returns {boolean} whether the paste could be made at all
  */
-function pasteInfotext(tab, { source, afterPaste, into = null, whenReplayed = null }) {
+function pasteInfotext(tab, { source, afterPaste, into = null, whenReplayed = null, usual = null }) {
     const promptTextarea = gradioApp().querySelector(`#${tab}_prompt textarea`);
     if (!promptTextarea) {
         console.error(`[ModelManager] Could not find ${tab} prompt textarea`);
@@ -1357,6 +1386,7 @@ function pasteInfotext(tab, { source, afterPaste, into = null, whenReplayed = nu
             }
             ({ scheduler, hires: hasHiresFix } = pasting);
             if (!await pasteWithButton(tab, promptTextarea, pasting.text)) return;
+            if (usual) showNotice(usualNotice(usual, pasting.usual), { info: true });
             if (into) {
                 showNotice('The settings are in img2img, but the picture could not be put in: '
                            + 'drop it in before generating.');
@@ -1365,6 +1395,7 @@ function pasteInfotext(tab, { source, afterPaste, into = null, whenReplayed = nu
             showNotice(`Could not send: ${answer.error}.`);
             return;
         } else if (answer.replayed && whenReplayed) {
+            if (usual) showNotice(usualNotice(usual, answer.usual), { info: true });
             await whenReplayed(answer);
             return;
         } else {
@@ -1377,6 +1408,7 @@ function pasteInfotext(tab, { source, afterPaste, into = null, whenReplayed = nu
             // it; the files the loader kept the current choice for, after.
             const lacking = (answer.unavailable || []).map((u) => `${u.name} (${u.kind})`);
             const said = [];   // markup: the names escaped, a setting a link to it (#320)
+            if (usual) said.push(escapeHtml(usualNotice(usual, answer.usual)));
             if (lacking.length) {
                 said.push(escapeHtml(`${listNames(lacking)} ${lacking.length === 1 ? 'is' : 'are'} not in this WebUI.`));
             }
@@ -1466,12 +1498,12 @@ async function pasteWithButton(tab, promptTextarea, text) {
  * back here.
  */
 export async function sendGalleryImage({ img, model, version, useCheckpoint = null, imageModel = null, into = null,
-                                         choose = false }) {
+                                         choose = false, usual = null }) {
     // Into img2img (#299), its original with it: any image goes, whatever
     // its data lacks, under the progress popup while the server fetches it.
     const sending = into ? { mode: Number(into.mode), picture: { url: originalMediaUrl(img.url || '') },
                              width: img.width ?? null, height: img.height ?? null } : null;
-    const pick = useCheckpoint ? { checkpoint: useCheckpoint, imageModel } : null;
+    const pick = useCheckpoint ? { checkpoint: useCheckpoint, imageModel, usual } : null;
     const args = { img, model, version, into };
     // Asked to choose, nothing is fetched until the dialog's Send: no popup.
     if (!sending || (choose && !pick)) return sendGalleryImageTo({ ...args, pick, choose, sending });
@@ -1576,7 +1608,8 @@ async function sendGalleryImageTo({ img, model, version, into = null, pick = nul
             // A pick (#377): the loader leaves the image's Hires fix and refiner out for another model's.
             const named = imageCheckpoint(img);
             Object.assign(source, { use_checkpoint: pick.checkpoint, image_model: pick.imageModel || null,
-                                    version_ids: named.versionIds.join(','), hashes: named.hashes.join(',') });
+                                    version_ids: named.versionIds.join(','), hashes: named.hashes.join(','),
+                                    ...(pick.usual ? { usual: true } : {}) });
         }
         if (resources.renames.length) {
             const rename = (text) => resources.renames
@@ -1588,6 +1621,7 @@ async function sendGalleryImageTo({ img, model, version, into = null, pick = nul
         const pasted = pasteInfotext(tab, {
             source,
             into: sending,
+            usual: pick?.usual,
             afterPaste: async () => {
                 updateResourceChipStates(tab);
                 // After the paste: it re-renders much of the page, and it never

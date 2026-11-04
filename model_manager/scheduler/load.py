@@ -797,6 +797,9 @@ def _loader(tab: str, kept: List[int], extras: List[Any] = (), names: List[Optio
                             values[at] = renamed(values[at], source.get("renames"))
                         answer.update({"replayed": True, "generation": generation_id,
                                        "skipped": skipped, "notes": notes})
+                        # What the usual settings applied, for Send's notice to name (#378).
+                        if found.get("usual"):
+                            answer["usual"] = found["usual"]
                         if into:
                             answer.update({"mode": _into(values, list(names), into, True)})
                         elif tab == "img2img":
@@ -806,6 +809,9 @@ def _loader(tab: str, kept: List[int], extras: List[Any] = (), names: List[Optio
                         say(f"Send: generation #{generation_id} could not be set back as it was; pasting: {e}")
                 # For Forge's own paste button, where its paste function is missing.
                 answer.update({"text": found["text"], "scheduler": found["scheduler"], "hires": found["hires"]})
+                # What the pasted text took of the usual settings, for Send's notice (#378).
+                if found.get("usual_text"):
+                    answer["usual"] = found["usual_text"]
                 if not found["text"]:
                     # Nothing to paste - Forge's paste of an empty text pastes the
                     # last run's settings (params.txt): into img2img the picture

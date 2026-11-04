@@ -110,6 +110,11 @@ def register(app: FastAPI):
                 "use_checkpoint": use_checkpoint, "image_model": image_model, "version_ids": version_ids,
                 "hashes": hashes, "usual": usual in ("true", "1")}
             found = settings(get_models_db(), source, bool(into), chosen(get_models_db(), source))
+            if found is not None:
+                # Forge's paste button pastes the text: what it took is what went (#378).
+                found.pop("usual", None)
+                if found.get("usual_text"):
+                    found["usual"] = found.pop("usual_text")
             if found is None:
                 return JSONResponse({"success": False, "error": "The image is not in the library" if kind == "civitai"
                                      else f"No generation #{generation}"}, status_code=404)

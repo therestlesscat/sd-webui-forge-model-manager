@@ -82,7 +82,7 @@ const STARTED = {
                           'window listener: mm-settings-page-applied', 'window listener: mm-settings-saved'],
     'image_card.mjs': ['document listener: input', 'provide resources.checkAgain', 'provide resources.chooseTick',
                        'provide resources.download', 'provide resources.pickRow', 'provide resources.pickTab',
-                       'provide resources.sendAgain', 'provide resources.view'],
+                       'provide resources.sendAgain', 'provide resources.usualTick', 'provide resources.view'],
     'send.mjs': ['onAfterUiUpdate', 'window listener: mm-resource-downloads'],
     'downloads.mjs': ['fetch /model-manager/civitai/download/progress', 'onAfterUiUpdate',
                       'provide downloads.cancel', 'provide downloads.control', 'provide downloads.dismiss',

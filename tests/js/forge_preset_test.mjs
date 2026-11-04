@@ -1630,4 +1630,18 @@ delete library.embeddings;
 
 // A prompt Civitai stored in quotes is the server's to unquote (#302): send_text_test.py.
 
+// A pick's usual settings, ticked in the Resources dialog (#378): `usual:
+// true` in the source beside the pick, never the values; unticked, none.
+const usualSources = [];
+for (const usual of [{ name: 'Mine v1' }, null]) {
+    const from = loaderAsked.length;
+    await sendGalleryImage({ img: IMAGE, model: MODEL, version: MODEL, useCheckpoint: 'mine.safetensors [aa]',
+                            imageModel: 9, usual });
+    await waitFor('the pick\'s send', () => loaderAsked.slice(from).some((r) => r.source !== undefined));
+    usualSources.push(sourceAsked());
+}
+check('17. a Civitai image sent with a pick, ticked: `usual: true` beside it, no values; unticked, none',
+      usualSources.map((s) => [s?.use_checkpoint, s?.usual, 'steps' in (s || {})]),
+      [['mine.safetensors [aa]', true, false], ['mine.safetensors [aa]', undefined, false]]);
+
 done();

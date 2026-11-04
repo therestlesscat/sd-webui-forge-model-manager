@@ -1338,7 +1338,8 @@ def civitai_settings(db, source: Dict[str, Any], usual: Optional[Dict[str, Any]]
         # only CLIP's final summary and so changes nothing by it.
         "clip_skip": None if "flux" in str(record.get("baseModel") or "").lower()
                      else clip_skip_value(image_clip_skip(meta)),
-        **({"usual": usual} if usual else {}),
+        # A Civitai image's text always ends in a settings line that took them.
+        **({"usual": usual, "usual_text": usual} if usual else {}),
     }
 
 
@@ -1505,8 +1506,10 @@ def generation_settings(db, source: Dict[str, Any], into: bool = False,
         "clip_skip": clip_skip_value(_text_field(infotext, "Clip skip")),
         "replay": replays(generation, into),
         "mode": generation.get("mode"),
-        # For the replay, and the notice of what went.
+        # For the replay; and what the text took, for the notice of what went
+        # - none where it has no settings line to take them.
         **({"usual": usual} if usual else {}),
+        **({"usual_text": usual} if usual and settings_line(text) else {}),
     }
 
 

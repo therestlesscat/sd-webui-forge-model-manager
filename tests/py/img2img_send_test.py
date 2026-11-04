@@ -261,6 +261,7 @@ generations = {
     17: gen('img2img', None, ''),
     18: gen('img2img', None, 'a castle\nSteps: 20'),
     19: gen('img2img', None, 'a castle\nSize: 832x1216'),
+    20: gen('img2img', None, 'a castle\nSteps: 20, Sampler: Euler, Seed: 1'),
 }
 load.get_models_db = lambda: types.SimpleNamespace(
     **{**vars(db_before()), 'get_generation': lambda gid: generations.get(gid)})
@@ -337,10 +338,16 @@ except ImportError:
 real_chosen = getattr(usual_module, 'chosen', None)
 usual_module.chosen = lambda db_, source: {'steps': 9} if source.get('usual') else None
 replayed_with.clear()
-asked(source={'kind': 'generation', 'generation': 15, 'image': 5, 'usual': True})
-asked(source={'kind': 'generation', 'generation': 15, 'image': 5})
+_, with_tick = asked(source={'kind': 'generation', 'generation': 15, 'image': 5, 'usual': True})
+_, without_tick = asked(source={'kind': 'generation', 'generation': 15, 'image': 5})
 check('13. the loader hands the replay the usual settings Send worked out; none without the tick',
       replayed_with, [{'steps': 9}, None])
+_, pasted_tick = asked(source={'kind': 'generation', 'generation': 20, 'image': 5, 'usual': True})
+_, no_line = asked(source={'kind': 'generation', 'generation': 18, 'image': 5, 'usual': True})
+check('19. and its answer names what was applied, for Send\'s notice - replayed, or pasted in a settings line;'
+      ' nothing without the tick',
+      [with_tick.get('usual'), pasted_tick.get('usual'), 'usual' in without_tick], [{'steps': 9}, {'steps': 9}, False])
+check('    pasted from a text with no settings line, which took none: nothing named', 'usual' in no_line, False)
 if real_chosen:
     usual_module.chosen = real_chosen
 check('into a mode: an img2img press replayed, with the mode sent', [answer.get('replayed'), answer.get('mode'),

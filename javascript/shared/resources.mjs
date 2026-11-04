@@ -373,7 +373,9 @@ let resourcesLeaving = null;
 // the dialog offers can help. `gaveUp`: the dialog stopped asking. `goesOn`:
 // a send into img2img, which goes with the loaded checkpoint (#299).
 // `choosing`: the box ticked; `chosen`: the name picked; `touched`: the box
-// pressed, which nothing then changes.
+// pressed, which nothing then changes. `usualSource`: what send/usual is
+// asked with for a pick (#378); `usualAnswers`: its answer per name, kept
+// while the dialog is open; `usual`: its tick, off at each pick.
 let resourcesSend = null;
 // The dialog's resources, as last drawn: Send's line finds the checkpoint's row in them.
 let resourcesRows = [];
@@ -477,7 +479,7 @@ function startSendLine(send) {
     // Opened with the Resources button, `ready` stays unknown until the library has said (startBox).
     const line = { ...send, ready: send.opened === 'resources' ? undefined : send.ready ?? false,
                    choosing: send.opened !== 'resources',
-                   chosen: null, touched: false, pickList: null };
+                   chosen: null, touched: false, pickList: null, usual: false, usualAnswers: new Map() };
     if (send.opened === 'resources') {
         // The setting asked afresh as the dialog opens: Forge's Settings page
         // does not refresh the page's copy (#377).
@@ -623,7 +625,8 @@ function sendAgainButton() {
                     enabled ? '' : ` disabled title="${escapeHtml((line.choosing ? status.text : line.why) || status.text || '')}"`}>${
                     escapeHtml(line.button || 'Send to txt2img')}</button>
             </div>
-            ${line.choosing ? `<div class="mm-pick">${pickListHtml()}</div>` : ''}
+            ${line.choosing ? `<div class="mm-pick">${pickListHtml()}</div>`
+                              + `<div class="mm-usual" data-usual>${usualHtml()}</div>` : ''}
         </div>`;
 }
 
@@ -634,8 +637,9 @@ function sendLineStatus() {
         const row = line.chosen && pickRows().find((r) => r.name === line.chosen);
         if (!row) return { text: 'Pick a checkpoint to send with.' };
         const asMade = (row.why || []).some((why) => AS_MADE.includes(why));
+        const usual = line.usual && usualApplies(line.usualAnswers.get(line.chosen)) ? ' With its usual settings.' : '';
         return { text: `Sends with ${pickRowName(row)}. ${asMade ? 'The image comes out as made.'
-                                                                  : 'It will not come out exactly as made.'}` };
+                                                                  : 'It will not come out exactly as made.'}${usual}` };
     }
     if (line.goesOn && !line.ready) return { text: 'Sends with the checkpoint loaded now.' };
     if (line.opened === 'resources' && !line.check) {
@@ -836,7 +840,10 @@ async function askPickList({ again = false } = {}) {
             list.tab = data.suggested?.length ? 'suggested' : families.has(data.family) ? data.family : 'all';
         }
         // The pick made first: the image comes out as made (#304's same file among them).
-        if (!line.chosen && data.picked) line.chosen = data.picked;
+        if (!line.chosen && data.picked) {
+            line.chosen = data.picked;
+            askUsual(line, line.chosen);
+        }
     } catch (error) {
         if (resourcesSend !== line) return;
         Object.assign(list, { loading: false, error: `Could not read your checkpoints: ${error.message || error}` });
@@ -852,6 +859,103 @@ function redrawPickBody() {
     if (status) status.textContent = sendLineStatus().text || '';
     // What a full redraw would draw now: one that would change nothing writes nothing.
     if (resourcesSend) drawnSendBar = sendAgainButton();
+}
+
+// ------------------------------------------- the pick's usual settings (#378)
+// Under the list, once a pick is made that the server says they apply to -
+// not as made: the pick's usual sampler, schedule type, steps and CFG scale,
+// and a fifth where its UI preset takes one, beside the image's own; where
+// they come from; and a tick, off at each pick, that sends with them.
+
+// The block as last drawn, so an answer that changes nothing writes nothing.
+let drawnUsual = { block: null, html: '' };
+
+// Each setting's name, as the block and Forge's controls name it.
+const USUAL_NAMES = { sampler: 'Sampler', schedule_type: 'Schedule type', steps: 'Steps', cfg: 'CFG scale',
+                      distilled_cfg: 'Distilled CFG Scale', shift: 'Shift' };
+
+/** Whether an answer has anything the tick would send: a value 5 or more uses record that this WebUI lists. */
+function usualApplies(answer) {
+    return Boolean(answer?.applies && answer.source
+                   && (answer.settings || []).some((r) => r.value !== null && r.value !== undefined && !r.thin && !r.missing));
+}
+
+/** A value as the block shows it; a dash for none. */
+const shownValue = (value) => (value === null || value === undefined || value === '' ? '–' : String(value));
+
+/** The block's markup for the pick: asking, its answer, or nothing for an as-made one. */
+function usualHtml() {
+    const line = resourcesSend;
+    const row = line?.chosen && pickRows().find((r) => r.name === line.chosen);
+    if (!row) return '';
+    const answer = line.usualAnswers.get(line.chosen);
+    const name = escapeHtml(pickRowName(row));
+    if (!answer || answer.loading) {
+        // A pick the list says is as made draws no block while it asks: the server decides.
+        return (row.why || []).some((why) => AS_MADE.includes(why)) ? ''
+            : `<div class="mm-usual-note">Reading what ${name} is usually run with…</div>`;
+    }
+    if (answer.error) return `<div class="mm-usual-note">Could not read its usual settings: ${escapeHtml(answer.error)}.</div>`;
+    if (!answer.applies) return '';
+    if (!answer.source) {
+        return '<div class="mm-usual-note">Not enough to go by: fewer than 5 of your generations or Civitai\'s stored '
+               + 'images use it.</div>';
+    }
+    const cells = (answer.settings || []).map((r) => {
+        const value = r.thin ? '<span class="mm-usual-thin">Not recorded enough</span>'
+            : r.missing ? `${escapeHtml(shownValue(r.value))} <span class="mm-usual-thin">· not in this WebUI</span>`
+                : escapeHtml(shownValue(r.value));
+        const count = r.thin ? '' : `${Number(r.count)} of ${Number(r.of)}`;
+        return `<span class="mm-usual-name">${escapeHtml(USUAL_NAMES[r.key] || r.key)}</span>`
+            + `<span class="mm-usual-value" data-usual-key="${escapeHtml(r.key)}">${value}</span>`
+            + `<span class="mm-usual-count">${count}</span>`
+            + `<span class="mm-usual-own">${escapeHtml(shownValue(answer.image?.[r.key]))}</span>`;
+    }).join('');
+    const from = answer.source === 'yours' ? `From ${Number(answer.uses)} of your generations with it.`
+        : `From ${Number(answer.uses)} Civitai images that name it.`;
+    const hires = answer.image?.hires ? ' Hires fix keeps the image\'s settings.' : '';
+    const tick = usualApplies(answer)
+        ? `<label class="mm-usual-tick"><input type="checkbox" data-action="resources.usualTick"${
+            line.usual ? ' checked' : ''}> Send with these instead of the image's</label>` : '';
+    return `<div class="mm-usual-grid"><span class="mm-usual-head">${name} is usually run with</span>`
+        + `<span class="mm-usual-head mm-usual-own">The image has</span>${cells}</div>`
+        + `<div class="mm-usual-from">${escapeHtml(from + hires)}</div>${tick}`;
+}
+
+/** The block again, in place: the list's rows, their scroll and the search box are left as they are. */
+function redrawUsual() {
+    const block = document.querySelector('.mm-resources-modal .mm-usual');
+    // Only what differs: a rewrite would take focus from the tick (#292: Esc then reaches the page).
+    // Compared with what was drawn, not the markup read back, which the browser rewrites.
+    const html = usualHtml();
+    if (block && (block !== drawnUsual.block || html !== drawnUsual.html)) {
+        block.innerHTML = html;
+        drawnUsual = { block, html };
+    }
+    const status = document.querySelector('.mm-resources-modal .mm-res-send-status');
+    if (status) status.textContent = sendLineStatus().text || '';
+    if (resourcesSend) drawnSendBar = sendAgainButton();
+}
+
+/**
+ * Ask what a pick is usually run with (`send/usual`), once per name while
+ * the dialog is open. Its answer is kept, and the block drawn again for the
+ * pick picked now: one asked for an earlier pick draws that pick's, and none
+ * once the dialog has closed.
+ */
+async function askUsual(line, name) {
+    if (!line?.usualSource || !name || line.usualAnswers.has(name)) return;
+    line.usualAnswers.set(name, { loading: true });
+    const params = { ...line.usualSource, checkpoint: name, image_model: imageModel() || '' };
+    let answer;
+    try {
+        const data = await apiCall({ endpoint: '/model-manager/send/usual', params });
+        answer = data?.success ? data : { error: data?.error || 'the server did not answer' };
+    } catch (error) {
+        answer = { error: String(error?.message || error) };
+    }
+    line.usualAnswers.set(name, answer);
+    redrawUsual();
 }
 
 /**
@@ -901,9 +1005,12 @@ function sendAgain() {
     if (!send) return undefined;
     if (send.choosing) {
         if (!send.chosen) return undefined;
+        const row = pickRows().find((r) => r.name === send.chosen);
+        const usual = send.usual && usualApplies(send.usualAnswers.get(send.chosen)) && row
+            ? { name: pickRowName(row) } : null;
         closeMetaModal();
         resourcesSend = null;
-        return send.pick(send.chosen, imageModel());
+        return send.pick(send.chosen, imageModel(), usual);
     }
     if (!send.ready && !send.goesOn) return undefined;
     closeMetaModal();
@@ -1356,6 +1463,14 @@ export function start(scope) {
         document.querySelectorAll('.mm-resources-modal .mm-pick-row').forEach((row) => {
             row.classList.toggle('picked', row.querySelector('input')?.value === radio.value);
         });
+        // A new pick: its usual settings asked, the tick off (#378).
+        resourcesSend.usual = false;
+        askUsual(resourcesSend, radio.value);
+        redrawUsual();
+    });
+    scope.provide('resources.usualTick', (data, box) => {
+        if (!resourcesSend) return;
+        resourcesSend.usual = Boolean(box?.checked);
         const status = document.querySelector('.mm-resources-modal .mm-res-send-status');
         if (status) status.textContent = sendLineStatus().text || '';
         drawnSendBar = sendAgainButton();

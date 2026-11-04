@@ -14,6 +14,11 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.75 - A picked checkpoint's usual settings.** When you send with one of your own checkpoints
+in place of the image's, the Resources dialog shows what it is usually run with - its sampler,
+schedule type, steps and CFG scale, from your own generations with it or else from Civitai's
+images of it - beside the image's own. Tick the box under them, and Send uses them instead.
+
 **0.74 - Pick the checkpoint to send with.** When Send cannot load an image's checkpoint, the
 Resources dialog lists your own checkpoints to send with, those that suit the image first. Pick
 on any Send with Choose checkpoint, in the Civitai Images and Generations tabs, or Send as… on

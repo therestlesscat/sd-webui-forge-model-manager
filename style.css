@@ -2338,10 +2338,15 @@ body.mm-modal-open {
 }
 
 /* The Send line at the dialog's foot, outside what scrolls (#377, R4): a
-   modal's footer, its line laid out as a block of its own. */
+   modal's footer, its line laid out as a block of its own. On a window too
+   short for the list and the usual settings (#378), it shrinks and scrolls
+   rather than run past the dialog's foot: at 720 px it held 575 px of a
+   576 px dialog, and the tick sat off the window. */
 .mm-resources-foot {
     display: block;
-    flex: none;
+    flex: 0 1 auto;
+    min-height: 0;
+    overflow-y: auto;
     padding: 4px 20px 14px;
 }
 
@@ -2596,6 +2601,80 @@ body.mm-modal-open {
 
 .mm-resources-send > .mm-btn-small {
     align-self: center;
+}
+
+/* What a pick is usually run with (#378), under the list: a grid of the settings - the name, the
+   usual value, how many of the uses give it, the image's own - then where they come from, and
+   the tick. Sized as the line's status, whose greys it takes for what is secondary. */
+.mm-usual {
+    margin-top: 8px;
+    font-size: 0.9em;
+}
+
+.mm-usual:empty {
+    display: none;
+}
+
+.mm-usual-grid {
+    display: grid;
+    grid-template-columns: auto auto auto 1fr;
+    column-gap: 14px;
+    row-gap: 2px;
+    align-items: baseline;
+}
+
+.mm-usual-head {
+    grid-column: 1 / 4;
+    margin-bottom: 2px;
+    font-weight: 600;
+}
+
+.mm-usual-head.mm-usual-own {
+    grid-column: 4;
+}
+
+.mm-usual-value {
+    font-weight: 600;
+}
+
+.mm-usual-count {
+    font-variant-numeric: tabular-nums;
+}
+
+.mm-usual-count,
+.mm-usual-own,
+.mm-usual-thin,
+.mm-usual-from,
+.mm-usual-note {
+    color: #4b5563;
+}
+
+.dark .mm-usual-count,
+.dark .mm-usual-own,
+.dark .mm-usual-thin,
+.dark .mm-usual-from,
+.dark .mm-usual-note {
+    color: var(--body-text-color-subdued, #9ca3af);
+}
+
+.mm-usual-thin {
+    font-weight: 400;
+}
+
+.mm-usual-from {
+    margin-top: 4px;
+}
+
+.mm-usual-tick {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+    cursor: pointer;
+}
+
+.mm-usual-tick > input {
+    margin: 0;
 }
 
 /* ==================== Version Grouping ==================== */

@@ -437,7 +437,50 @@ check('32. and the notice says it is another model\'s: Hires fix and the refiner
       [...document.querySelectorAll('.mm-notice')].some((n) => n.textContent === 'Sent with mine.safetensors, a checkpoint of '
           + 'another model than this image\'s: it will not come out the same. The VAE and text encoders are its own '
           + 'family\'s, Hires fix uses the same checkpoint and modules, and the refiner is off.'), true);
+check('17. unticked, the pick goes without the usual settings', 'usual' in (lastSource() || {}), false);
 document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+
+// The pick's usual settings, ticked (#378): the loader is handed `usual: true`
+// beside the pick, never the values, and Send's notice says what the
+// server's answer applied - a paste's or a replay's.
+const USUAL = { success: true, applies: true, kind: 'model', source: 'yours', uses: 6, extra: null,
+                image: { sampler: 'Euler a', schedule_type: null, steps: 30, cfg: 5, distilled_cfg: null, shift: null, hires: false },
+                settings: [{ key: 'sampler', value: 'Euler', count: 6, of: 6, thin: false, missing: false },
+                           { key: 'steps', value: 20, count: 6, of: 6, thin: false, missing: false }] };
+const fetchBeforeUsual = globalThis.fetch;
+globalThis.fetch = async (url, ...rest) => (String(url).includes('/model-manager/send/usual')
+    ? { ok: true, json: async () => structuredClone(USUAL) } : fetchBeforeUsual(url, ...rest));
+const usualNotices = () => [...document.querySelectorAll('.mm-notice')].map((n) => n.textContent)
+    .filter((t) => t.includes('usual settings'));
+for (const [label, answer] of [['pasted', { pasted: true, usual: { sampler: 'Euler', steps: 20 } }],
+                               ['replayed', { replayed: true, generation: 1, skipped: [], notes: [], usual: { sampler: 'Euler', steps: 20 } }]]) {
+    planAnswer = { ...NO_PLAN, checkpoint_missing: 'my_merge_v3', checkpoint_problem: { reason: 'missing', name: 'my_merge_v3' } };
+    at = loaderAsked.length;
+    await act('generations.send', { tile: 0 });
+    await waitFor('the stop\'s list', () => dialog()?.querySelector('.mm-pick-row'));
+    pickRow(MINE.name);
+    await waitFor('the block\'s tick', () => dialog()?.querySelector('[data-action="resources.usualTick"]'));
+    const usualBox = dialog()?.querySelector('[data-action="resources.usualTick"]');
+    if (usualBox) {
+        usualBox.checked = true;
+        usualBox.dispatchEvent(new window.Event('change', { bubbles: true }));
+    }
+    planAnswer = { ...NO_PLAN, checkpoint: MINE.name, instead: 'mine.safetensors', pick: 'model', other_model: true };
+    loaderAnswer = () => answer;
+    dialogSend()?.dispatchEvent(new window.Event('click', { bubbles: true }));
+    await waitFor('the send with the usual settings', () => loaderAsked.length > at);
+    if (label === 'pasted') {
+        check('17. ticked, the loader is handed the pick and `usual: true`, never the values',
+              [lastSource()?.use_checkpoint, lastSource()?.usual, Object.keys(lastSource() || {}).some((k) => k === 'steps')],
+              [MINE.name, true, false]);
+    }
+    await waitFor(`the ${label} notice`, () => usualNotices().length);
+    check(`19. ${label}: Send's notice names what the server applied`, usualNotices(),
+          ['Sent with Mine v1\'s usual settings: Euler, 20 steps.']);
+    document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+}
+globalThis.fetch = fetchBeforeUsual;
+loaderAnswer = () => ({ pasted: true });
 
 // The tab's box: every Send opens the dialog, the image's own picked.
 planAnswer = NO_PLAN;

@@ -586,8 +586,11 @@ lined = Generations({9: {'mode': 'txt2img', 'inputs': None, 'infotext': None, 'i
 gen_used = attempt(lambda: send.generation_settings(lined, {'generation': 9, 'image': 90}, False, FOUR))
 bare = Generations({10: {'mode': 'txt2img', 'inputs': None, 'infotext': None, 'images': [
     {'id': 100, 'infotext': 'a prompt alone\nSteps: 20', 'meta': {'Schedule type': 'Karras'}}]}})
-check('    a text with no settings line: the paste\'s schedule type the image\'s, as the text it goes with',
-      attempt(lambda: send.generation_settings(bare, {'generation': 10}, False, FOUR)['scheduler']), 'Karras')
+no_line = attempt(lambda: send.generation_settings(bare, {'generation': 10}, False, FOUR))
+check('    a text with no settings line: the paste\'s schedule type the image\'s, as the text it goes with;'
+      ' the usual ones for the replay, none as what the text took',
+      [no_line.get('scheduler'), no_line.get('usual'), 'usual_text' in no_line] if isinstance(no_line, dict) else no_line,
+      ['Karras', FOUR, False])
 check('15. without the tick, the answers as before: no key of the usual settings in them',
       ['usual' in send.generation_settings(db, {'generation': 7, 'image': 71}),
        'usual' in send.civitai_settings(one, {'image': 1})], [False, False])
@@ -595,6 +598,10 @@ check('    the answer: the usual schedule type for the paste\'s event, and the u
       [gen_used.get('text'), gen_used.get('scheduler'), gen_used.get('usual')] if isinstance(gen_used, dict) else gen_used,
       ['third\nSteps: 30, Sampler: DPM++ 2M, Schedule type: Simple, Seed: 4, CFG scale: 5, ADetailer enable: False',
        'Simple', FOUR])
+check('    and what its text took, for the notice', gen_used.get('usual_text') if isinstance(gen_used, dict) else gen_used,
+      FOUR)
+check('    a Civitai image\'s text takes them always: the same for the notice',
+      pasted_with.get('usual_text') if isinstance(pasted_with, dict) else pasted_with, FOUR)
 
 # 14. `usual` with no pick, or a pick it does not apply to: the image's values
 # (usual_settings.chosen, which Send's callers ask and hand to send.settings).
