@@ -490,7 +490,8 @@ check('28. the toolbar\'s box, unticked as the setting is', document.getElementB
 const box = document.getElementById('gen_choose_checkpoint');
 box.checked = true;
 box.dispatchEvent(new window.Event('change', { bubbles: true }));
-check('    ticked, kept in this browser', localStorage.getItem('mm_generations_choose_checkpoint'), 'true');
+check('    ticked, kept nowhere in the browser: the setting starts it at the next page load (#383)',
+      localStorage.getItem('mm_generations_choose_checkpoint'), null);
 at = loaderAsked.length;
 await act('generations.send', { tile: 0 });
 await waitFor('the dialog', () => dialog()?.querySelector('.mm-pick-row input:checked'));
@@ -517,7 +518,7 @@ check('    a ⋯ send into img2img opens it too, its button naming the mode; not
 document.querySelectorAll('#mm_meta_modal').forEach((m) => { m.close?.(); m.remove(); });
 box.checked = false;
 box.dispatchEvent(new window.Event('change', { bubbles: true }));
-check('    unticked, kept so', localStorage.getItem('mm_generations_choose_checkpoint'), 'false');
+check('    unticked, kept nowhere either', localStorage.getItem('mm_generations_choose_checkpoint'), null);
 at = loaderAsked.length;
 await act('generations.send', { tile: 0 });
 await waitFor('the send, unticked', () => loaderAsked.length > at);

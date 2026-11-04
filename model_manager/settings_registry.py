@@ -355,8 +355,9 @@ SETTINGS: Tuple[Setting, ...] = (
     Setting("model_manager_send_choose_checkpoint", "send", "checkbox", "Choose the checkpoint at every Send",
             "Choose the checkpoint at every Send",
             "Every Send in the Civitai Images and Generations tabs opens the Resources dialog first, where you pick "
-            "the checkpoint to send with. Each tab also has a box of its own for this in its toolbar, which this "
-            "setting ticks or clears. The Resources dialog's own box starts ticked too.", (CI, GEN, SEND)),
+            "the checkpoint to send with. Each tab also has a box for this in its toolbar, Choose checkpoint, which "
+            "starts as this setting says each time the page loads; ticking or clearing it there lasts until the page "
+            "is reloaded. The Resources dialog's own box starts ticked too.", (CI, GEN, SEND)),
     Setting("model_manager_send_usual_settings", "send", "checkbox",
             "Send with a picked checkpoint's usual settings by default",
             "Send uses a picked checkpoint's usual settings by default",

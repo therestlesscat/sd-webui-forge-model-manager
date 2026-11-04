@@ -32,11 +32,13 @@ const MODEL = { id: 1, model_id: 7, version_id: 70, name: 'Lighthouse', model_ty
                 file_path: 'C:/models/Stable-diffusion/lighthouse.safetensors' };
 
 globalThis.onAfterUiUpdate = () => {};
+let chooseSetting = false;               // Choose the checkpoint at every Send (#377)
 globalThis.fetch = async (url) => {
     const href = String(url);
     const reply = (body) => ({ ok: true, json: async () => body });
     if (href.includes('/model-manager/ui-options')) {
         return reply({ success: true, gallery_hide_nsfw: false, hide_promptless_images: false, has_api_key: true,
+                       choose_checkpoint: chooseSetting,
                        samplers: ['Euler', 'Euler a', 'DPM++ 2M'],
                        // No Uniform: the card reads the server's stamp (#302), not these lists -
                        // a card splitting the data's text itself could not find it.
@@ -141,16 +143,14 @@ check('    the card\'s Send as…: the Resources dialog, its box ticked, to pick
       [true, 'Send to txt2img']);
 document.querySelectorAll('#mm_meta_modal').forEach((m) => { m.close?.(); m.remove(); });
 document.querySelector('.mm-viewer')?.remove();
-// The two tabs' boxes are theirs alone (#377): ticked in this browser, the
+// The two tabs' boxes are theirs alone (#377): with their setting on, the
 // Model Manager card's Send goes at once.
-localStorage.setItem('mm_gallery_choose_checkpoint', 'true');
-localStorage.setItem('mm_generations_choose_checkpoint', 'true');
+chooseSetting = true;
 await act('modelManager.sendImage', { index: 0 });
 await new Promise((resolve) => setTimeout(resolve, 100));
-check('31. the tabs\' boxes ticked: the Model Manager\'s Send of a Civitai image opens no dialog',
+check('31. the tabs\' boxes\' setting on: the Model Manager\'s Send of a Civitai image opens no dialog',
       !!document.querySelector('.mm-resources-modal'), false);
-localStorage.removeItem('mm_gallery_choose_checkpoint');
-localStorage.removeItem('mm_generations_choose_checkpoint');
+chooseSetting = false;
 document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
 
 // ------------------------------------------------------------ Show All

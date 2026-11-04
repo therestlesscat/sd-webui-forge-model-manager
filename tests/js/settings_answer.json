@@ -864,7 +864,7 @@
   },
   "model_manager_send_choose_checkpoint": {
    "label": "Choose the checkpoint at every Send",
-   "info": "Every Send in the Civitai Images and Generations tabs opens the Resources dialog first, where you pick the checkpoint to send with. Each tab also has a box of its own for this in its toolbar, which this setting ticks or clears. The Resources dialog's own box starts ticked too.",
+   "info": "Every Send in the Civitai Images and Generations tabs opens the Resources dialog first, where you pick the checkpoint to send with. Each tab also has a box for this in its toolbar, Choose checkpoint, which starts as this setting says each time the page loads; ticking or clearing it there lasts until the page is reloaded. The Resources dialog's own box starts ticked too.",
    "kind": "bool",
    "default": false,
    "name": "Choose the checkpoint at every Send",

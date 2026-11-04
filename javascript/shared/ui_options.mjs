@@ -97,40 +97,11 @@ export function familyName(preset) {
     return familyNamesNow[preset] || preset || '';
 }
 
-// The Civitai Images and Generations tabs' "Choose the checkpoint at every
-// Send" boxes (#377), each kept in this browser like the tabs' other boxes.
-// With nothing kept, a box starts as the setting says; a change of the
-// setting forgets both (forgetChooseCheckpoint), so a tick kept from before
-// never outlives it.
+// The Civitai Images and Generations tabs' "Choose checkpoint" boxes (#377)
+// start as this setting says at every page load, and take it when it
+// changes; a tick lasts until the page reloads. They were kept in the
+// browser, and a kept tick outlived the setting it was to start from (#383).
 export const CHOOSE_CHECKPOINT_SETTING = 'model_manager_send_choose_checkpoint';
-const CHOOSE_CHECKPOINT_KEYS = { gallery: 'mm_gallery_choose_checkpoint',
-                                 generations: 'mm_generations_choose_checkpoint' };
-
-/** A tab's box as this browser kept it - true or false - or null where nothing is kept. */
-export function keptChooseCheckpoint(tab) {
-    try {
-        const kept = localStorage.getItem(CHOOSE_CHECKPOINT_KEYS[tab]);
-        return kept === null ? null : kept === 'true';
-    } catch (e) {
-        return null;
-    }
-}
-
-/** Keep a tab's box as the person left it. */
-export function keepChooseCheckpoint(tab, value) {
-    try {
-        localStorage.setItem(CHOOSE_CHECKPOINT_KEYS[tab], String(Boolean(value)));
-    } catch (e) { /* kept for this visit only */ }
-}
-
-/** Forget both tabs' boxes: the setting changed, and each starts from it again. */
-export function forgetChooseCheckpoint() {
-    for (const key of Object.values(CHOOSE_CHECKPOINT_KEYS)) {
-        try {
-            localStorage.removeItem(key);
-        } catch (e) { /* nothing kept */ }
-    }
-}
 
 /** The server's ui-options, as they are now. A failed call answers null. */
 export function fetchUiOptions() {

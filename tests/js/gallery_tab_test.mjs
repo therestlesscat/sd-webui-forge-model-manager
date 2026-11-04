@@ -514,7 +514,8 @@ const dialog = () => document.querySelector('.mm-resources-modal');
 const closeDialog = () => document.querySelectorAll('#mm_meta_modal').forEach((m) => { m.close?.(); m.remove(); });
 check('27. the toolbar\'s box, unticked as the setting is', $('gal_choose_checkpoint')?.checked, false);
 await tick('gallery.chooseCheckpoint', true);
-check('    ticked, kept in this browser', localStorage.getItem('mm_gallery_choose_checkpoint'), 'true');
+check('    ticked, kept nowhere in the browser: the setting starts it at the next page load (#383)',
+      localStorage.getItem('mm_gallery_choose_checkpoint'), null);
 loaded = loads.length;
 act('gallery.send', { tile: 0 });
 await waitFor('the dialog', () => dialog()?.querySelector('.mm-pick-row'));
@@ -547,7 +548,7 @@ check('27. the viewer\'s Send opens it too, the image\'s own picked; nothing sen
 closeDialog();
 (await sharedModule('viewer.mjs')).closeViewer();
 await tick('gallery.chooseCheckpoint', false);
-check('    unticked, kept so', localStorage.getItem('mm_gallery_choose_checkpoint'), 'false');
+check('    unticked, kept nowhere either', localStorage.getItem('mm_gallery_choose_checkpoint'), null);
 loaded = loads.length;
 act('gallery.send', { tile: 0 });
 await waitFor('the send, unticked', () => loads.length > loaded);

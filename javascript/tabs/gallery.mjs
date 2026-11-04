@@ -30,7 +30,7 @@ SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 const { apiCall, escapeHtml, safeId, setText } = await shared('core.mjs');
 const { tabWork, open } = await shared('loading.mjs');
 const {
-    galleryDefaults, nsfwModelNoteHtml, asUploaded, CHOOSE_CHECKPOINT_SETTING, keptChooseCheckpoint, keepChooseCheckpoint,
+    galleryDefaults, nsfwModelNoteHtml, asUploaded, CHOOSE_CHECKPOINT_SETTING,
 } = await shared('ui_options.mjs');
 const { showNotes } = await shared('notes.mjs');
 const { nsfwSwitch, renderFilterBanner } = await shared('gallery.mjs');
@@ -773,7 +773,6 @@ work.provide('gallery.view', ({ tile }) => viewTile(Number(tile)));
 work.provide('gallery.send', ({ tile }) => sendTile(tiles[Number(tile)]));
 work.provide('gallery.chooseCheckpoint', (data, box) => {
     showChooseCheckpoint(box?.checked);
-    keepChooseCheckpoint('gallery', chooseCheckpoint);
 });
 work.provide('gallery.showModel', ({ tile }) => showModel(tiles[Number(tile)]));
 work.provide('gallery.menu', ({ tile }, button) => openTileMenu(Number(tile), button));
@@ -809,10 +808,10 @@ export async function start(startScope) {
         const defaults = await galleryDefaults();
         nsfwMode = defaults.hideNsfw ? 'safe' : 'all';
         fast = defaults.galleryFast;
-        showChooseCheckpoint(keptChooseCheckpoint('gallery') ?? defaults.chooseCheckpoint);
+        showChooseCheckpoint(defaults.chooseCheckpoint);
     } catch (e) { /* the gallery's default: hidden; the grid Fast; the box unticked */ }
     // The grid setting saved, in the settings window or on the Settings page;
-    // and the box's, which forgot the tick kept (settings.mjs) - the box takes it (#377).
+    // and the box's, which the box takes (#377): a tick lasts until the page reloads (#383).
     const followGrid = (changed) => {
         if (changed.includes(GRID_SETTING)) {
             galleryDefaults().then((defaults) => switchGrid(defaults.galleryFast)).catch(() => {});

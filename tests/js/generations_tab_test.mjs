@@ -59,12 +59,13 @@ const ratings = [];
 let deleteBody = null;
 // Whether a delete takes the files too, to begin with (#107).
 let deleteFilesSetting = false;
+let chooseSetting = false;               // Choose the checkpoint at every Send (#377)
 globalThis.fetch = withGalleryPages(async (url, init = {}) => {
     const href = String(url);
     asked.push(href);
     const reply = (body) => ({ ok: true, json: async () => body });
     if (href.includes('/ui-options')) {
-        return reply({ success: true, samplers: [], schedulers: [], has_api_key: true,
+        return reply({ success: true, samplers: [], schedulers: [], has_api_key: true, choose_checkpoint: chooseSetting,
                        image_browsing: 'continuous', generations_delete_files: deleteFilesSetting });
     }
     // Send's text where the tab has no loader, as the server builds it (#302):
@@ -263,10 +264,9 @@ pasted.img2img = 0;
 check('a card sends back to the tab its generation was made in',
       [buttons(cards()[0])[0], buttons(cards()[1])[0]], ['Send to txt2img', 'Send to img2img']);
 check('30. with Send as… right after Send (#377)', buttons(cards()[0])[1], 'Send as…');
-// The two tabs' boxes (#377) are theirs alone: ticked in this browser, the
+// The two tabs' boxes (#377) are theirs alone: with their setting on, the
 // Model Manager's Send still goes at once.
-localStorage.setItem('mm_generations_choose_checkpoint', 'true');
-localStorage.setItem('mm_gallery_choose_checkpoint', 'true');
+chooseSetting = true;
 await act('modelManager.sendGeneration', { generation: 1 });
 // The text is the server's now (#302): the paste button waits for it.
 await waitFor('the paste into txt2img', () => pasted.txt2img > 0);
@@ -277,10 +277,9 @@ await act('modelManager.sendGeneration', { generation: 2 });
 await waitFor('the paste into img2img', () => pasted.img2img > 0);
 check('an img2img generation\'s goes to img2img', [document.querySelector('#img2img_prompt textarea').value,
       pasted.img2img], ['a harbour\nSteps: 30', 1]);
-check('31. the tabs\' boxes ticked in this browser: the Model Manager\'s Send went at once, no dialog',
+check('31. the tabs\' boxes\' setting on: the Model Manager\'s Send went at once, no dialog',
       !!document.querySelector('.mm-resources-modal'), false);
-localStorage.removeItem('mm_generations_choose_checkpoint');
-localStorage.removeItem('mm_gallery_choose_checkpoint');
+chooseSetting = false;
 // Send as…: the Resources dialog, your checkpoints to pick from; nothing pasted yet.
 const pastedBeforeAs = pasted.txt2img;
 await act('modelManager.sendGenerationAs', { generation: 1 });

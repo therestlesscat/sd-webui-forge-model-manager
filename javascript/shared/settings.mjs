@@ -25,7 +25,6 @@ const { ready, call } = await shared('calls.mjs');
 // The upkeep panel's own `ask` polls the server: the question is askUser here.
 const { ask: askUser, openDialog } = await shared('dialog.mjs');
 const { refreshWebUiModelList } = await shared('forge.mjs');
-const { CHOOSE_CHECKPOINT_SETTING, forgetChooseCheckpoint } = await shared('ui_options.mjs');
 
 // Forge's refresh, pressed from the presets' Refresh, waits on the watcher of
 // Forge's calls, which it starts.
@@ -1282,7 +1281,6 @@ function createSettings() {
             if ((answer.changed || []).some((key) => NSFW_KEYS.includes(key))) restampNotice().watch();
             take(answer);
             shown?.close('code');
-            forgetBoxesOn(answer.changed || []);
             window.dispatchEvent(new CustomEvent('mm-settings-saved', {
                 detail: { changed: answer.changed || [], settings: answer.settings },
             }));
@@ -1766,15 +1764,6 @@ export function changedOnSettingsPage(text) {
 }
 
 /**
- * The setting "Choose the checkpoint at every Send" changed, in this window or
- * on Forge's Settings page (#377): both tabs' kept boxes are forgotten here,
- * in the one place both changes pass, so each starts from the setting again.
- */
-function forgetBoxesOn(changed) {
-    if (changed.includes(CHOOSE_CHECKPOINT_SETTING)) forgetChooseCheckpoint();
-}
-
-/**
  * Show the notice after Apply on the Settings page, too, when what it applied
  * changes how images are judged. The Settings page is part of the same page as
  * the tabs, so this is one listener for it, set once.
@@ -1801,7 +1790,6 @@ function followSettingsPage(scope) {
             if (changed.some((key) => NSFW_KEYS.includes(key))) {
                 restampNotice().watch();
             }
-            forgetBoxesOn(changed);
             // For what else follows a setting - "Generations" hides its tabs.
             window.dispatchEvent(new CustomEvent('mm-settings-page-applied', { detail: { changed } }));
         }

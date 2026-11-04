@@ -1,9 +1,9 @@
 // The Generations and Civitai Images tabs' box "Choose the checkpoint at
-// every Send" (#377), and its setting. With nothing kept in this browser, the
-// box starts as the setting says; a change of the setting - which forgets the
-// ticks kept, whichever tabs run (settings_window_test.mjs, with neither) -
-// sets the box of each tab running at once: both, then the one left on. A
-// dialog already open stays as it is, its box as it was.
+// every Send" (#377), and its setting. The box starts as the setting says at
+// every page load - a tick an earlier version kept in this browser is not
+// read (#383) - and a change of the setting sets the box of each tab running
+// at once: both, then the one left on. A dialog already open stays as it is,
+// its box as it was.
 import { checker, mountTab, sharedModule, startTab, tabMarkup } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_generations.py');
@@ -35,15 +35,18 @@ globalThis.fetch = async (url) => {
     return reply({ success: true });
 };
 
-localStorage.removeItem('mm_generations_choose_checkpoint');
-localStorage.removeItem('mm_gallery_choose_checkpoint');
+// Ticks an earlier version kept, both unticked, under a setting that is on.
+localStorage.setItem('mm_generations_choose_checkpoint', 'false');
+localStorage.setItem('mm_gallery_choose_checkpoint', 'false');
 await startTab('generations');
 await startTab('gallery');
 const box = () => document.getElementById('gen_choose_checkpoint');
 const galleryBox = () => document.getElementById('gal_choose_checkpoint');
 await waitFor('the boxes set from the setting', () => box()?.checked && galleryBox()?.checked);
-check('29. nothing kept in this browser: both tabs\' boxes start as the setting says',
+check('29. both tabs\' boxes start as the setting says, a tick kept in this browser not read',
       [box()?.checked, galleryBox()?.checked], [true, true]);
+localStorage.removeItem('mm_generations_choose_checkpoint');
+localStorage.removeItem('mm_gallery_choose_checkpoint');
 
 // The setting changed: the tab hears it as it does every saved setting.
 const changed = () => window.dispatchEvent(new window.CustomEvent('mm-settings-saved',

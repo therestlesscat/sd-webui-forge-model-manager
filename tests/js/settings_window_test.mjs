@@ -820,10 +820,10 @@ applied('1 settings changed: model_manager_nsfw_prompt_words.');
 await waitFor('the notice, the same line again', () => notice().style.display !== 'none', 20);
 check('applying the same change again shows it too', noticeText(), `Done: ${n(7)} of ${n(100000)} images changed level.`);
 
-// The tabs' boxes "Choose the checkpoint at every Send" (#377): a change of
-// their setting, applied on Forge's Settings page or saved in the window,
-// forgets both tabs' kept ticks, in the one place both changes pass - each
-// starts from the setting again. Any other change keeps them.
+// The tabs' boxes "Choose the checkpoint at every Send" (#377) keep nothing
+// in the browser (#383): a change of their setting, applied on Forge's
+// Settings page or saved in the window, writes nothing there - a tick an
+// earlier version kept is left as it is, and never read.
 const CHOOSE = 'model_manager_send_choose_checkpoint';
 const keepBoxes = () => {
     localStorage.setItem('mm_gallery_choose_checkpoint', 'true');
@@ -834,14 +834,10 @@ const keptBoxes = () => [localStorage.getItem('mm_gallery_choose_checkpoint'),
 const appliedEvents = [];
 window.addEventListener('mm-settings-page-applied', (e) => appliedEvents.push(e.detail.changed));
 keepBoxes();
-applied('1 settings changed: sd_vae.');
-await waitFor('another setting applied', () => appliedEvents.some((c) => c.includes('sd_vae')), 20);
-check('29. another setting applied on the Settings page: both kept ticks stay', keptBoxes(), ['true', 'false']);
 applied(`1 settings changed: ${CHOOSE}.`);
 await waitFor('the box\'s setting applied', () => appliedEvents.some((c) => c.includes(CHOOSE)), 20);
-check('    its own, applied on the Settings page: both forgotten, before the tabs hear of it',
-      keptBoxes(), [null, null]);
-keepBoxes();
+check('29. its setting applied on the Settings page: the browser\'s storage as it was',
+      keptBoxes(), ['true', 'false']);
 await call('settings.open');
 const chooseBox = field(CHOOSE)?.querySelector('input[type="checkbox"]');
 if (chooseBox) {
@@ -851,8 +847,8 @@ if (chooseBox) {
 const savesBeforeChoose = saved.length;
 $('#mm_settings_save').click();
 await waitFor('the box\'s setting saved', () => saved.length > savesBeforeChoose, 20);
-check('    saved in the window: both forgotten too', [Boolean(chooseBox), saved.at(-1), keptBoxes()],
-      [true, [CHOOSE], [null, null]]);
+check('    saved in the window: as it was too', [Boolean(chooseBox), saved.at(-1), keptBoxes()],
+      [true, [CHOOSE], ['true', 'false']]);
 // Back to its default, for the counts below.
 await call('settings.open');
 const chooseAgain = field(CHOOSE)?.querySelector('input[type="checkbox"]');
@@ -863,6 +859,8 @@ if (chooseAgain) {
 const savesBeforeBack = saved.length;
 $('#mm_settings_save').click();
 await waitFor('the box\'s setting put back', () => saved.length > savesBeforeBack, 20);
+localStorage.removeItem('mm_gallery_choose_checkpoint');
+localStorage.removeItem('mm_generations_choose_checkpoint');
 
 // Every image judged, the changes being written.
 notice().style.display = 'none';
