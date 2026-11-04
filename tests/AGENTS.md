@@ -66,7 +66,12 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   `JSON.stringify` of both, and a function becomes nothing: `check(label,
   globalThis.fetch, standIn)` passes whatever `fetch` is. #321's two such
   checks passed a break that left the watcher on; compared as booleans
-  (`globalThis.fetch === standIn`), the break failed one.
+  (`globalThis.fetch === standIn`), the break failed one. And `undefined` as
+  the expected value checks for `true`: `check(what, got, want = true)` takes
+  an `undefined` third argument as its default. #378's check that an unticked
+  Send's source has no `usual`, written `check(label, source.usual,
+  undefined)`, demanded `true`; it is `check(label, 'usual' in source,
+  false)`.
 - **A new suite runs on the old code from a copy of HEAD.** `git archive HEAD
   | tar -x -C tests/work/<x>/head`, the suite copied into that tree: its
   paths come from its own place, so HEAD's package runs and the working tree

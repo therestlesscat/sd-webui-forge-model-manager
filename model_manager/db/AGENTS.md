@@ -229,6 +229,12 @@ the lookup and the write leaves a row naming nothing.
   ignoring case: 0.44.8 did that for the upserts alone, and every other read
   and write by path missed a file a walk spelt another way, which a sync then
   hashed and looked up on every run (#120).
+- **Civitai's meta holds whole numbers past 64 bits.** 25 of one library's
+  stored seeds are past 2^63, and `sqlite3` raises `OverflowError` binding
+  them: v48 would have failed on them, and every later fetch of those images.
+  `db/params_table.py` keeps such a value, and a meta that is not an object,
+  as no value (#378). A new column filled from a record's meta needs the
+  same guard.
 
 ### The code
 

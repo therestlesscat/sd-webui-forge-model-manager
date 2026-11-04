@@ -601,6 +601,15 @@ the stats off on most cards that had it. The owner's screenshot found it.
 And a probe of a row's fit gives the row the width the live tab does: #377's
 toolbar probe measured one line at 1280 px on a 1,236 px toolbar, while Neo's
 tab gives it 1,170, and live it was two (59 px against 48).
+And a probe of a window's fit keeps the window's own placement, at a short
+window's height: #378's laid the Resources dialog out as plain markup
+(`position: static`), which skips its 80% cap, and measured it "taller by
+the block alone"; live at 720 px the dialog's foot held 575 px of 576, and
+the tick sat off the window. Headless Edge's `--window-size=1280,720` gives a
+628 px page; a 720 px page needs `1280,812`. And "unchanged where it fit" is
+measured at more than one height: the fix that let the foot scroll was told
+as changing nothing on a tall window, and at a 908 px page the resource list
+above it went from 60 to 155 px, the foot scrolling 95.
 
 ## Conventions
 
