@@ -186,10 +186,24 @@ the code (2026-10-16).
   kind cost before. On #272 (2026-10-14) five agents read one suite each,
   then were resumed to build them, and the owner heard of each round only
   once it had started: the reading cost 131-238 k tokens an agent, 0.98 M
-  in all; the building 144-307 k, 1.22 M in all.
+  in all; the building 144-307 k, 1.22 M in all. A read-only analysis by
+  xhigh agents, one path of 7 to 25 files each, cost 270-480 k tokens an
+  agent, about 7.5 M over 20 runs (2026-11-03).
 - **Agents at once each get a folder of their own** under the scratchpad. On
   #272 two wrote `hooks.mjs` at its root, and one's proof runs used the
   other's breaks until it noticed and ran them again.
+- **An agent's report is saved whole the moment it arrives.** A subagent
+  cannot write a report file; its report is its final message, and the
+  session's own context is later summarised. The 2026-11-03 analysis's 19
+  path docs were written as condensed rewrites, and the reports were kept
+  nowhere until the owner: "its okay to have summary, but loss of
+  information is unacceptable". Each was then pulled from its agent's
+  transcript into `tests/work/`, and added to its doc as a tab of its own.
+  A summary goes beside a report, never in its place.
+- **A security review is briefed as a defensive one:** each weakness by its
+  class and place, no steps of an attack. The analysis's security path ran
+  twice: a safety filter withheld the first run's write-up, 372 k tokens
+  lost, and the rerun so briefed delivered.
 - **"Unchanged" in a plan means byte for byte.** #259's plan kept Classic's
   reads unchanged: the fallback while Single pass is alpha. While building,
   three were moved into helpers Single pass shared; a side agent caught it,
@@ -1013,7 +1027,9 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   `printf`. A word starting with `=` is looked up as a command: `echo ======`
   fails ("= not found"); use `printf -- '-----\n'`. A colon after a
   variable is a modifier: `"refs/tags/$t:refs/tags/$t"` read `$t:r`, mangled
-  318 refspecs, and aborted a push - write `${t}:`.
+  318 refspecs, and aborted a push - write `${t}:`. A glob that matches
+  nothing is an error, not a word: `grep -r --include=*.md` fails with "no
+  matches found" and runs nothing. Quote it: `--include='*.md'`.
 - **7880's copy of the extension is its own**: a git clone with files copied
   over it - not a link to this working tree - so its version is the last
   copy's (0.61.0 on 2026-10-16, its database at v43). A change reaches it
