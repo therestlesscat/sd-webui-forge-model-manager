@@ -232,6 +232,7 @@ check("a task's send plan: its mode, checkpoint and modules, as Send sets them",
       {'mode': 'txt2img', 'checkpoint': 'sdxl\\model.safetensors', 'checkpoint_missing': None,
        'target': ['sdxl_vae.safetensors'], 'modules_missing': []})
 check('on Send\'s one route, with its kind (#302)', plan['kind'], 'task')
+check('and its checkpoint by name, the one of a task of one (#400)', plan.get('checkpoints'), ['sdxl\\model.safetensors'])
 LISTED.clear()
 forge_host.installed_modules = lambda: {}
 plan = task_plan_of(done).json()
@@ -358,6 +359,10 @@ check("a task's row lists each checkpoint and how its run ended, for the Queue t
       [{'checkpoint': 'a.safetensors', 'modules': [], 'status': 'completed', 'error': None},
        {'checkpoint': 'b.safetensors', 'modules': ['F:\\vae\\b_vae.safetensors'], 'status': 'failed', 'error': 'gone'},
        {'checkpoint': 'c.safetensors', 'modules': None, 'status': 'completed', 'error': None}])
+# Load to UI's plan names every checkpoint, in order: the page enters several
+# mode with them where there are more than one; a task of one names its one.
+check("Load to UI's plan names each of a task's checkpoints, in order",
+      task_plan_of(three).json().get('checkpoints'), ['a.safetensors', 'b.safetensors', 'c.safetensors'])
 
 db.close()
 

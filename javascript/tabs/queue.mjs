@@ -67,8 +67,10 @@ await shared('settings.mjs');
 
 // What this tab uses that has work of its own - a listener, a request: the
 // loading module starts each once for the page, before this tab (#182, #183).
+// Several mode (#400) is the Queue's: it stops with this tab, Generate back,
+// and its click listener comes before this tab's large-batch one.
 export const STARTS = ['core.mjs', 'calls.mjs', 'ui_options.mjs', 'notes.mjs', 'send.mjs', 'update_notice.mjs',
-    'settings.mjs'];
+    'settings.mjs', 'several.mjs'];
 
 // What this tab does once started, declared where it belongs below and done by
 // start(scope) through the scope (shared/loading.mjs, #183): nothing runs as

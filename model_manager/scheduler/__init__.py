@@ -20,6 +20,10 @@ from ..tabs import TABS, on
 # The Queue tab's switch (tabs.py), registered in ui/settings.py; its default
 # is forge_host.DEFAULTS'.
 QUEUE_ENABLED = TABS["queue"]
+# Queue a generation with several checkpoints (#400): the Resources dialog's
+# list takes several ticks, and txt2img's several mode queues one task with
+# them. Its default is forge_host.DEFAULTS'.
+SEVERAL_SETTING = "model_manager_queue_several"
 
 
 def queue_enabled() -> bool:

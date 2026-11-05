@@ -140,6 +140,13 @@ check('it says above how many images Generate asks first (#166): never, by defau
 setattr(shared.opts, 'model_manager_queue_ask_above', 4)
 check('or above as many as set', client.get('/model-manager/ui-options').json().get('queue_ask_above'), 4)
 delattr(shared.opts, 'model_manager_queue_ask_above')
+# Queue a generation with several checkpoints (#400): the page enters several
+# mode only while it is on, off by default.
+check('it says whether txt2img may hold several checkpoints: off, by default',
+      client.get('/model-manager/ui-options').json().get('queue_several'), False)
+setattr(shared.opts, 'model_manager_queue_several', True)
+check('and on, once turned on', client.get('/model-manager/ui-options').json().get('queue_several'), True)
+delattr(shared.opts, 'model_manager_queue_several')
 
 db.close()
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')

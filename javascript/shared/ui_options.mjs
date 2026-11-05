@@ -103,6 +103,10 @@ export function familyName(preset) {
 // browser, and a kept tick outlived the setting it was to start from (#383).
 export const CHOOSE_CHECKPOINT_SETTING = 'model_manager_send_choose_checkpoint';
 
+// Queue a generation with several checkpoints (#400): txt2img's several mode
+// holds a list only while it is on, and ends when it is turned off.
+export const SEVERAL_SETTING = 'model_manager_queue_several';
+
 /** The server's ui-options, as they are now. A failed call answers null. */
 export function fetchUiOptions() {
     return fetch('/model-manager/ui-options', { cache: 'no-store' })

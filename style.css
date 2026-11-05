@@ -6103,9 +6103,37 @@ textarea.mm-settings-input {
 }
 
 /* Queue for N checkpoints, beside txt2img's Generate (#400): made with the
-   Queue button, and hidden until the page's several mode shows it. */
+   Queue button, and standing in Generate's place only while the page's
+   several mode holds a list (javascript/shared/several.mjs). Interrupt and
+   Skip lie over the box as before: only Generate is hidden. */
+body:not(.mm-several) #txt2img_queue_several,
+body.mm-several #txt2img_generate {
+    display: none !important;
+}
+
+/* As tall as the Generate it stands in for (the WebUI's own rule). */
 #txt2img_queue_several {
-    display: none;
+    min-height: 4.5em;
+}
+
+.generate-box-compact #txt2img_queue_several {
+    min-height: 3em;
+}
+
+/* Under Generate's box: the checkpoints the mode holds, and Leave. Its text
+   takes the theme's colours, in both modes. */
+.mm-several-strip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+    font-size: var(--text-sm, 0.875rem);
+}
+
+.mm-several-names {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 
 /* The queue's state, the task it is on, its counts, and its controls. */

@@ -6,12 +6,13 @@
 // The registry: a name nothing has offered answers undefined and says so; an
 // offer is called with what it is given; offered again, the later answers.
 // It is one for the page, even when the shared modules load twice. And with
-// all three tabs loaded, every name the page calls has been offered.
+// the four tabs loaded, every name the page calls has been offered - several
+// mode's (#400) by the Queue tab, which starts it.
 import { readdirSync, readFileSync } from 'node:fs';
 import { ROOT, checker, mountTab, startTab, tabMarkup } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
-for (const tab of ['tab_civitai_browser.py', 'tab_generations.py']) {
+for (const tab of ['tab_civitai_browser.py', 'tab_generations.py', 'tab_queue.py']) {
     document.body.insertAdjacentHTML('beforeend', tabMarkup(`model_manager/ui/${tab}`));
 }
 const { check, done } = checker();
@@ -43,6 +44,7 @@ globalThis.fetch = async () => ({ ok: true, json: async () => ({ success: true }
 await startTab('modelManager');
 await startTab('civitaiBrowser');
 await startTab('generations');
+await startTab('queue');
 
 const files = [...readdirSync(`${ROOT}/javascript`).filter((f) => f.endsWith('.mjs')),
                ...readdirSync(`${ROOT}/javascript/shared`).filter((f) => f.endsWith('.mjs')).map((f) => `shared/${f}`)];

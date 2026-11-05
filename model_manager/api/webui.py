@@ -197,7 +197,7 @@ def register(app: FastAPI):
         from ..db import database_state, migration_state
         from ..generations import GENERATIONS_DELETE_FILES, GENERATIONS_HIDE_NSFW, generations_enabled
         from ..grids import GALLERY_GRID, GENERATIONS_GRID, grid
-        from ..scheduler import queue_enabled
+        from ..scheduler import SEVERAL_SETTING, queue_enabled
         from ..forge_modules import FAMILY_NAMES
         from ..send import CHOOSE_CHECKPOINT_SETTING, RENAME_LORAS_SETTING, USUAL_SETTINGS_SETTING
         from ..tabs import TABS, built, on
@@ -244,6 +244,9 @@ def register(app: FastAPI):
         generations_on = generations_enabled()
         # The queue: off, its tab and the Queue buttons are hidden (scheduler/__init__.py).
         queue_on = queue_enabled()
+        # Whether txt2img may hold several checkpoints to queue (#400): the
+        # page enters several mode only while it is on.
+        queue_several = bool(setting(SEVERAL_SETTING))
         # Each tab: whether it is on, and whether this start created it -
         # one switched on since needs a restart (tabs.py).
         made = built()
@@ -290,6 +293,7 @@ def register(app: FastAPI):
                 "generations_enabled": generations_on,
                 "queue_enabled": queue_on,
                 "queue_ask_above": queue_ask_above,
+                "queue_several": queue_several,
                 "tabs": tabs,
                 "restartable": can_restart,
                 # What the paths the pages show are read from (shownPath, ui_options.mjs).
@@ -323,7 +327,7 @@ def register(app: FastAPI):
                  "generations_delete_files": generations_delete_files,
                  "generations_grid": generations_grid, "gallery_grid": gallery_grid,
                  "generations_enabled": generations_on,
-                 "queue_enabled": queue_on,
+                 "queue_enabled": queue_on, "queue_several": queue_several,
                  "tabs": tabs, "restartable": can_restart},
                 status_code=500
             )

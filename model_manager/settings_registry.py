@@ -358,6 +358,14 @@ SETTINGS: Tuple[Setting, ...] = (
             "the checkpoint to send with. Each tab also has a box for this in its toolbar, Choose checkpoint, which "
             "starts as this setting says each time the page loads; ticking or clearing it there lasts until the page "
             "is reloaded. The Resources dialog's own box starts ticked too.", (CI, GEN, SEND)),
+    Setting("model_manager_queue_several", "send", "checkbox", "Queue a generation with several checkpoints",
+            "Queue a generation with several checkpoints",
+            "When on, you can tick several checkpoints in the Resources dialog's list of your checkpoints. Send then "
+            "takes you to txt2img, where Generate becomes a button such as Queue for 3 checkpoints: one task in the "
+            "Queue that makes your generation with each checkpoint in turn. Each checkpoint but the image's own, or "
+            "the same file, runs with its usual settings where it has them - sampler, schedule type, steps, CFG and "
+            "Distilled CFG or Shift, with Hires fix following them - in place of yours. When off, the list picks "
+            "one checkpoint, as before.", (SEND,), needs=(Q,)),
     Setting("model_manager_send_usual_settings", "send", "checkbox",
             "Send with a picked checkpoint's usual settings by default",
             "Send uses a picked checkpoint's usual settings by default",

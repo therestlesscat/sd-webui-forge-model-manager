@@ -256,5 +256,17 @@ check('35. the usual-settings tick\'s setting is registered: Send\'s group, its 
       ('send', 'Send with a picked checkpoint\'s usual settings by default',
        'Send uses a picked checkpoint\'s usual settings by default', ('send',), True))
 
+# "Queue a generation with several checkpoints" (#400): in Send's group,
+# acting wherever Send goes, shown only with the Queue on, off by default.
+several = next((s for s in settings if s.key == 'model_manager_queue_several'), None)
+check('36. several checkpoints\' setting is registered: Send\'s group, its names, shown with the Queue, off',
+      (several.group, several.name, several.page_name, several.tags, several.shown_with, DEFAULTS.get(several.key))
+      if several else None,
+      ('send', 'Queue a generation with several checkpoints', 'Queue a generation with several checkpoints',
+       ('send',), ('queue',), False))
+keys = [s.key for s in settings]
+check('37. and drawn right after Choose the checkpoint at every Send, whose list it changes',
+      keys.index('model_manager_queue_several') - keys.index('model_manager_send_choose_checkpoint') if several else None, 1)
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

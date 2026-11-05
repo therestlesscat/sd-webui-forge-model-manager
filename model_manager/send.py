@@ -1729,8 +1729,8 @@ def task_plan(db, task_id: int) -> Optional[Dict[str, Any]]:
     list is named in checkpoint_missing. It may read the checkpoint's header.
 
     Returns:
-        The plan with the task's `mode`, or None for no task this install
-        queued.
+        The plan with the task's `mode` and its `checkpoints` by name, or
+        None for no task this install queued.
     """
     from .forge_host import checkpoint_file
     from .install import INSTALL_KEY
@@ -1745,7 +1745,9 @@ def task_plan(db, task_id: int) -> Optional[Dict[str, Any]]:
     plan = plan_for(db, path or "", first.get("modules") or [])
     if first.get("checkpoint") and not path:
         plan["checkpoint_missing"] = first["checkpoint"]
-    return {"mode": task["mode"], **plan}
+    # Every row's checkpoint by Forge's name, in order: the page enters
+    # several mode with them where there are more than one (#400).
+    return {"mode": task["mode"], **plan, "checkpoints": [row.get("checkpoint") for row in rows]}
 
 
 # ---------------------------------------- the Resources dialog's checkpoints

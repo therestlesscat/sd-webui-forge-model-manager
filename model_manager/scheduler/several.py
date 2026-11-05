@@ -18,7 +18,9 @@ Then each name's row:
   - its usual settings (#378), as Send works them out for one pick
     (usual_settings.chosen): against the image Send was given, its own
     checkpoint or the same file runs as made and takes none; against a task
-    Load to UI loaded, a name the task held keeps what it ran with there.
+    Load to UI loaded, a name the task held keeps what it ran with there. A
+    task deleted since holds nothing: each name takes its usual settings,
+    and the press says so (gone_task).
 
 A refusal names what is wrong and saves nothing: Refused.
 """
@@ -116,15 +118,33 @@ def _listed(words: List[str]) -> str:
     return words[0] if len(words) == 1 else f"{', '.join(words[:-1])} and {words[-1]}"
 
 
-def _task_rows(db, task_id: Any) -> Dict[str, Optional[Dict[str, Any]]]:
-    """A queued task's settings by checkpoint, for a list Load to UI loaded; none for no task."""
+def gone_task(db, source: Any) -> Optional[int]:
+    """
+    The task a list Load to UI loaded, by its id, when this install holds it
+    no more - deleted since the list was loaded: its rows' settings went with
+    it, and each name takes its usual settings. None for any other source.
+    """
+    task_id = source.get("task") if isinstance(source, dict) else None
+    try:
+        task_id = int(task_id)
+    except (TypeError, ValueError):
+        return None
+    return None if _task(db, task_id) else task_id
+
+
+def _task(db, task_id: Any) -> Optional[Dict[str, Any]]:
+    """A task this install queued, or None."""
     if task_id in (None, ""):
-        return {}
+        return None
     from ..install import INSTALL_KEY
     try:
         task = db.get_task(int(task_id))
     except (TypeError, ValueError):
-        return {}
-    if not task or task.get("install") != INSTALL_KEY:
-        return {}
+        return None
+    return task if task and task.get("install") == INSTALL_KEY else None
+
+
+def _task_rows(db, task_id: Any) -> Dict[str, Optional[Dict[str, Any]]]:
+    """A queued task's settings by checkpoint, for a list Load to UI loaded; none for no task."""
+    task = _task(db, task_id)
     return {row.get("checkpoint"): row.get("settings") for row in (task or {}).get("checkpoints") or []}

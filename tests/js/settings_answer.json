@@ -884,6 +884,25 @@
    "switch": null,
    "value": false
   },
+  "model_manager_queue_several": {
+   "label": "Queue a generation with several checkpoints",
+   "info": "When on, you can tick several checkpoints in the Resources dialog's list of your checkpoints. Send then takes you to txt2img, where Generate becomes a button such as Queue for 3 checkpoints: one task in the Queue that makes your generation with each checkpoint in turn. Each checkpoint but the image's own, or the same file, runs with its usual settings where it has them - sampler, schedule type, steps, CFG and Distilled CFG or Shift, with Hires fix following them - in place of yours. When off, the list picks one checkpoint, as before.",
+   "kind": "bool",
+   "default": false,
+   "name": "Queue a generation with several checkpoints",
+   "group": "send",
+   "heading": "Shared across tabs",
+   "tags": [
+    "send"
+   ],
+   "shown_with": [
+    "queue"
+   ],
+   "under": null,
+   "badges": [],
+   "switch": null,
+   "value": false
+  },
   "model_manager_send_usual_settings": {
    "label": "Send uses a picked checkpoint's usual settings by default",
    "info": "When you pick one of your own checkpoints in the Resources dialog in place of the image's, the dialog shows what that checkpoint is usually run with - its sampler, schedule type, steps and CFG scale - and a box under them, Send with these instead of the image's. When this is on, the box starts ticked at each pick, and Send uses them; you can still untick it for one Send. When off, it starts unticked, and Send keeps the image's own settings unless you tick it. A dialog already open keeps what it started with.",
@@ -1485,6 +1504,7 @@
   "model_manager_send_clip_skip_max",
   "model_manager_send_rename_loras",
   "model_manager_send_choose_checkpoint",
+  "model_manager_queue_several",
   "model_manager_send_usual_settings",
   "model_manager_modules_flux",
   "model_manager_modules_klein",

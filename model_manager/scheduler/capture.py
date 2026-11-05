@@ -304,8 +304,10 @@ def _several_handler(tab: str, own, others, inputs) -> Callable:
             asked = {}
         try:
             names = asked.get("names")
-            rows = several.checkpoint_rows(get_models_db(), names if isinstance(names, list) else [],
+            db = get_models_db()
+            rows = several.checkpoint_rows(db, names if isinstance(names, list) else [],
                                            asked.get("source"), selected_models())
+            gone = several.gone_task(db, asked.get("source"))
             _task_id, prompt = capture(tab, own, others, inputs, values[:-1],
                                        getattr(request, "username", None), checkpoints=rows)
         except several.Refused as e:
@@ -318,6 +320,9 @@ def _several_handler(tab: str, own, others, inputs) -> Callable:
         prompt = " ".join(str(prompt or "").split())
         gr.Info(f"Queued for {len(rows)} checkpoint{'' if len(rows) == 1 else 's'}: "
                 f"{prompt[:60] + '…' if len(prompt) > 60 else prompt or '(no prompt)'}")
+        if gone is not None:
+            # The list came from a task deleted since: what each ran with there went with it.
+            gr.Info(f"Task #{gone} is deleted, so each checkpoint runs with its usual settings where it has them.")
 
     return queue_several
 

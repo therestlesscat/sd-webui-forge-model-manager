@@ -9,7 +9,8 @@ one selected in Forge gets the VAE / text encoders on screen; another family
 what Send picks for it, as paths, and is marked so. Its usual settings are
 asked as Send asks them, against the image Send was given - its own
 checkpoint takes none - or, for a list Load to UI loaded, kept from the task
-for a name it held. A refused press saves nothing, and says why.
+for a name it held - and, from a task deleted since, asked afresh, which
+the press says. A refused press saves nothing, and says why.
 """
 import json
 import os
@@ -215,6 +216,22 @@ check('a refused press saves nothing and says why; no list, or one not as the pa
 said.clear()
 press(request, 'a red apple', 20, json.dumps({'names': ['photo.safetensors']}))
 check('one checkpoint is said as one', said, [('info', 'Queued for 1 checkpoint: a red apple')])
+# A list Load to UI loaded from a task deleted since: what each name ran
+# with there went with it, so each takes its usual settings, and the press
+# says so. A task still there says nothing more.
+said.clear()
+saved.clear()
+press(request, 'a red apple', 20, json.dumps({'names': ['anime.safetensors', 'photo.safetensors'],
+                                              'source': {'task': 999999}}))
+check('from a task deleted since: queued, each with its usual settings, and said',
+      ([r['settings'] for r in saved[0][3]] if saved else None, said),
+      ([{'usual': USUAL['anime.safetensors']}, {'usual': USUAL['photo.safetensors']}],
+       [('info', 'Queued for 2 checkpoints: a red apple'),
+        ('info', 'Task #999999 is deleted, so each checkpoint runs with its usual settings where it has them.')]))
+said.clear()
+press(request, 'a red apple', 20, json.dumps({'names': ['anime.safetensors', 'photo.safetensors'],
+                                              'source': {'task': task}}))
+check('from a task still there, nothing more is said', said, [('info', 'Queued for 2 checkpoints: a red apple')])
 capture.capture = real_capture
 
 db.close()

@@ -33,6 +33,8 @@ const { videoFrames } = await shared('wan.mjs');
 const { showImageResources } = await shared('resources.mjs');
 const { refreshWebUiModelList, forgeCalls } = await shared('forge.mjs');
 const { showProgress } = await shared('dialog.mjs');
+const { ready, call } = await shared('calls.mjs');
+const { SEVERAL_SETTING } = await shared('ui_options.mjs');
 
 // The highest Clip skip Send takes from an image (#339), which its notice links to (#320).
 const CLIP_SKIP_MAX_SETTING = 'model_manager_send_clip_skip_max';
@@ -176,7 +178,8 @@ export async function sendInfotext({ infotext, mode, meta = {}, generationId = n
     // press's own (#34) - and what kept what was on screen.
     const whenReplayed = async (answer) => {
         await applyModules(plan);
-        showGenerationTab(tab, answer.mode);
+        // The send left several mode as it went (below): a list entered since stays.
+        showGenerationTab(tab, answer.mode, { leave: false });
         if (sending) await putPicture(sending);
         else if (tab === 'img2img') sourceNotice(await pressCanvas(answer.mode, { generation: Number(generationId) }));
         const kept = [...(answer.skipped || []), ...(answer.notes || [])];
@@ -857,7 +860,9 @@ async function applyModules(plan, { vaeName, what = 'This generation was made wi
  * a text holds its keys, and a task with it off still holds them. What
  * could not be set keeps what was on screen, and is said - a checkpoint this
  * WebUI does not list too: the task is loaded with the one loaded (#314).
- * Answers the loader's answer, or null.
+ * A task of several checkpoints (#400) is set up for its first, and txt2img
+ * enters several mode with them all while its setting is on; with it off,
+ * the notice says so. Answers the loader's answer, or null.
  */
 export async function loadTask(taskId) {
     let plan = null;
@@ -886,6 +891,26 @@ export async function loadTask(taskId) {
                    + 'list: it is loaded with the checkpoint loaded now.', { info: true });
     }
     showGenerationTab(tab, answer.mode);
+    // A task of several checkpoints (#400): txt2img holds them all, in
+    // several mode, while its setting is on; with it off, the first alone is
+    // set up, and said.
+    const names = (plan.checkpoints || []).filter(Boolean);
+    if (tab === 'txt2img' && names.length > 1) {
+        const held = ready('several.enter') && await call('several.enter',
+                                                           { names, source: { task: Number(taskId) } });
+        const first = `Task #${Number(taskId)} holds ${names.length} checkpoints. Load to UI set up the first.`;
+        if (held === 'off') {
+            // Only the setting is named, and only when it is what kept the mode out.
+            const rest = ' to queue them all again.';
+            showNotice(`${first} Turn on Queue a generation with several checkpoints${rest}`, {
+                info: true,
+                html: `${escapeHtml(`${first} Turn on `)}${
+                    settingLink(SEVERAL_SETTING, 'Queue a generation with several checkpoints')}${escapeHtml(rest)}`,
+            });
+        } else if (held !== true) {
+            showNotice(first, { info: true });
+        }
+    }
     // Its canvases through the mode's own button (#34, #299).
     if (tab === 'img2img') await pressCanvas(answer.mode, { task: Number(taskId) });
     const kept = [...(answer.skipped || []), ...(answer.notes || [])];
@@ -1275,9 +1300,14 @@ const SENT_TO = { top: 0 };
  * Show txt2img, or img2img on the mode its record was made in - by their ids
  * (shared/tabs.mjs). Its plain img2img mode when the record does not say:
  * a pasted infotext names none. The mode was always the plain one, while the
- * number Forge reads as the mode said the record's (#34).
+ * number Forge reads as the mode said the record's (#34). Every send comes
+ * through here, and a plain one ends txt2img's several mode (#400): its
+ * Generate is the person's again. Load to UI of a task of several, and a
+ * Send from the Resources dialog's ticks, enter it again after. `leave`
+ * false: the same send has left it already, and shows the tab again later.
  */
-function showGenerationTab(tab, mode = null) {
+function showGenerationTab(tab, mode = null, { leave = true } = {}) {
+    if (leave && ready('several.leave')) call('several.leave');
     if (tab === 'img2img') {
         const going = goToTab('img2img', SENT_TO);
         showTab(IMG2IMG_MODES[Number(mode)] || 'img2imgMode');

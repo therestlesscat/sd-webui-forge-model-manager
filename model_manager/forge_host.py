@@ -141,6 +141,9 @@ DEFAULTS = {
     # The Resources dialog's tick, Send with a pick's usual settings, starts
     # ticked at each pick (#378): on unless turned off.
     "model_manager_send_usual_settings": True,
+    # The Resources dialog's list takes several ticks, and txt2img a button
+    # that queues one task with each (#400): off unless turned on.
+    "model_manager_queue_several": False,
 }
 
 
