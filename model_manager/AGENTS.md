@@ -467,7 +467,16 @@ LoRAs from); anything that shows one says whose it is (a whole path).
   `Module N` as the file's stem, untrimmed, and its parser strips the value:
   `sdxl-vae-fp16-fix .safetensors` became `sdxl-vae-fp16-fix`, which matched
   nothing - Neo's own paste misses it too - and 9 synced generations lost
-  their VAE until names were compared trimmed (#246).
+  their VAE until names were compared trimmed (#246). A checkpoint's name in
+  its list changes the first time it loads the file: `calculate_shorthash`
+  renames its title from `x.safetensors` to `x.safetensors [abcd1234]`
+  (`replace_key`, Neo's `modules/sd_models.py` 105-110, called on load at
+  375). A name kept from before - a queued task's row - still loads, as an
+  alias, but no longer matches the list by name. #400's Load to UI hands
+  Forge's name for the file now, and the press finds the task's row by its
+  file (`scheduler/several.py`); handed the new name alone, the press looked
+  the task up by the old one and gave the checkpoint its usual settings - a
+  side agent caught it before the commit.
 - **"Leave as is" is not nothing in Gradio 4.** For each output an event
   answers with `gr.update()`, Gradio swaps into the session a copy of that
   component, rebuilt from its constructor arguments. In Neo a ForgeCanvas

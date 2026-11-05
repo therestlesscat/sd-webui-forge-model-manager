@@ -624,6 +624,11 @@ the tick sat off the window. Headless Edge's `--window-size=1280,720` gives a
 measured at more than one height: the fix that let the foot scroll was told
 as changing nothing on a tall window, and at a 908 px page the resource list
 above it went from 60 to 155 px, the foot scrolling 95.
+And a change inside Forge's own markup is measured on the running test WebUI,
+not on copied markup: #400's Queue for N checkpoints passed every suite and a
+review, and live on 7880 stood below Queue (y 228 against 140 after the fix) -
+it is made after Queue in Forge's flex box, and only Generate was hidden.
+`order: -1` fixed it (0.76.2).
 
 ## Conventions
 
@@ -883,7 +888,10 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   `</div>` in 2 of 3; Resources drew only its header, until the suites caught it.
   A hand-formatted JSON file is edited as text, never loaded and dumped:
   adding two notes to `release_notes.json` through `json.dump` changed 199
-  lines for 39.
+  lines for 39. A substitution over a whole file changes every copy of its
+  line: a `sed -i` meant for one new rule's fallback colour changed four
+  other rules' too (#400, 6a), and only the commit's review saw it. Count a
+  pattern's matches before replacing it, as the edit scripts here assert one.
 - **Compare a round of changes as a whole, after it.** Every refactor of the
   0.44 round passed its suites. Comparing the code before the round (57ae3c0)
   with after it (b529f30), with seven reviewers in parallel, found nine

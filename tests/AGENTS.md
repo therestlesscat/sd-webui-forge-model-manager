@@ -178,7 +178,11 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   answered the plan route with `pick: 'same'`, so the suite passed while
   `pick_kind` could never answer `same` for an image named by version alone
   (#377). A review reading the code found it; a check on the server's own
-  path (`other_versions_test.py`) now covers it.
+  path (`other_versions_test.py`) now covers it. And its first answer is the
+  server's too: `send.your_checkpoints` picks the image's own checkpoint and
+  suggests the one Forge has loaded. Two #400 suites answered neither, so
+  Change's window opening on Suggested (6a) and the dialog's pre-ticked first
+  tick (6b) went unchecked until each commit's review.
 - **A suite's subject is in its docstring, not its name.** #363's plan put
   NSFW checks in `generations_switch_test` (the Your generations on/off
   switch, #27) and `gallery_count_test` (a refresh's size, #103), going by
