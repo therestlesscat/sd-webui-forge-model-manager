@@ -95,6 +95,9 @@ def summary(task: Dict[str, Any]) -> Dict[str, Any]:
     row.update({
         "checkpoint": first.get("checkpoint"),
         "modules": first.get("modules"),
+        # Each checkpoint, and how its run ended (#400): one, for a press of Queue.
+        "checkpoints": [{key: r.get(key) for key in ("checkpoint", "modules", "status", "error")}
+                        for r in task.get("checkpoints") or []],
         "prompt": fixed.get("prompt") or "",
         "script": inputs.get("script"),
         "width": fixed.get("width"),

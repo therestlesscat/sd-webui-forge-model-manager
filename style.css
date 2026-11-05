@@ -6167,8 +6167,14 @@ textarea.mm-settings-input {
 .queue-id,
 .queue-script,
 .queue-copy,
+.queue-run,
 .queue-facts {
     color: var(--body-text-color-subdued, #6b7280) !important;
+}
+
+/* Which run a task of several checkpoints is on (#400): no gap while it says nothing. */
+.queue-run:empty {
+    display: none;
 }
 
 .queue-now,

@@ -162,6 +162,7 @@ function nowText(progress, forge) {
     if (progress?.holding) return 'Waiting for your own generation to end';
     if (!progress?.task_id) return '';
     let text = `Task #${progress.task_id}`;
+    if (progress.runs > 1 && progress.run) text += ` · run ${progress.run} of ${progress.runs}`;
     if (forge?.queued) text += ' · waiting for Forge';
     else if (forge?.active && typeof forge.progress === 'number') {
         text += ` · ${Math.round(forge.progress * 100)}%`;
@@ -194,6 +195,22 @@ function drawProgress(progress, forge) {
     bar.firstElementChild.style.width = `${value}%`;
 }
 
+// The queue's progress as last read: a row drawn again says its run at once,
+// as its bar keeps how far along it was (`along`).
+let lastProgress = null;
+
+/** Which run a task of several checkpoints is on, as the queue last said (#400): "run 2 of 3", or nothing. */
+function runText(taskId) {
+    const p = lastProgress;
+    return p && Number(p.task_id) === Number(taskId) && p.runs > 1 && p.run ? `run ${p.run} of ${p.runs}` : '';
+}
+
+/** Which run a running task of several checkpoints is on, on its row. */
+function drawRun(progress) {
+    lastProgress = progress;
+    document.querySelectorAll('.queue-run').forEach((label) => setText(label, runText(label.dataset.task)));
+}
+
 function setShown(element, shown) {
     if (element && element.hidden === shown) element.hidden = !shown;
 }
@@ -211,6 +228,7 @@ function drawStatus(answer, forge = null) {
     if (shown && shown.getAttribute('data-state') !== state) shown.setAttribute('data-state', state);
     setText(byId('queue_task'), answer?.running ? nowText(progress, forge) : '');
     drawProgress(answer?.running ? progress : null, forge);
+    drawRun(answer?.running ? progress : null);
     setText(byId('queue_counts'), countsText(answer?.counts));
     const message = messageText(progress);
     setText(byId('queue_message'), message);
@@ -286,6 +304,22 @@ function fact(text, title = '') {
     return text ? `<span class="queue-fact" title="${escapeHtml(title || text)}">${escapeHtml(text)}</span>` : '';
 }
 
+/** A task of several checkpoints (#400), one generation with each. */
+const hasSeveral = (task) => (task.checkpoints || []).length > 1;
+
+/**
+ * Its checkpoints, a line each: with its VAE / text encoders, and how its
+ * run ended once it has - "not run" for one an ended task never reached.
+ */
+function checkpointLines(task) {
+    return (task.checkpoints || []).map((c) => {
+        const modules = (c.modules || []).map(fileName).join(', ');
+        const ended = c.status ? ` - ${STATUSES[c.status] || c.status}${c.error ? `: ${c.error}` : ''}`
+            : (ENDED.includes(task.status) ? ' - not run' : '');
+        return `${c.checkpoint || 'no checkpoint'}${modules ? ` (${modules})` : ''}${ended}`;
+    }).join('\n');
+}
+
 /** A running task is the queue's: it is neither ticked nor deleted. */
 const deletable = (task) => task.status !== 'running';
 const retryable = (task) => ENDED.includes(task.status);
@@ -314,11 +348,13 @@ function taskRowHtml(task, which) {
                     ${task.retry_of ? `<span class="queue-copy">a copy of #${Number(task.retry_of)}</span>` : ''}
                     ${task.retried_as ? `<span class="queue-requeued">Requeued as #${Number(task.retried_as)}</span>` : ''}
                     ${task.hidden ? '<span class="queue-hidden-mark" title="Clear history hid it">Hidden</span>' : ''}
+                    ${hasSeveral(task) && task.status === 'running' ? `<span class="queue-run" data-task="${id}">${escapeHtml(runText(id))}</span>` : ''}
                 </div>
                 <div class="queue-prompt" title="${escapeHtml(task.prompt)}">${escapeHtml(task.prompt) || '<em>No prompt</em>'}</div>
                 <div class="queue-facts">
+                    ${hasSeveral(task) ? fact(`${task.checkpoints.length} checkpoints`, checkpointLines(task)) : `
                     ${fact(fileName(task.checkpoint), task.checkpoint)}
-                    ${fact(modules, (task.modules || []).join('\n'))}
+                    ${fact(modules, (task.modules || []).join('\n'))}`}
                     ${fact(sizeText(task))}
                     ${fact(sampler)}
                     ${fact(task.steps ? `${task.steps} steps` : '')}
@@ -366,7 +402,8 @@ function runNextHtml(task, classes) {
 function showImagesHtml(task, classes = 'mm-btn secondary mm-btn-small') {
     const n = Number(task.image_count) || 0;
     const title = `Open the Generations tab on the ${n} image${n === 1 ? '' : 's'} this task made`;
-    return `<button type="button" class="${classes}" data-action="queue.showImages" data-task="${Number(task.id)}"`
+    const byModel = hasSeveral(task) ? ' data-several="1"' : '';
+    return `<button type="button" class="${classes}" data-action="queue.showImages" data-task="${Number(task.id)}"${byModel}`
         + `${linkTo('generations', title, { disabled: !n })}>Show images (${n})</button>`;
 }
 
@@ -798,8 +835,8 @@ function detailsHtml(task, inputs) {
     const about = rowsHtml([
         ['Prompt', valueText(fixed.prompt)],
         ['Negative prompt', valueText(fixed.negative_prompt)],
-        ['Checkpoint', task.checkpoint],
-        ['VAE / Text Encoder', (task.modules || []).join('\n')],
+        ...(hasSeveral(task) ? [['Checkpoints', checkpointLines(task)]]
+            : [['Checkpoint', task.checkpoint], ['VAE / Text Encoder', (task.modules || []).join('\n')]]),
         ['Queued', when(task.created_at)],
         ['Started', when(task.started_at)],
         ['Ended', when(task.finished_at)],
@@ -874,10 +911,13 @@ function rowClicked({ task, list }) {
     return showDetails(task);
 }
 
-/** The Generations tab, on a task's images, through the loading module (#184). */
-async function showImages(taskId) {
+/**
+ * The Generations tab, on a task's images, through the loading module (#184):
+ * a task of several checkpoints grouped by Model, a group per checkpoint (#400).
+ */
+async function showImages(taskId, byModel = false) {
     closeMetaModal();
-    await open('generations', 'showTask', Number(taskId));
+    await open('generations', 'showTask', Number(taskId), byModel ? 'model' : '');
 }
 
 async function load(taskId) {
@@ -1010,7 +1050,7 @@ work.provide('queue.resume', () => control('resume'));
 work.provide('queue.stop', () => control('stop'));
 work.provide('queue.refresh', () => refresh());
 work.provide('queue.details', (data) => rowClicked(data));
-work.provide('queue.showImages', ({ task }) => showImages(task));
+work.provide('queue.showImages', ({ task, several: byModel }) => showImages(task, Boolean(byModel)));
 work.provide('queue.load', ({ task }) => load(task));
 work.provide('queue.runNext', ({ task }) => { closeMetaModal(); return runNext([Number(task)]); });
 work.provide('queue.cancel', ({ task }) => { closeMetaModal(); return cancelTasks([Number(task)]); });

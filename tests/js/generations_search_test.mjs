@@ -107,4 +107,19 @@ await openTab('generations', 'showTask', 19);
 await waitFor('asked again', () => browsed.length);
 check('asked again for the same task, it is drawn again', browsed[0]?.search, 'task:19');
 
+// A task of several checkpoints (#400): grouped by Model, a group per
+// checkpoint, for this visit - the grouping remembered stays.
+browsed.length = 0;
+await openTab('generations', 'showTask', 20, 'model');
+await waitFor('the task asked, grouped', () => browsed.length);
+check('Show images on a task of several searches by the task, grouped by Model',
+      [box.value, browsed[0]?.search, browsed[0]?.group, document.getElementById('gen_group_by').textContent],
+      ['task:20', 'task:20', 'model', 'Model']);
+check('the grouping chosen before is still the one remembered, here too',
+      window.localStorage.getItem('mm_generations_group_by'), 'prompt');
+browsed.length = 0;
+await openTab('generations', 'showTask', 20, 'anything else');
+await waitFor('asked once more', () => browsed.length);
+check('a grouping it does not know is no grouping', browsed[0]?.group ?? '', '');
+
 done();

@@ -353,6 +353,11 @@ check('Retry of a task of three checkpoints copies all three, in order, statuses
       [(0, 'a.safetensors', [], None, None, None),
        (1, 'b.safetensors', ['F:\\vae\\b_vae.safetensors'], {'cfg': 4}, None, None),
        (2, 'c.safetensors', None, None, None, None)])
+check("a task's row lists each checkpoint and how its run ended, for the Queue tab",
+      next(t for t in listed('history')['tasks'] if t['id'] == three).get('checkpoints'),
+      [{'checkpoint': 'a.safetensors', 'modules': [], 'status': 'completed', 'error': None},
+       {'checkpoint': 'b.safetensors', 'modules': ['F:\\vae\\b_vae.safetensors'], 'status': 'failed', 'error': 'gone'},
+       {'checkpoint': 'c.safetensors', 'modules': None, 'status': 'completed', 'error': None}])
 
 db.close()
 

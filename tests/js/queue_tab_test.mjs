@@ -30,6 +30,9 @@ window.mmTiming = { poll: 40, loadTask: 1000 };
 const task = (id, status, extra = {}) => ({
     id, mode: 'txt2img', status, prompt: `task ${id}, a lighthouse`, script: null,
     checkpoint: '_SDXL\\Asgard\\asgard_v12.safetensors', modules: ['F:\\models\\VAE\\sdxl_vae.safetensors'],
+    // As the server sends every task since #400: its one checkpoint row too.
+    checkpoints: [{ checkpoint: '_SDXL\\Asgard\\asgard_v12.safetensors', modules: ['F:\\models\\VAE\\sdxl_vae.safetensors'],
+                    status: null, error: null }],
     width: 832, height: 1216, hires: null, scale_by: null, sampler: 'Euler a', scheduler: 'Karras', steps: 30,
     batch_size: 1, n_iter: 2, created_at: '2026-10-05T12:50:00', started_at: null, finished_at: null,
     error: null, first_seed: null, retry_of: null, retried_as: null, generations: [],
@@ -61,7 +64,7 @@ const PLAN = { success: true, mode: 'txt2img', preset: null, checkpoint: null, c
                target: [], modules_missing: [] };
 const planAsked = [];
 let STATUS = { success: true, running: true, counts: { pending: 2, running: 1, completed: 3, stopped: 0, failed: 1 },
-               progress: { state: 'running', task_id: 15, job: 'task(mmq-15-1)', completed: 0, failed: 0,
+               progress: { state: 'running', task_id: 15, job: 'task(mmq-15-1)', run: 1, runs: 1, completed: 0, failed: 0,
                            stopped: 0, notes: [], error: null } };
 // What Forge says of the running task's job.
 let FORGE = { active: true, queued: false, progress: 0.45, eta: 12.4, textinfo: null };

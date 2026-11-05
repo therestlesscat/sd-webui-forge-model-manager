@@ -35,7 +35,10 @@ for (const button of document.querySelectorAll('#tabs button')) {
 
 let generationsOn = false;
 const TASK = { id: 14, mode: 'txt2img', status: 'completed', prompt: 'a lighthouse', image_count: 3, generations: [],
-               created_at: '2026-10-05T12:50:00', finished_at: '2026-10-05T13:05:00', modules: [] };
+               created_at: '2026-10-05T12:50:00', finished_at: '2026-10-05T13:05:00', modules: [],
+               checkpoints: [{ checkpoint: 'a.safetensors', modules: [], status: 'completed', error: null }] };
+// A task of several checkpoints (#400): its Show images opens the tab grouped by Model.
+const SEVERAL = { ...TASK, id: 15, checkpoints: [TASK.checkpoints[0], { ...TASK.checkpoints[0], checkpoint: 'b.safetensors' }] };
 const browsed = [];
 const SYNC_NOTE = { id: 'a-sync-note', version: '0.1.0', kind: 'action', title: 'Sync again', text: 't',
                     action: { id: 'sync', label: 'Sync' } };
@@ -52,11 +55,12 @@ globalThis.fetch = async (url) => {
     }
     if (href.includes('/model-manager/queue/tasks')) {
         const which = new URL(href, 'http://webui').searchParams.get('which');
-        const tasks = which === 'history' ? [TASK] : [];
+        const tasks = which === 'history' ? [TASK, SEVERAL] : [];
         return reply({ success: true, which, page: 1, pages: 1, page_size: 20, total: tasks.length, tasks });
     }
     if (href.includes('/model-manager/generations/browse')) {
-        browsed.push(new URL(href, 'http://webui').searchParams.get('search'));
+        const params = new URL(href, 'http://webui').searchParams;
+        browsed.push({ search: params.get('search'), group: params.get('group') || '' });
         return reply({ success: true, tiles: [], more: false, state: {} });
     }
     return reply({ success: true });
@@ -93,9 +97,15 @@ check('on: Show images works, with its own title',
       [showImages()?.disabled, showImages()?.title], [false, 'Open the Generations tab on the 3 images this task made']);
 
 showImages().dispatchEvent(new window.Event('click', { bubbles: true }));
-await waitFor('the Generations tab, on the task', () => browsed.includes('task:14'));
-check('pressed, it opens the Generations tab, searched by the task',
-      [clicked.at(-1), browsed.includes('task:14')], ['Generations', true]);
+await waitFor('the Generations tab, on the task', () => browsed.some((b) => b.search === 'task:14'));
+check('pressed, it opens the Generations tab, searched by the task, ungrouped',
+      [clicked.at(-1), browsed.find((b) => b.search === 'task:14')?.group], ['Generations', '']);
+browsed.length = 0;
+document.querySelector('#queue_history [data-action="queue.showImages"][data-task="15"]')
+    ?.dispatchEvent(new window.Event('click', { bubbles: true }));
+await waitFor('the Generations tab, on the task of several', () => browsed.some((b) => b.search === 'task:15'));
+check("a task of several checkpoints' Show images opens it grouped by Model (#400)",
+      browsed.find((b) => b.search === 'task:15')?.group, 'model');
 
 // ------------------------------------------- the showing tab hides
 // Generations' own fallback is the Model Manager, which is not available.

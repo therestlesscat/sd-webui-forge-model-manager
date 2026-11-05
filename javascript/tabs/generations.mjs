@@ -1357,21 +1357,23 @@ function setSearch(value) {
 
 /**
  * A task's images, asked for by the Queue's Show images: this tab, searched
- * by the task, with Group by at Nothing for this visit - the grouping chosen
+ * by the task, with Group by at Nothing for this visit - at Model for a task
+ * of several checkpoints, a group per checkpoint (#400) - the grouping chosen
  * before is still the one remembered.
  */
-async function showTask(taskId) {
-    return showSearch(`task:${Number(taskId)}`);
+async function showTask(taskId, group = '') {
+    return showSearch(`task:${Number(taskId)}`, group === 'model' ? 'model' : '');
 }
 
 /**
- * The tab showing what a search finds, ungrouped, the search in its box: a
- * repair's review shows the generations it lists (#241), as the Queue shows
- * a task's.
+ * The tab showing what a search finds, the search in its box, ungrouped or
+ * grouped as asked for this visit: a repair's review shows the generations
+ * it lists (#241), as the Queue shows a task's. A grouping this tab does not
+ * know is none.
  */
-async function showSearch(text) {
+async function showSearch(text, group = '') {
     await showTab('generations');
-    groupBy = '';
+    groupBy = groupChain(group).length ? group : '';
     showGroupChoice();
     const box = byId('gen_search');
     if (box) box.value = text;
