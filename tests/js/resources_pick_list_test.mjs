@@ -20,7 +20,7 @@
 // row whose download cannot run says why (#377 case 6). A checkpoint Civitai
 // does not know - a merge of your own - starts it unticked where the library
 // holds its hash, and the line offers no download where none is drawn.
-import { checker, mountTab, press, sharedModule, startServices } from './harness.mjs';
+import { call, checker, mountTab, press, sharedModule, startServices } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_generations.py');
 window.mmTiming = { poll: 20, sendRecheck: 20, sendRecheckMax: 200, pasteMax: 50, frame: 5 };
@@ -242,5 +242,91 @@ press(box());
 check('    and not held: ticked; unticked, the line offers no download, as none is drawn',
       [tickedAtOpen, sendButton()?.disabled, status()], [true, true, 'The checkpoint is not in your library: pick one of yours.']);
 close();
+
+// ------------------------------------- a list drawn from what it is handed
+// The list draws from a holder it is handed, in any element that names it
+// (data-pick-list), not from the open dialog (#400: several mode's Change
+// window draws one). Its search, a tab and a pick act on it alone; the
+// dialog's list, open beside it, is left as it was.
+list = { ...list, suggested: [{ name: XL1.name, why: ['same model'] }] };
+await showImageResources(image(8002), null, { send: stopped() });
+await waitFor('the dialog\'s list', () => rows().length);
+const dialogBefore = [active(), shownNames(), status(), modal()?.querySelector('.mm-pick-search')?.value];
+const { addPickList, pickListHtml } = await sharedModule('resources.mjs');
+// Its own answer: another checkpoint loaded in Forge than the dialog's says.
+const held = { pickList: { data: { ...list, loaded: XL2.name }, search: '', tab: 'all', loading: false, error: '' },
+               chosen: XL3.name };
+const picks = [];
+const takeBack = addPickList('other', { holder: () => held, picked: (name) => picks.push(name) });
+document.body.insertAdjacentHTML('beforeend', `<div id="other_window">${pickListHtml(held, 'other')}</div>`);
+const otherList = document.querySelector('#other_window [data-pick-list="other"]');
+const otherNames = () => [...otherList.querySelectorAll('.mm-pick-row')].map((r) => r.querySelector('input')?.value);
+// Pressed only where drawn: a break that draws another list fails these checks, not the suite.
+const pressIn = (selector) => {
+    const element = otherList.querySelector(selector);
+    if (element) press(element);
+    return Boolean(element);
+};
+const radioGroups = (root) => [...new Set([...root.querySelectorAll('.mm-pick-row input')].map((i) => i.name))];
+check('#400: another list, drawn from its holder: its tab, every row, its own pick and its own loaded checkpoint',
+      [otherList.querySelector('.mm-pick-tab.active')?.textContent.trim(), otherNames().length,
+       [...otherList.querySelectorAll('.mm-pick-row.picked')].map((r) => r.querySelector('input')?.value),
+       [...otherList.querySelectorAll('.mm-pick-loaded')].map((l) => l.closest('.mm-pick-row')?.querySelector('input')?.value)],
+      ['All 6', 6, [XL3.name], [XL2.name]]);
+check('    its radios a group of their own: a pick in one list unticks nothing in the other',
+      [radioGroups(otherList), radioGroups(modal())], [['mm_pick_other'], ['mm_pick_dialog']]);
+const otherSearch = otherList.querySelector('.mm-pick-search');
+otherSearch.value = 'dream';
+otherSearch.dispatchEvent(new window.Event('input', { bubbles: true }));
+check('    its search narrows its rows alone, kept in its holder', [otherNames(), held.pickList.search], [[SD1.name], 'dream']);
+otherSearch.value = '';
+otherSearch.dispatchEvent(new window.Event('input', { bubbles: true }));
+pressIn('[data-action="resources.pickTab"][data-family="xl"]');
+check('    a family tab shows its family, in its holder', [held.pickList.tab, otherNames()], ['xl', [XL1.name, XL3.name, XL2.name]]);
+pressIn(`input[value="${XL2.name}"]`);
+check('    a pick goes to what it was handed', picks, [XL2.name]);
+// The dialog's tab pressed as it is: its Send line drawn again from what it holds now.
+press(modal().querySelector('.mm-pick-tab.active'));
+check('    and the dialog\'s list, open beside it, is as it was: its tab, rows, Send line - Send still off - and search',
+      [active(), shownNames(), status(), modal()?.querySelector('.mm-pick-search')?.value, sendButton()?.disabled],
+      [...dialogBefore, true]);
+// The dialog's controls act on the dialog's list, not the last one offered.
+const heldBefore = JSON.stringify([held.pickList.tab, held.pickList.search]);
+press(modal().querySelector('[data-action="resources.pickTab"][data-family="all"]'));
+search('real');
+check('    the dialog\'s tab and search act on the dialog\'s list alone',
+      [active(), shownNames(), JSON.stringify([held.pickList.tab, held.pickList.search])],
+      ['All 1', [XL2.name], heldBefore]);
+search('');
+takeBack();
+const pressedAfter = pressIn('[data-action="resources.pickTab"][data-family="all"]');
+check('    taken back, its controls do nothing', [pressedAfter, held.pickList.tab], [true, 'xl']);
+// Offered with nothing to draw from, its controls do nothing either.
+addPickList('other', { holder: () => null, picked: (name) => picks.push(name) });
+const pickedWithNone = pressIn(`input[value="${XL1.name}"]`);
+check('    offered with no holder, a pick does nothing', [pickedWithNone, picks], [true, [XL2.name]]);
+document.querySelector('#other_window')?.remove();
+close();
+
+// The dialog's rows drawn again - a search, a tab - leave its Send area as a
+// later redraw of it would draw it: a recheck of the checkpoint then
+// rewrites nothing, and the search box keeps its place and what is typed.
+async function keptThroughRecheck(change) {
+    let checks = 0;
+    await showImageResources(image(8002), null, { send: { ...stopped(), check: async () => { checks += 1; return 'missing'; } } });
+    await waitFor('the dialog\'s list', () => rows().length);
+    change();
+    const input = modal()?.querySelector('.mm-pick-search');
+    call('resources.checkAgain');
+    await waitFor('two rechecks', () => checks >= 2);
+    const kept = [modal()?.querySelector('.mm-pick-search') === input, modal()?.querySelector('.mm-pick-search')?.value];
+    close();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    return kept;
+}
+check('    after a search, a recheck leaves the Send area, its search box and what is typed',
+      await keptThroughRecheck(() => search('toon')), [true, 'toon']);
+check('    and after a tab', await keptThroughRecheck(() => press(modal().querySelector('[data-action="resources.pickTab"][data-family="xl"]'))),
+      [true, '']);
 
 done();

@@ -629,7 +629,7 @@ function sendAgainButton() {
     const again = status.again ? '<button type="button" class="mm-btn secondary mm-btn-small" '
                                  + 'data-action="resources.checkAgain">Check again</button>' : '';
     return `<div class="mm-resources-send-wrap">
-            ${line.choosing ? `<div class="mm-pick-area"><div class="mm-pick">${pickListHtml()}</div>`
+            ${line.choosing ? `<div class="mm-pick-area">${pickListHtml(line, 'dialog')}`
                               + `<div class="mm-usual" data-usual>${usualHtml()}</div></div>` : ''}
             <div class="mm-dialog-buttons mm-resources-send">${box}${text}${again}
                 <button type="button" class="mm-btn primary" data-action="resources.sendAgain"${
@@ -643,7 +643,7 @@ function sendAgainButton() {
 function sendLineStatus() {
     const line = resourcesSend;
     if (line.choosing) {
-        const row = line.chosen && pickRows().find((r) => r.name === line.chosen);
+        const row = line.chosen && pickRows(line).find((r) => r.name === line.chosen);
         if (!row) return { text: 'Pick a checkpoint to send with.' };
         const asMade = (row.why || []).some((why) => AS_MADE.includes(why));
         const usual = line.usual && usualApplies(line.usualAnswers.get(line.chosen)) ? ' With its usual settings.' : '';
@@ -691,7 +691,7 @@ function sendStatus() {
 }
 
 /** A checkpoint the short way, as its row's first line and Send's line name it: "Anime Mix v12", else its file. */
-function pickRowName(row) {
+export function pickRowName(row) {
     return row.model ? [row.model, row.version].filter(Boolean).join(' ') : row.file;
 }
 
@@ -701,9 +701,49 @@ const WHY_TEXT = {
     'same version, other file': 'Same version, other file', 'same model': 'Same model, other version',
 };
 
+// ------------------------------------------- the list, wherever it is drawn
+// The list draws from what it is handed - a holder, `{ pickList, chosen }`:
+// the server's answer with the search and the family tab shown, and the name
+// picked - never from the open dialog itself. Its markup carries the name it
+// was offered under (pickListHtml's data-pick-list), and its radios a group
+// of that name, so its search, a tab and a pick act on that list alone. The
+// Resources dialog's is one, `dialog`; several mode's Change window draws
+// another (#400).
+
+// Each list offered, by its name in the markup: what it is drawn from now, what a pick does there.
+const pickLists = new Map();
+
+/**
+ * Offer a list by name: `holder()` answers what it is drawn from now -
+ * null while there is none - `picked(name, input)` does a pick, and
+ * `redrawn()`, if given, follows its rows drawn again. Answers how to take
+ * it back.
+ */
+export function addPickList(name, { holder, picked, redrawn = null }) {
+    const list = { holder, picked, redrawn };
+    pickLists.set(name, list);
+    return () => {
+        if (pickLists.get(name) === list) pickLists.delete(name);
+    };
+}
+
+/** The list an element is drawn in: its offer, what it is drawn from now, and its element. */
+function listOf(element) {
+    const root = element?.closest?.('[data-pick-list]');
+    const list = root && pickLists.get(root.dataset.pickList);
+    const state = list?.holder();
+    return state ? { ...list, state, root } : null;
+}
+
+/** A list's rows again, in its element: its search box left as it is - its focus and caret too. */
+function redrawListBody(root, holder) {
+    const body = root?.querySelector('.mm-pick-body');
+    if (body && holder?.pickList?.data) body.innerHTML = pickBodyHtml(holder, root.dataset.pickList);
+}
+
 /** Every checkpoint of the list's answer, each with why it is suggested, if it is. */
-function pickRows() {
-    const data = resourcesSend?.pickList?.data;
+export function pickRows(holder) {
+    const data = holder?.pickList?.data;
     if (!data) return [];
     const why = new Map((data.suggested || []).map((s) => [s.name, s.why || []]));
     return (data.checkpoints || []).map((c) => ({ ...c, why: why.get(c.name) || [] }));
@@ -721,9 +761,18 @@ function matches(row, words) {
     return words.every((word) => text.includes(word));
 }
 
-/** The list's markup: the search, a tab per family held, then the rows of the tab shown. */
-function pickListHtml() {
-    const list = resourcesSend?.pickList;
+/**
+ * A list's markup, drawn from `holder`, in an element named for the list as
+ * offered (addPickList): the search, a tab per family held, then the rows of
+ * the tab shown. Drawn under a name nothing offers, its controls do nothing.
+ */
+export function pickListHtml(holder, name) {
+    return `<div class="mm-pick" data-pick-list="${escapeHtml(name)}">${pickListInner(holder, name)}</div>`;
+}
+
+/** What the list's element holds. */
+function pickListInner(holder, name) {
+    const list = holder?.pickList;
     const search = (disabled) => `<input type="search" class="mm-pick-search" placeholder="Search your checkpoints"
                    aria-label="Search your checkpoints" value="${escapeHtml(list?.search || '')}"${disabled ? ' disabled' : ''}>`;
     if (!list || list.loading || list.error) {
@@ -734,7 +783,7 @@ function pickListHtml() {
             + '<button type="button" class="mm-pick-tab mm-pick-tab-held" disabled tabindex="-1" aria-hidden="true">'
             + `&nbsp;</button></div><div class="mm-pick-rows"><div class="mm-pick-wait">${escapeHtml(text)}</div></div></div>`;
     }
-    return `${search(false)}<div class="mm-pick-body">${pickBodyHtml()}</div>`;
+    return `${search(false)}<div class="mm-pick-body">${pickBodyHtml(holder, name)}</div>`;
 }
 
 /**
@@ -742,10 +791,10 @@ function pickListHtml() {
  * Suggested is a tab of its own, first (#377, R4): the suggestions sat on top of every tab. A
  * family's tab holds every checkpoint of it, suggested or not, the image's base model first.
  */
-function pickBodyHtml() {
-    const list = resourcesSend.pickList;
+function pickBodyHtml(holder, name) {
+    const list = holder.pickList;
     const data = list.data;
-    const rows = pickRows();
+    const rows = pickRows(holder);
     const words = String(list.search || '').toLowerCase().split(/\s+/).filter(Boolean);
     const shown = rows.filter((r) => matches(r, words));
     const families = [...new Set(rows.map((r) => r.family).filter(Boolean))];
@@ -764,7 +813,7 @@ function pickBodyHtml() {
         .join('');
     const section = (title, list2, family) => (list2.length
         ? (title ? `<div class="mm-pick-head">${escapeHtml(title)}${count(list2.length)}</div>` : '')
-          + list2.map((r) => pickRowHtml(r, family)).join('') : '');
+          + list2.map((r) => pickRowHtml(holder, name, r, family)).join('') : '');
     let body;
     if (tab === 'suggested') body = section('', suggested, true);
     else if (tab === 'all') body = section('', shown, true);
@@ -785,11 +834,11 @@ function pickBodyHtml() {
  * One row, in two lines: the model and its version, the base model at the right; then, smaller,
  * why it is suggested, loaded now, its family where the tab does not say it, and its file.
  */
-function pickRowHtml(row, family) {
+function pickRowHtml(holder, name, row, family) {
     const can = pickable(row);
     const sub = [...row.why.filter((w) => w !== 'loaded now')
                      .map((w) => `<span class="mm-pick-why">${escapeHtml(WHY_TEXT[w] || w)}</span>`),
-                 ...(resourcesSend.pickList.data.loaded === row.name
+                 ...(holder.pickList.data.loaded === row.name
                      ? ['<span class="mm-pick-loaded">Loaded in Forge now</span>'] : []),
                  ...(family && row.family ? [escapeHtml(familyName(row.family))] : []),
                  // Not asked of Civitai until a sync reads it.
@@ -802,10 +851,10 @@ function pickRowHtml(row, family) {
     const title = can ? row.name
         : row.family ? 'This WebUI has no UI preset for this checkpoint\'s family, so Send could not load it.'
             : 'Forge\'s model detector could not tell what model this checkpoint is, so Send could not set Forge up for it.';
-    return `<label class="mm-pick-row${can ? '' : ' mm-pick-greyed'}${resourcesSend.chosen === row.name ? ' picked' : ''}"`
+    return `<label class="mm-pick-row${can ? '' : ' mm-pick-greyed'}${holder.chosen === row.name ? ' picked' : ''}"`
         + ` title="${escapeHtml(title)}">`
-        + `<input type="radio" name="mm_pick" value="${escapeHtml(row.name)}" data-action="resources.pickRow"${
-            resourcesSend.chosen === row.name ? ' checked' : ''}${can ? '' : ' disabled'}>`
+        + `<input type="radio" name="mm_pick_${escapeHtml(name)}" value="${escapeHtml(row.name)}" data-action="resources.pickRow"${
+            holder.chosen === row.name ? ' checked' : ''}${can ? '' : ' disabled'}>`
         + `<span class="mm-pick-name">${escapeHtml(row.model || row.file)}${
             row.model && row.version ? ` <span class="mm-pick-ver">${escapeHtml(row.version)}</span>` : ''}</span>`
         + `<span class="mm-pick-base">${escapeHtml(row.base_model || '')}</span>`
@@ -860,10 +909,8 @@ async function askPickList({ again = false } = {}) {
     redrawSendBar();
 }
 
-/** The list's rows again, the search box kept as it is - its focus and caret too. */
-function redrawPickBody() {
-    const body = document.querySelector('.mm-resources-modal .mm-pick-body');
-    if (body && resourcesSend?.pickList?.data) body.innerHTML = pickBodyHtml();
+/** After the dialog's rows are drawn again: what its Send line says, and what a full redraw would draw. */
+function dialogListRedrawn() {
     const status = document.querySelector('.mm-resources-modal .mm-res-send-status');
     if (status) status.textContent = sendLineStatus().text || '';
     // What a full redraw would draw now: one that would change nothing writes nothing.
@@ -906,7 +953,7 @@ const usualHint = (text) => `<div class="mm-usual-note mm-usual-hint">${escapeHt
 function usualHtml() {
     const line = resourcesSend;
     if (!line) return '';
-    const row = line.chosen && pickRows().find((r) => r.name === line.chosen);
+    const row = line.chosen && pickRows(line).find((r) => r.name === line.chosen);
     if (!row) return usualHint(USUAL_HINT.none);
     const answer = line.usualAnswers.get(line.chosen);
     const name = escapeHtml(pickRowName(row));
@@ -1019,6 +1066,24 @@ async function recheckSend() {
     }
 }
 
+/** A pick in the dialog's list: what Send says, and Send itself, without redrawing the rows - their scroll stays. */
+function pickInDialog(name) {
+    resourcesSend.chosen = name;
+    const button = document.querySelector('.mm-resources-modal [data-action="resources.sendAgain"]');
+    if (button) {
+        button.disabled = false;
+        button.removeAttribute('title');
+    }
+    document.querySelectorAll('.mm-resources-modal .mm-pick-row').forEach((row) => {
+        row.classList.toggle('picked', row.querySelector('input')?.value === name);
+    });
+    // A new pick: its usual settings asked, the tick as the setting says (#378).
+    resourcesSend.usual = resourcesSend.usualOn;
+    resourcesSend.usualPressed = false;
+    askUsual(resourcesSend, name);
+    redrawUsual();
+}
+
 // The dialog's Send: closed, and the image sent - with the checkpoint picked,
 // or, the box unticked, its own. It goes through every check, and never
 // opens the dialog again: the tab's box is read by the tab's own Send alone.
@@ -1027,7 +1092,7 @@ function sendAgain() {
     if (!send) return undefined;
     if (send.choosing) {
         if (!send.chosen) return undefined;
-        const row = pickRows().find((r) => r.name === send.chosen);
+        const row = pickRows(send).find((r) => r.name === send.chosen);
         const usual = send.usual && usualApplies(send.usualAnswers.get(send.chosen)) && row
             ? { name: pickRowName(row) } : null;
         closeMetaModal();
@@ -1467,30 +1532,21 @@ export function start(scope) {
         if (resourcesSend.choosing) askPickList();
         redrawSendBar();
     });
-    scope.provide('resources.pickTab', ({ family }) => {
-        const list = resourcesSend?.pickList;
-        if (!list?.data) return;
-        list.tab = String(family || 'all');
-        redrawPickBody();
+    // A family's tab, a pick and the search act on the list they are drawn in.
+    scope.provide('resources.pickTab', ({ family }, button) => {
+        const list = listOf(button);
+        if (!list?.state.pickList?.data) return;
+        list.state.pickList.tab = String(family || 'all');
+        redrawListBody(list.root, list.state);
+        list.redrawn?.();
     });
-    // A pick: what Send says, and Send itself, without redrawing the rows - their scroll stays.
-    scope.provide('resources.pickRow', (data, radio) => {
-        if (!resourcesSend || !radio?.value) return;
-        resourcesSend.chosen = radio.value;
-        const button = document.querySelector('.mm-resources-modal [data-action="resources.sendAgain"]');
-        if (button) {
-            button.disabled = false;
-            button.removeAttribute('title');
-        }
-        document.querySelectorAll('.mm-resources-modal .mm-pick-row').forEach((row) => {
-            row.classList.toggle('picked', row.querySelector('input')?.value === radio.value);
-        });
-        // A new pick: its usual settings asked, the tick as the setting says (#378).
-        resourcesSend.usual = resourcesSend.usualOn;
-        resourcesSend.usualPressed = false;
-        askUsual(resourcesSend, radio.value);
-        redrawUsual();
+    scope.provide('resources.pickRow', (data, input) => {
+        const list = listOf(input);
+        if (list && input?.value) list.picked(input.value, input);
     });
+    scope.onStop(addPickList('dialog', { holder: () => resourcesSend, picked: pickInDialog,
+                                         redrawn: dialogListRedrawn }));
+
     scope.provide('resources.usualTick', (data, box) => {
         if (!resourcesSend) return;
         resourcesSend.usual = Boolean(box?.checked);
@@ -1502,9 +1558,12 @@ export function start(scope) {
     // The search narrows as it is typed: the rows redrawn, the box kept.
     if (typeof document !== 'undefined') {
         scope.listen(document, 'input', (event) => {
-            if (!event.target?.matches?.('.mm-resources-modal .mm-pick-search') || !resourcesSend?.pickList) return;
-            resourcesSend.pickList.search = event.target.value;
-            redrawPickBody();
+            if (!event.target?.matches?.('.mm-pick-search')) return;
+            const list = listOf(event.target);
+            if (!list?.state.pickList) return;
+            list.state.pickList.search = event.target.value;
+            redrawListBody(list.root, list.state);
+            list.redrawn?.();
         });
     }
     whenDownloading((list) => {
