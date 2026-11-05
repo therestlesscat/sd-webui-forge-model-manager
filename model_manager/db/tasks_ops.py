@@ -201,6 +201,14 @@ class TasksOps:
                            "first_seed = COALESCE(first_seed, ?) WHERE id = ?",
                            (status, error, _now(), first_seed, task_id))
 
+    def finish_checkpoint(self, task_id: int, place: int, status: str, error: Optional[str] = None) -> None:
+        """How one checkpoint's run of a task ended (#400): completed, failed or stopped."""
+        if status not in ("completed", "failed", "stopped"):
+            raise ValueError(f"a checkpoint's run cannot end as {status!r}")
+        with self._cursor() as cursor:
+            cursor.execute("UPDATE task_checkpoints SET status = ?, error = ? WHERE task_id = ? AND place = ?",
+                           (status, error, task_id, place))
+
     def cancel(self, install: str, task_id: int) -> bool:
         """
         Take a pending task of this install's out of the queue: it ends as

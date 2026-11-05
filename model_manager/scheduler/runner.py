@@ -26,6 +26,17 @@ Forge's own Interrupt too, after which the queue goes on; else Completed,
 with the first run's seed from its generation info (#161). Then the next,
 until none is left, and the queue stops by itself.
 
+A task of several checkpoints (#400) is a run per checkpoint row, in order,
+each under an id of its own in the same pattern, so the hooks and the
+recorder know every one as the task's. A seed of -1 is drawn once before the
+first, so every run has the same. Each run takes its row's settings - its
+usual settings, Hires fix following them, and for another family Hires fix's
+checkpoint "Use same" and the refiner off (load.for_run). A checkpoint gone
+from Forge fails its row and the next runs; Stop or Forge's own Interrupt
+ends the task Stopped, the rest not run; the person's own Generate goes
+first between runs, as before a task. The task ends Completed when every row
+did, Failed when any failed, its error naming each.
+
 The person's own generations go first (#170): Forge's lock already keeps a
 task and the person's Generate apart, but their Generate would wait behind a
 long task. So before each task the queue waits while a run that is not the
@@ -45,9 +56,11 @@ The queue's state lives in memory, Run next's order with it: a restart leaves
 it stopped, and the tasks it left running are marked stopped at startup
 (recover, #155).
 """
+import copy
 import html
 import json
 import os
+import random
 import re
 import threading
 import time
@@ -58,8 +71,7 @@ from ..console import say, say_failure
 from ..db import get_models_db
 from ..install import INSTALL_KEY
 from ..jobs import jobs
-from . import capture, queue_enabled, replay
-from .tasks import first_checkpoint
+from . import capture, load, queue_enabled, replay
 
 KIND = "queue"
 # How long after the person's own run the queue waits before its next task:
@@ -86,6 +98,8 @@ class Progress(object):
         self.state = "running"          # running, pausing, paused, stopping, stopped
         self.task_id: Optional[int] = None
         self.job: Optional[str] = None  # Forge's id for the run: its progress is asked by it
+        self.run = 0                    # which of the task's runs, from 1, of `runs` (#400)
+        self.runs = 0
         self.completed = 0
         self.failed = 0
         self.stopped = 0
@@ -221,39 +235,76 @@ class Queue(object):
         task_id = task["id"]
         if not db.start_task(task_id):
             return
-        run = {"task": task, "job": f"task(mmq-{task_id}-{int(time.time() * 1000)})",
-               "stop": False, "interrupted": False}
+        rows = task.get("checkpoints") or [{}]
+        # Its first run's id is set before the run is published: the hook and
+        # Stop match Forge's current id against it, and none would match
+        # Forge's idle None (#400).
+        run = {"task": task, "row": rows[0], "job": run_id(task_id, 0, len(rows)), "stop": False,
+               "interrupted": False}
         self.run_now = run
         if self._paused:
             # A task Run next asked for while paused: the queue pauses again after it.
             self.progress.state = "pausing"
-        self.progress.task_id, self.progress.job, self.progress.notes = task_id, run["job"], []
-        say(f"Queue: task {task_id} ({task['mode']}) starting")
+        self.progress.task_id, self.progress.notes = task_id, []
+        self.progress.run, self.progress.runs = 0, len(rows)
+        say(f"Queue: task {task_id} ({task['mode']}) starting" + (f", {len(rows)} checkpoints" if len(rows) > 1 else ""))
+        ended: List[Tuple[Dict[str, Any], str, Optional[str], Optional[int]]] = []
         try:
-            status, error, seed = self._generate(task, run)
-        except replay.TaskError as e:
-            status, error, seed = "failed", str(e), None
+            inputs = fixed_seeds(task["mode"], task["inputs"]) if len(rows) > 1 else task["inputs"]
+            for place, row in enumerate(rows):
+                if place:
+                    # The person's own Generate goes first between runs too (#170).
+                    while not run["stop"] and self._hold():
+                        pass
+                if run["stop"]:
+                    break
+                if place:
+                    run["row"], run["job"] = row, run_id(task_id, place, len(rows))
+                self.progress.job, self.progress.run = run["job"], place + 1
+                try:
+                    status, error, seed = self._generate(task, row, inputs, run)
+                except replay.TaskError as e:
+                    status, error, seed = "failed", str(e), None
+                except Exception as e:
+                    say_failure(f"Queue: task {task_id} failed: {type(e).__name__}: {e}")
+                    status, error, seed = "failed", f"{type(e).__name__}: {e}", None
+                try:
+                    db.finish_checkpoint(task_id, row.get("place", place), status, error)
+                except Exception as e:
+                    # The row's status is the task's record of it; the task still ends.
+                    say_failure(f"Queue: task {task_id}: could not record run {place + 1}: {e}")
+                ended.append((row, status, error, seed))
+                if status == "stopped":
+                    break
         except Exception as e:
             say_failure(f"Queue: task {task_id} failed: {type(e).__name__}: {e}")
-            status, error, seed = "failed", f"{type(e).__name__}: {e}", None
+            ended.append(({}, "failed", f"{type(e).__name__}: {e}", None))
         finally:
             self.run_now = None
+        # Stopped between two runs - while one waits for the person's Generate -
+        # the rest never ran: the task is Stopped, not Completed.
+        if run["stop"] and len(ended) < len(rows) and not any(s == "stopped" for _, s, _, _ in ended):
+            ended.append(({}, "stopped", None, None))
+        status, error, seed = task_end(ended, len(rows))
         db.finish_task(task_id, status, error, seed)
         setattr(self.progress, status, getattr(self.progress, status) + 1)
         self.progress.task_id = self.progress.job = None
+        self.progress.run = self.progress.runs = 0
         self.progress.notes = []
         if self.progress.state == "pausing":
             self.progress.state = "paused"
         say(f"Queue: task {task_id} {status}" + (f": {error}" if error else ""))
 
-    def _generate(self, task: Dict[str, Any], run: Dict[str, Any]) -> Tuple[str, Optional[str], Optional[int]]:
-        problem = files_problem(task)
+    def _generate(self, task: Dict[str, Any], row: Dict[str, Any], inputs: Dict[str, Any],
+                  run: Dict[str, Any]) -> Tuple[str, Optional[str], Optional[int]]:
+        problem = files_problem(row)
         if problem:
             return "failed", problem, None
         own = capture.generate_click(task["mode"])
         if own is None:
             raise replay.TaskError(f"{task['mode']}'s Generate was not found")
-        values, notes = replay.rebuild(task["mode"], list(own.inputs), task["inputs"])
+        named = load.for_run(task["mode"], inputs, row.get("settings"))
+        values, notes = replay.rebuild(task["mode"], list(own.inputs), named)
         self.progress.notes = notes
         for note in notes:
             say(f"Queue: task {task['id']}: {note}")
@@ -264,20 +315,99 @@ class Queue(object):
         return read_result(own, outputs, run)
 
 
-def files_problem(task: Dict[str, Any]) -> Optional[str]:
+def files_problem(row: Dict[str, Any]) -> Optional[str]:
     """
-    Why a task cannot run in this WebUI, if a file it names is not here: it
-    fails, rather than run on whatever Forge has loaded (#154).
+    Why a task's run cannot run in this WebUI, if a file its checkpoint row
+    names is not here: it fails, rather than run on whatever Forge has loaded
+    (#154).
     """
-    first = first_checkpoint(task)
-    checkpoint = first.get("checkpoint")
+    checkpoint = row.get("checkpoint")
     if checkpoint and not forge_host.checkpoint_listed(checkpoint):
         return f"The checkpoint is not in this WebUI: {checkpoint}"
     offered = {os.path.normcase(os.path.abspath(path)) for path in forge_host.installed_modules().values()}
-    for path in first.get("modules") or []:
+    for path in row.get("modules") or []:
         if os.path.normcase(os.path.abspath(path)) not in offered:
             return f"A VAE or text encoder is not in this WebUI: {path}"
     return None
+
+
+# The Seed script's controls, by the tab: the same ids in both WebUIs
+# (processing_scripts/seed.py).
+_SEED, _SUBSEED, _STRENGTH = "{}_seed", "{}_subseed", "{}_subseed_strength"
+
+
+def _random_seed(value: Any) -> bool:
+    """Whether Forge would draw a seed for this value: -1, empty, or text that is no number."""
+    if value in (None, ""):
+        return True
+    try:
+        return int(value) == -1
+    except (TypeError, ValueError):
+        return True
+
+
+def fixed_seeds(tab: str, inputs: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    A task's inputs with a seed of -1 drawn once, as Forge draws one
+    (processing.get_fixed_seed), so each run of a task of several
+    checkpoints has the same (#400); a variation seed too, when its strength
+    is above 0. Written in the control's own type: Neo's Seed can be a
+    textbox, which sends text. The task's own inputs are left as queued, so
+    a Retry with a random seed draws again.
+    """
+    inputs = copy.deepcopy(inputs)
+    entries = {entry.get("id"): entry for controls in (inputs.get("scripts") or {}).values() for entry in controls}
+    strength = (entries.get(_STRENGTH.format(tab)) or {}).get("value") or 0
+    names = [_SEED.format(tab)] + ([_SUBSEED.format(tab)] if _positive(strength) else [])
+    for name in names:
+        entry = entries.get(name)
+        if entry is not None and _random_seed(entry.get("value")):
+            drawn = int(random.randrange(4294967294))
+            entry["value"] = str(drawn) if isinstance(entry.get("value"), str) else drawn
+    return inputs
+
+
+def _positive(value: Any) -> bool:
+    try:
+        return float(value) > 0
+    except (TypeError, ValueError):
+        return False
+
+
+def run_id(task_id: int, place: int, runs: int) -> str:
+    """
+    Forge's id for a run of a task: the queue's pattern, its time, and for a
+    task of several checkpoints the run's place too - two runs can start in
+    one millisecond (#400). A task of one checkpoint's as ever.
+    """
+    stamp = f"{int(time.time() * 1000)}{place if runs > 1 else ''}"
+    return f"task(mmq-{task_id}-{stamp})"
+
+
+def task_end(ended: List[Tuple[Dict[str, Any], str, Optional[str], Optional[int]]],
+             rows: int) -> Tuple[str, Optional[str], Optional[int]]:
+    """
+    How a task ended, from each run's (row, status, error, seed): Stopped
+    when a run was, Failed when any failed - a task of one checkpoint with
+    Forge's text as ever, one of several naming each - else Completed. Its
+    first seed is the first run's that has one.
+    """
+    seed = next((s for _, _, _, s in ended if s is not None), None)
+    if any(status == "stopped" for _, status, _, _ in ended):
+        return "stopped", None, seed
+    failed = [(row, error) for row, status, error, _ in ended if status == "failed"]
+    if not failed:
+        return ("completed" if ended else "stopped"), None, seed
+    if rows == 1:
+        return "failed", failed[0][1], seed
+    named = "; ".join(_named_error(row, error) for row, error in failed)
+    return "failed", f"{len(failed)} of {rows} failed: {named}", seed
+
+
+def _named_error(row: Dict[str, Any], error: Optional[str]) -> str:
+    """A failed run's error, its checkpoint named first unless the error names it already."""
+    name = row.get("checkpoint") or "no checkpoint"
+    return error if error and name in error else f"{name}: {error}"
 
 
 def read_result(own, outputs: Any, run: Dict[str, Any]) -> Tuple[str, Optional[str], Optional[int]]:
@@ -312,20 +442,20 @@ def _run_of_now() -> Optional[Dict[str, Any]]:
 
 
 def on_before_process(p) -> None:
-    """Before each process of a queue's run: its task's files, or its Stop."""
+    """Before each process of a queue's run: its checkpoint row's files, or its Stop."""
     run = _run_of_now()
     if run is None:
         return
     if run["stop"]:
         forge_host.stop_this_run()
         return
-    first = first_checkpoint(run["task"])
+    row = run["row"]
     overrides = getattr(p, "override_settings", None)
     if overrides is None:
         overrides = p.override_settings = {}
-    if first.get("checkpoint"):
-        overrides["sd_model_checkpoint"] = first["checkpoint"]
-    overrides["forge_additional_modules"] = list(first.get("modules") or [])
+    if row.get("checkpoint"):
+        overrides["sd_model_checkpoint"] = row["checkpoint"]
+    overrides["forge_additional_modules"] = list(row.get("modules") or [])
 
 
 def on_postprocess(p, processed) -> None:

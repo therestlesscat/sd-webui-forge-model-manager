@@ -234,6 +234,51 @@ def for_another_model(tab: str, named: Dict[str, Any]) -> Dict[str, Any]:
     return named
 
 
+# What Hires fix's sampler and schedule type hold to take the main pass's:
+# the same words in both WebUIs (modules/ui.py).
+USE_SAME_SAMPLER = "Use same sampler"
+USE_SAME_SCHEDULER = "Use same scheduler"
+
+
+def hires_follows(named: Dict[str, Any], usual: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    A run of a task of several checkpoints, its Hires fix following what its
+    usual settings set (#400): where they set a sampler or schedule type,
+    Hires fix's "Use same"; where they set CFG, or a Distilled CFG Scale or
+    Shift, Hires fix's the same value. A Hires setting they leave alone stays
+    as pressed. A single Send keeps the image's Hires fix (#378), and never
+    comes here.
+    """
+    named = copy.deepcopy(named)
+    fixed = named.get("fixed") or {}
+    if usual.get("sampler") is not None and "hr_sampler_name" in fixed:
+        fixed["hr_sampler_name"] = USE_SAME_SAMPLER
+    if usual.get("schedule_type") is not None and "hr_scheduler" in fixed:
+        fixed["hr_scheduler"] = USE_SAME_SCHEDULER
+    if usual.get("cfg") is not None and "hr_cfg" in fixed:
+        fixed["hr_cfg"] = usual["cfg"]
+    fifth = usual.get("distilled_cfg", usual.get("shift"))
+    if fifth is not None and "hr_distilled_cfg" in fixed:
+        fixed["hr_distilled_cfg"] = fifth
+    return named
+
+
+def for_run(tab: str, named: Dict[str, Any], settings: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    A task's kept press as one of its runs takes it (#400): with the run's
+    usual settings and Hires fix following them, and for a checkpoint of
+    another family than the one selected when it was queued, Hires fix's
+    checkpoint and VAE / text encoders "Use same" and the refiner off.
+    `settings` is the run's row's: {usual, another_family}, or none.
+    """
+    usual = (settings or {}).get("usual")
+    if usual:
+        named = hires_follows(with_usual(tab, named, usual), usual)
+    if (settings or {}).get("another_family"):
+        named = for_another_model(tab, named)
+    return named
+
+
 # The Sampler script's controls, by the usual settings' keys: the same ids in
 # both WebUIs (processing_scripts/sampler.py).
 _USUAL_CONTROLS = {"_sampling": "sampler", "_scheduler": "schedule_type", "_steps": "steps"}

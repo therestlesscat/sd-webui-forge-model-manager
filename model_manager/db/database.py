@@ -715,6 +715,10 @@ class ModelsDatabase:
         """Record how a task ended. See TasksOps.finish_task()."""
         self._tasks.finish_task(task_id, status, error, first_seed)
 
+    def finish_checkpoint(self, task_id: int, place: int, status: str, error: Optional[str] = None) -> None:
+        """Record how one checkpoint's run of a task ended (#400). See TasksOps.finish_checkpoint()."""
+        self._tasks.finish_checkpoint(task_id, place, status, error)
+
     def cancel_task(self, install: str, task_id: int) -> bool:
         """Take a pending task out of the queue (#177). See TasksOps.cancel()."""
         return self._tasks.cancel(install, task_id)

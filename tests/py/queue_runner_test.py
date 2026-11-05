@@ -197,13 +197,14 @@ capture._found['txt2img'] = {'root': types.SimpleNamespace(fns={0: own}), 'gener
                              'queue': Component('Queue', 'txt2img_queue')}
 
 
-def queue_task(prompt, seed=7, unit=None, script_index=1, xyz=1):
-    """Queue through the Queue button's own capture, as the page would."""
+def queue_task(prompt, seed=7, unit=None, script_index=1, xyz=1, checkpoints=None):
+    """Queue through the Queue button's own capture, as the page would - for several checkpoints, with their rows."""
     values = {FIXED[0]: '', FIXED[1]: prompt, FIXED[2]: 'blurry', FIXED[3]: 2,
               SCRIPT_LIST: script_index, SEED: seed, SUBSEED: -1, UNIT: unit or Unit(enabled=True, weight=0.5),
               XYZ_TYPE: xyz, XYZ_VALUES: '1,2'}
     inputs = list(own.inputs)
-    task_id, _ = capture.capture('txt2img', own, [], inputs, [values[c] for c in inputs], 'sachi')
+    task_id, _ = capture.capture('txt2img', own, [], inputs, [values[c] for c in inputs], 'sachi',
+                                 checkpoints=checkpoints)
     return task_id, [values[c] for c in inputs]
 
 
@@ -610,6 +611,207 @@ failed_load = load._loader('txt2img', list(range(9)))(json.dumps({'task': theirs
 check('a task it cannot load changes nothing, and says why',
       (failed_load[:9] == [gr.update()] * 9, json.loads(failed_load[-1])),
       (True, {'nonce': 'n2', 'task': theirs, 'error': 'No task #%d in this WebUI' % theirs}))
+
+# ------------------------------------- a task of several checkpoints (#400)
+from model_manager.scheduler import tasks as task_rows   # noqa: E402
+
+OTHER_VAE = os.path.join(WORK, 'models', 'VAE', 'other_vae.safetensors')
+forge.checkpoints.add('third.safetensors')
+forge.modules = [VAE, OTHER_VAE]
+ROWS = [{'checkpoint': 'model.safetensors', 'modules': [VAE]},
+        {'checkpoint': 'other.safetensors', 'modules': [OTHER_VAE], 'settings': {'usual': {'steps': 30}}},
+        {'checkpoint': 'third.safetensors', 'modules': [], 'settings': {'another_family': True}}]
+AT_SEED = own.inputs.index(SEED) - 1     # Generate's function is sent every input but the first
+
+
+def several(prompt, seed=-1):
+    return queue_task(prompt, seed=seed, checkpoints=ROWS)[0]
+
+
+def statuses(task_id):
+    return [r['status'] for r in db.get_task(task_id)['checkpoints']]
+
+
+clear()
+three = several('three checkpoints')
+given = []
+real_for_run = load.for_run
+runner.load.for_run = lambda tab, named, settings: (given.append((id(named), settings)), real_for_run(tab, named, settings))[1]
+run_queue()
+runner.load.for_run = real_for_run
+check("each run is given its own row's settings, from one copy of the task's inputs",
+      ([settings for _, settings in given], len({named for named, _ in given})),
+      ([None, {'usual': {'steps': 30}}, {'another_family': True}], 1))
+check('a task of three checkpoints runs Generate three times, each run given its own checkpoint and VAE',
+      [c['overrides'] for c in forge.calls],
+      [{'sd_model_checkpoint': 'model.safetensors', 'forge_additional_modules': [VAE]},
+       {'sd_model_checkpoint': 'other.safetensors', 'forge_additional_modules': [OTHER_VAE]},
+       {'sd_model_checkpoint': 'third.safetensors', 'forge_additional_modules': []}])
+check("each under an id of its own that names the task, so the recorder links every image to it",
+      (ran(), len({c['job'] for c in forge.calls})), ([three] * 3, 3))
+check('a seed of -1 is drawn once, and every run has it',
+      (len({c['values'][AT_SEED] for c in forge.calls}), forge.calls[0]['values'][AT_SEED] != -1), (1, True))
+check('the task completes, each row too, its first seed the first run\'s',
+      (status_of(three), statuses(three), db.get_task(three)['first_seed']),
+      ('completed', ['completed'] * 3, 1001))
+check('the task itself keeps -1, for a Retry to draw again',
+      db.get_task(three)['inputs']['scripts']['Seed'][0]['value'], -1)
+check("and the queue's progress no longer names a run", (runner.status()['progress']['run'],
+                                                         runner.status()['progress']['runs']), (0, 0))
+
+clear()
+boxed = several('an empty seed box', seed='')
+run_queue()
+seeds = {c['values'][AT_SEED] for c in forge.calls}
+check("an empty seed box is drawn once too, kept as text as the box sends it",
+      (len(seeds), all(isinstance(v, str) and v.isdigit() for v in seeds)), (1, True))
+
+clear()
+again = several('retried')
+run_queue()
+copy_id = db.add_task(task_rows.retried(db.get_task(again), 'random'))
+forge.calls.clear()
+run_queue()
+check('Retry with a random seed of a task of three: one seed across its three runs',
+      (len(forge.calls), len({c['values'][AT_SEED] for c in forge.calls})), (3, 1))
+
+clear()
+two_gone = several('rows 1 and 3 gone')
+forge.checkpoints.difference_update({'model.safetensors', 'third.safetensors'})
+run_queue()
+forge.checkpoints.update({'model.safetensors', 'third.safetensors'})
+check('two runs failing are each named, the error once each',
+      db.get_task(two_gone)['error'],
+      '2 of 3 failed: The checkpoint is not in this WebUI: model.safetensors; '
+      'The checkpoint is not in this WebUI: third.safetensors')
+
+clear()
+gone = several('row 2 gone')
+forge.checkpoints.discard('other.safetensors')
+run_queue()
+forge.checkpoints.add('other.safetensors')
+check("row 2's checkpoint gone: rows 1 and 3 run", [c['overrides']['sd_model_checkpoint'] for c in forge.calls],
+      ['model.safetensors', 'third.safetensors'])
+check('the task ends Failed, its error naming row 2', (status_of(gone), db.get_task(gone)['error']),
+      ('failed', '1 of 3 failed: The checkpoint is not in this WebUI: other.safetensors'))
+check('each row as its run ended', statuses(gone), ['completed', 'failed', 'completed'])
+
+clear()
+stopped = several('stopped in run 2')
+forge.plan = ['ok', 'running']
+runner.start()
+check('run 2 starts', wait_until(lambda: forge.waiting.is_set() and len(forge.calls) == 2), True)
+runner.stop()
+check('Stop interrupts run 2, the one going', forge.interrupts, [forge.calls[1]['job']])
+forge.release.set()
+jobs.join(10)
+check('run 3 never starts, and the task ends Stopped', (len(forge.calls), status_of(stopped)), (2, 'stopped'))
+check("run 1's row completed, run 2's stopped, run 3's never reached", statuses(stopped),
+      ['completed', 'stopped', None])
+
+clear()
+interrupted = several('interrupted in run 2')
+next_one, _ = queue_task('next')
+forge.plan = ['ok', 'interrupt']
+run_queue()
+check("Forge's own Interrupt in run 2 ends the task Stopped, run 3 not run",
+      (status_of(interrupted), statuses(interrupted)), ('stopped', ['completed', 'stopped', None]))
+check('and the queue goes on to the next task', status_of(next_one), 'completed')
+
+clear()
+held_between = several('held between runs')
+real_jobs, real_grace = forge_host.forge_jobs, runner.HOLD_GRACE
+forge_jobs_now = []
+forge_host.forge_jobs = lambda: list(forge_jobs_now)
+runner.HOLD_GRACE = 0.3
+forge.plan = ['running']
+runner.start()
+forge.waiting.wait(5)
+forge_jobs_now[:] = ['task(person-2)']
+forge.release.set()
+time.sleep(0.6)
+check("the person's own Generate waiting as run 1 ends: run 2 waits for it",
+      (len(forge.calls), runner.status()['progress']['holding'], runner.status()['progress']['run']), (1, True, 1))
+forge_jobs_now[:] = []
+check('then runs 2 and 3 run', wait_until(lambda: status_of(held_between) == 'completed'), True)
+jobs.join(10)
+
+clear()
+stopped_waiting = several('stopped while run 2 waits')
+forge.plan = ['running']
+runner.start()
+forge.waiting.wait(5)
+forge_jobs_now[:] = ['task(person-3)']
+forge.release.set()
+check('run 2 waits for the person', wait_until(lambda: runner.status()['progress']['holding']), True)
+runner.stop()
+jobs.join(10)
+forge_jobs_now[:] = []
+check('Stop while run 2 waits: no other run, the task ends Stopped, not Completed',
+      (len(forge.calls), status_of(stopped_waiting), statuses(stopped_waiting)),
+      (1, 'stopped', ['completed', None, None]))
+forge_host.forge_jobs, runner.HOLD_GRACE = real_jobs, real_grace
+
+clear()
+paused = several('paused in run 1')
+after_pause, _ = queue_task('after the pause')
+forge.plan = ['running']
+runner.start()
+forge.waiting.wait(5)
+runner.pause()
+forge.release.set()
+check('Pause during a task of three: all three run, then the queue pauses',
+      wait_until(lambda: runner.status()['progress']['state'] == 'paused'), True)
+check('the task completed every run, the next not started',
+      (len(forge.calls), status_of(paused), status_of(after_pause)), (3, 'completed', 'pending'))
+runner.resume()
+jobs.join(10)
+
+# The variation seed of a task of several, as fixed_seeds draws it (#400):
+# drawn once where its strength is above 0, left alone where it is 0.
+SEEDED = {'fixed': {}, 'scripts': {'Seed': [{'id': 'txt2img_seed', 'value': 5},
+                                            {'id': 'txt2img_subseed', 'value': -1},
+                                            {'id': 'txt2img_subseed_strength', 'value': 0.5}]}}
+varied = runner.fixed_seeds('txt2img', SEEDED)['scripts']['Seed']
+check('a variation seed of -1 with a strength above 0 is drawn; a seed set stays',
+      (varied[0]['value'], varied[1]['value'] != -1, SEEDED['scripts']['Seed'][1]['value']), (5, True, -1))
+SEEDED['scripts']['Seed'][2]['value'] = 0
+check('with a strength of 0 the variation seed stays -1',
+      runner.fixed_seeds('txt2img', SEEDED)['scripts']['Seed'][1]['value'], -1)
+
+# A run's inputs as its row takes them (#400): its usual settings, Hires fix
+# following what they set and no more; another family's run Hires fix's
+# checkpoint "Use same" and the refiner off. The press itself is never changed.
+PRESS = {'fixed': {'prompt': 'p', 'cfg_scale': 7.0, 'distilled_cfg_scale': 3.5, 'hr_cfg': 6.0, 'hr_distilled_cfg': 3.0,
+                   'hr_sampler_name': 'Euler', 'hr_scheduler': 'Karras', 'hr_checkpoint_name': 'hires.safetensors',
+                   'hr_additional_modules': ['sdxl_vae.safetensors']},
+         'scripts': {'Sampler': [{'id': 'txt2img_sampling', 'value': 'Euler a'},
+                                 {'id': 'txt2img_scheduler', 'value': 'Karras'},
+                                 {'id': 'txt2img_steps', 'value': 20}],
+                     'Refiner': [{'id': 'txt2img_enable', 'value': True}]}}
+
+
+def hires(named):
+    f = named['fixed']
+    return (f['hr_sampler_name'], f['hr_scheduler'], f['hr_cfg'], f['hr_distilled_cfg'], f['hr_checkpoint_name'],
+            named['scripts']['Refiner'][0]['value'])
+
+
+every = load.for_run('txt2img', PRESS, {'usual': {'sampler': 'DPM++ 2M', 'schedule_type': 'Simple', 'cfg': 4,
+                                                  'distilled_cfg': 2.5}})
+check("a run takes its usual settings, Hires fix following: its sampler and schedule type Use same, its CFG the run's",
+      (every['fixed']['cfg_scale'], hires(every)),
+      (4, ('Use same sampler', 'Use same scheduler', 4, 2.5, 'hires.safetensors', True)))
+some = load.for_run('txt2img', PRESS, {'usual': {'steps': 30}})
+check('a Hires setting the usual ones leave alone stays as pressed', hires(some),
+      ('Euler', 'Karras', 6.0, 3.0, 'hires.safetensors', True))
+check('a usual Shift goes to Hires fix\'s one slider for either',
+      load.for_run('txt2img', PRESS, {'usual': {'shift': 6}})['fixed']['hr_distilled_cfg'], 6)
+other = load.for_run('txt2img', PRESS, {'another_family': True})
+check("another family's run: Hires fix's checkpoint Use same and the refiner off, the rest as pressed",
+      hires(other), ('Euler', 'Karras', 6.0, 3.0, 'Use same checkpoint', False))
+check('a row with no settings runs the press as it is', load.for_run('txt2img', PRESS, None), PRESS)
+check('and the press itself is never changed', hires(PRESS), ('Euler', 'Karras', 6.0, 3.0, 'hires.safetensors', True))
 
 db.close()
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')

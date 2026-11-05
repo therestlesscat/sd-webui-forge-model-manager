@@ -261,9 +261,12 @@ def inputs_folder() -> str:
     return str(setting(INPUTS_SETTING) or "").strip() or default_inputs_folder()
 
 
-def capture(tab: str, own, others, inputs: List[Any], values, username: Optional[str]) -> Tuple[int, str]:
+def capture(tab: str, own, others, inputs: List[Any], values, username: Optional[str],
+            checkpoints: Optional[List[Dict[str, Any]]] = None) -> Tuple[int, str]:
     """
-    Store what Generate would be sent as a pending task.
+    Store what Generate would be sent as a pending task: with the checkpoint
+    and VAE / text encoders Forge has selected, or with `checkpoints`, the
+    rows of a task of several (#400).
 
     Returns:
         (the task's id, its prompt)
@@ -274,10 +277,12 @@ def capture(tab: str, own, others, inputs: List[Any], values, username: Optional
                                  + uuid.uuid4().hex[:8]))
     try:
         named = name_inputs(tab, own.inputs, [by_component[id(c)] for c in own.inputs], keeper)
-        models = selected_models()
+        if checkpoints is None:
+            models = selected_models()
+            checkpoints = [{"checkpoint": models["checkpoint"], "modules": models["modules"]}]
         task_id = get_models_db().add_task({
             "install": INSTALL_KEY, "forge": forge_name(), "mode": tab, "inputs": named,
-            "checkpoints": [{"checkpoint": models["checkpoint"], "modules": models["modules"]}],
+            "checkpoints": checkpoints,
             "username": username,
         })
     except Exception:
