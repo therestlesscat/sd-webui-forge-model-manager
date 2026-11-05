@@ -1128,10 +1128,15 @@ function civitaiSendLine({ img, model, version, into = null }, { opened, problem
         run: () => sendGalleryImage({ img, model, version, into }),
         pick: (name, imageModel, usual = null) => sendGalleryImage({ img, model, version, into, useCheckpoint: name,
                                                                      imageModel, usual }),
+        // Several ticked (#400): sent with the first, then several mode with them all.
+        pickSeveral: (names, imageModel, entering) => sendThenSeveral(
+            () => sendGalleryImage({ img, model, version, into, useCheckpoint: names[0], imageModel }), names, entering),
         // What send/usual is asked with for a pick (#378): the image, as send/plan takes it.
         usualSource: { kind: 'civitai', image: img.id, version_ids: named.versionIds.join(','),
                        hashes: named.hashes.join(',') },
         button: sendButtonLabel(into),
+        // Where it goes: several checkpoints are ticked only for txt2img (#400).
+        tab: into ? 'img2img' : 'txt2img',
         list: { version_ids: named.versionIds.join(','), hashes: named.hashes.join(','),
                 gallery_file: version?.file_path || '', gallery_base_model: version?.base_model || model?.base_model || '' },
     };
@@ -1153,12 +1158,51 @@ function generationSendLine(args, { opened, problem = null, goesOn = false } = {
             : null,
         run: () => sendInfotext(args),
         pick: (name, imageModel, usual = null) => sendInfotext({ ...args, useCheckpoint: name, imageModel, usual }),
+        pickSeveral: (names, imageModel, entering) => sendThenSeveral(
+            () => sendInfotext({ ...args, useCheckpoint: names[0], imageModel }), names, entering),
         usualSource: { kind: 'generation', generation: Number(args.generationId),
                        ...(args.imageId === null || args.imageId === undefined ? {} : { image: Number(args.imageId) }),
                        ...(args.whole ? { whole: 1 } : {}) },
         button: sendButtonLabel(args.into, sendTab({ mode: args.mode })),
+        tab: args.into ? 'img2img' : sendTab({ mode: args.mode }),
         list: { generation: Number(args.generationId) },
     };
+}
+
+/**
+ * Several checkpoints ticked in the Resources dialog (#400): the image sent
+ * with the first, as made - each run takes its own usual settings when the
+ * task is queued - and, once that send has landed in txt2img, several mode
+ * with them all: `entering`, where they came from, how each is named and
+ * what the list was asked with. A send that stopped or failed has said why,
+ * and the mode is not entered; one several mode refuses is said here.
+ */
+async function sendThenSeveral(send, names, { source = null, labels = null, listParams = null } = {}) {
+    const before = sendSettled;
+    const sent = await send();
+    // No paste began: it stopped - its checkpoint, the image - and said so.
+    if (sent === false || sendSettled === before) return sent;
+    if (await sendSettled !== true) return sent;
+    const first = labels?.[names[0]] || names[0];
+    if (lastSendTab !== 'txt2img') {
+        showNotice(`Sent with ${first} into ${lastSendTab}: several checkpoints are queued from txt2img alone.`,
+                   { info: true });
+        return sent;
+    }
+    const held = ready('several.enter') && await call('several.enter', { names, source, labels, listParams });
+    if (held === 'off') {
+        const said = `Sent with ${first}. Turn on `;
+        const rest = ` to queue all ${names.length}.`;
+        showNotice(`${said}Queue a generation with several checkpoints${rest}`, {
+            info: true,
+            html: `${escapeHtml(said)}${settingLink(SEVERAL_SETTING, 'Queue a generation with several checkpoints')}`
+                  + escapeHtml(rest),
+        });
+    } else if (held !== true) {
+        showNotice(`Sent with ${first}. Queuing several checkpoints needs a reload of this page: the Queue was `
+                   + 'switched off and on in it.', { info: true });
+    }
+    return sent;
 }
 
 /**
@@ -1359,8 +1403,10 @@ async function applyVaeSelection(vaeName) {
 // The last send's work after the paste - scheduler, modules, hires - which
 // runs on after a gallery's Send returns. Resolved once all of it is done.
 let sendSettled = Promise.resolve();
+// The tab the last paste went into: several mode is txt2img's alone (#400).
+let lastSendTab = null;
 
-/** Wait for the last send to finish setting Forge up. */
+/** Wait for the last send to finish setting Forge up: true once it landed, else false. */
 export function whenSendSettled() {
     return sendSettled;
 }
@@ -1391,6 +1437,9 @@ export function whenSendSettled() {
  * place of what follows a paste. Without the loader, Forge's paste button
  * takes the server's text.
  *
+ * sendSettled answers whether the send landed: false where it said it could
+ * not send.
+ *
  * @returns {boolean} whether the paste could be made at all
  */
 function pasteInfotext(tab, { source, afterPaste, into = null, whenReplayed = null, usual = null }) {
@@ -1399,6 +1448,7 @@ function pasteInfotext(tab, { source, afterPaste, into = null, whenReplayed = nu
         console.error(`[ModelManager] Could not find ${tab} prompt textarea`);
         return false;
     }
+    lastSendTab = tab;
     // Set by the loader, in the paste's own event - or, where Forge's paste
     // button pastes instead, taken from the server's text and set after it.
     let scheduler = null;
@@ -1412,10 +1462,10 @@ function pasteInfotext(tab, { source, afterPaste, into = null, whenReplayed = nu
             const pasting = answer.text !== undefined ? answer : await fetchSendText(source, into);
             if (!pasting?.text) {
                 showNotice('Could not send: the server did not answer.');
-                return;
+                return false;
             }
             ({ scheduler, hires: hasHiresFix } = pasting);
-            if (!await pasteWithButton(tab, promptTextarea, pasting.text)) return;
+            if (!await pasteWithButton(tab, promptTextarea, pasting.text)) return false;
             if (usual) showNotice(usualNotice(usual, pasting.usual), { info: true });
             if (into) {
                 showNotice('The settings are in img2img, but the picture could not be put in: '
@@ -1423,11 +1473,11 @@ function pasteInfotext(tab, { source, afterPaste, into = null, whenReplayed = nu
             }
         } else if (answer.error) {
             showNotice(`Could not send: ${answer.error}.`);
-            return;
+            return false;
         } else if (answer.replayed && whenReplayed) {
             if (usual) showNotice(usualNotice(usual, answer.usual), { info: true });
             await whenReplayed(answer);
-            return;
+            return true;
         } else {
             if (into) await putPicture(into);
             // What the paste button's own click does after it: the prompts' token counts.
@@ -1483,7 +1533,11 @@ function pasteInfotext(tab, { source, afterPaste, into = null, whenReplayed = nu
             }
         }
         await Promise.resolve(pending).catch(() => {});
-    })().catch((error) => console.error('[ModelManager] Send failed after the paste:', error));
+        return true;
+    })().catch((error) => {
+        console.error('[ModelManager] Send failed after the paste:', error);
+        return false;
+    });
     return true;
 }
 
