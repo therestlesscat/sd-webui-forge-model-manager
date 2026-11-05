@@ -170,6 +170,10 @@ check('the press reads the list and where it came from off the strip',
 const css = readFileSync(`${ROOT}/style.css`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
 const rule = css.match(/([^{}]*)\{\s*display:\s*none\s*!important;\s*\}/g)
     ?.find((r) => r.includes('#txt2img_queue_several'));
+// It is made after the Queue button: the box puts it first, in Generate's place.
+const own = css.match(/(?:^|})\s*#txt2img_queue_several\s*\{([^}]*)\}/)?.[1] || '';
+check('the stylesheet puts the button first in Generate\'s box, as tall as Generate',
+      [/(^|;|\s)order:\s*-1\s*;/.test(own), /min-height:\s*4\.5em/.test(own)], [true, true]);
 check('the stylesheet hides Generate alone in the mode, and the button outside it',
       rule?.split('{')[0].split(',').map((s) => s.trim()).sort(),
       ['body.mm-several #txt2img_generate', 'body:not(.mm-several) #txt2img_queue_several']);

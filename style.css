@@ -6155,8 +6155,11 @@ body.mm-several #txt2img_generate {
     display: none !important;
 }
 
-/* As tall as the Generate it stands in for (the WebUI's own rule). */
+/* As tall as the Generate it stands in for (the WebUI's own rule), and first
+   in the box, where Generate was: it is made after the Queue button, and drew
+   below it. */
 #txt2img_queue_several {
+    order: -1;
     min-height: 4.5em;
 }
 
