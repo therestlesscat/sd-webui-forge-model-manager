@@ -7,6 +7,12 @@ only the queue's own record of it changes - its status, when it ran, its
 first run's seed, its error - and the generations its run made are linked to
 it. See migrations._migrate_to_v34.
 
+What a task runs with - the checkpoint by Forge's name, its VAE / text
+encoders, the settings it takes in place of the press's - is a row of
+`task_checkpoints` per checkpoint, in the order they run (v49, #400): one row
+for a press of Queue, its checkpoint none when Forge had none selected. Every
+task read here is handed them, as `checkpoints`.
+
 A task's status:
   pending     queued, not yet run
   running     the queue is running it
@@ -31,9 +37,14 @@ ACTIVE = ("pending", "running")
 HISTORY = ("completed", "stopped", "failed", "cancelled")
 
 # Written when a task is queued; the rest is the queue's record of it.
-_QUEUED_COLUMNS = ("install", "forge", "mode", "inputs", "checkpoint", "modules",
-                   "username", "retry_of")
-_JSON_COLUMNS = {"inputs", "modules"}
+_QUEUED_COLUMNS = ("install", "forge", "mode", "inputs", "username", "retry_of")
+_JSON_COLUMNS = {"inputs"}
+
+# A task's checkpoint row as queued; its status and error are the queue's
+# record of its run. `modules` and `settings` are JSON, NULL kept apart from
+# an empty list: a press with no VAE / text encoders named sent [].
+_CHECKPOINT_COLUMNS = ("checkpoint", "modules", "settings")
+_CHECKPOINT_JSON = {"modules", "settings"}
 
 
 def _now() -> str:
@@ -53,6 +64,37 @@ def _read(row) -> Dict[str, Any]:
             except (TypeError, ValueError):
                 pass
     return task
+
+
+def _add_checkpoints(cursor, tasks: List[Dict[str, Any]]) -> None:
+    """Give each task its checkpoint rows, in the order they run."""
+    if not tasks:
+        return
+    ids = [t["id"] for t in tasks]
+    rows: Dict[int, List[Dict[str, Any]]] = {}
+    cursor.execute(f"SELECT task_id, place, checkpoint, modules, settings, status, error "
+                   f"FROM task_checkpoints WHERE task_id IN ({_marks(ids)}) ORDER BY task_id, place", ids)
+    for found in cursor.fetchall():
+        row = dict(found)
+        for column in _CHECKPOINT_JSON:
+            if row[column] is not None:
+                try:
+                    row[column] = json.loads(row[column])
+                except (TypeError, ValueError):
+                    pass
+        rows.setdefault(row.pop("task_id"), []).append(row)
+    for task in tasks:
+        task["checkpoints"] = rows.get(task["id"], [])
+
+
+def _write_checkpoints(cursor, task_id: int, checkpoints: List[Dict[str, Any]]) -> None:
+    """A queued task's checkpoint rows; one with none when it names none."""
+    for place, row in enumerate(checkpoints or [{}]):
+        values = [json.dumps(row.get(c), ensure_ascii=False)
+                  if c in _CHECKPOINT_JSON and row.get(c) is not None else row.get(c)
+                  for c in _CHECKPOINT_COLUMNS]
+        cursor.execute(f"INSERT INTO task_checkpoints (task_id, place, {', '.join(_CHECKPOINT_COLUMNS)}) "
+                       f"VALUES (?, ?, {_marks(_CHECKPOINT_COLUMNS)})", [task_id, place, *values])
 
 
 def _add_links(cursor, tasks: List[Dict[str, Any]]) -> None:
@@ -88,11 +130,18 @@ class TasksOps:
     def add_task(self, task: Dict[str, Any]) -> int:
         """
         Queue a task. `task` holds its queued columns by name; `install`,
-        `mode` and `inputs` are required. It starts pending.
+        `mode` and `inputs` are required. `checkpoints`, a list of
+        {checkpoint, modules, settings} in the order they run, is written a
+        row each - one row with none when it is missing or empty. It starts
+        pending.
 
         Returns:
             The task's id, which is also its place in the queue.
         """
+        stale = {"checkpoint", "modules"} & task.keys()
+        if stale:
+            # Since v49 they are rows of their own: dropped here, they would be lost without a word.
+            raise ValueError(f"a task's {', '.join(sorted(stale))} go in `checkpoints` (#400)")
         columns = [c for c in _QUEUED_COLUMNS if c in task]
         values = [json.dumps(task[c], ensure_ascii=False)
                   if c in _JSON_COLUMNS and task[c] is not None else task[c]
@@ -101,7 +150,9 @@ class TasksOps:
             cursor.execute(
                 f"INSERT INTO tasks ({', '.join(columns)}, status, created_at) "
                 f"VALUES ({_marks(columns)}, 'pending', ?)", values + [_now()])
-            return cursor.lastrowid
+            task_id = cursor.lastrowid
+            _write_checkpoints(cursor, task_id, task.get("checkpoints"))
+            return task_id
 
     def get_task(self, task_id: int) -> Optional[Dict[str, Any]]:
         """
@@ -114,6 +165,7 @@ class TasksOps:
             if not row:
                 return None
             task = _read(row)
+            _add_checkpoints(cursor, [task])
             _add_links(cursor, [task])
             return task
 
@@ -123,7 +175,11 @@ class TasksOps:
             cursor.execute("SELECT * FROM tasks WHERE install = ? AND status = 'pending' "
                            "ORDER BY id LIMIT 1", (install,))
             row = cursor.fetchone()
-            return _read(row) if row else None
+            if not row:
+                return None
+            task = _read(row)
+            _add_checkpoints(cursor, [task])
+            return task
 
     def start_task(self, task_id: int) -> bool:
         """Mark a pending task running. False if it was not pending."""
@@ -206,6 +262,7 @@ class TasksOps:
             page = f" LIMIT {int(limit)} OFFSET {int(offset)}" if limit is not None else ""
             cursor.execute(f"SELECT * FROM tasks WHERE {where} ORDER BY {order}{page}", args + first)
             tasks = [_read(r) for r in cursor.fetchall()]
+            _add_checkpoints(cursor, tasks)
             _add_links(cursor, tasks)
             return tasks, total
 
@@ -302,6 +359,9 @@ class TasksOps:
         row = cursor.fetchone()
         if not row or row["status"] == "running":
             return None
+        task = _read(row)
+        _add_checkpoints(cursor, [task])
         cursor.execute("DELETE FROM task_generations WHERE task_id = ?", (task_id,))
+        cursor.execute("DELETE FROM task_checkpoints WHERE task_id = ?", (task_id,))
         cursor.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
-        return _read(row)
+        return task

@@ -19,7 +19,7 @@ from .capture import LABEL
 ENDED = ("completed", "stopped", "failed", "cancelled")
 
 # What a list's row says of a task besides its inputs (#158).
-ROW_FIELDS = ("id", "mode", "status", "checkpoint", "modules", "username", "created_at",
+ROW_FIELDS = ("id", "mode", "status", "username", "created_at",
               "started_at", "finished_at", "error", "first_seed", "retry_of", "retried_as",
               "generations", "hidden")
 
@@ -65,6 +65,15 @@ def shown(value: Any) -> Any:
     return {k: shown(v) for k, v in value.items()}
 
 
+def first_checkpoint(task: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    A task's first checkpoint row (db/tasks_ops.py): the one it runs with,
+    while a task runs one (#400). Empty for a task read without its rows.
+    """
+    rows = task.get("checkpoints") or []
+    return rows[0] if rows else {}
+
+
 def _hires(fixed: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Hires fix as it was set - a scale, or a resize where 0 follows the
     image's shape - or None when it is off."""
@@ -82,7 +91,10 @@ def summary(task: Dict[str, Any]) -> Dict[str, Any]:
     fixed = inputs.get("fixed") or {}
     mode = task.get("mode")
     row = {field: task.get(field) for field in ROW_FIELDS}
+    first = first_checkpoint(task)
     row.update({
+        "checkpoint": first.get("checkpoint"),
+        "modules": first.get("modules"),
         "prompt": fixed.get("prompt") or "",
         "script": inputs.get("script"),
         "width": fixed.get("width"),
@@ -132,9 +144,11 @@ def retried(task: Dict[str, Any], seed: str) -> Dict[str, Any]:
     if entry is not None and new is not None:
         # The Seed control can be a textbox, which sends text.
         entry["value"] = str(new) if isinstance(entry.get("value"), str) else new
-    copied = {column: task.get(column) for column in ("install", "forge", "mode", "checkpoint",
-                                                      "modules", "username")}
-    return {**copied, "inputs": inputs, "retry_of": task["id"]}
+    copied = {column: task.get(column) for column in ("install", "forge", "mode", "username")}
+    # Its checkpoints as queued; how each run ended is the original's.
+    checkpoints = [{column: copy.deepcopy(row.get(column)) for column in ("checkpoint", "modules", "settings")}
+                   for row in task.get("checkpoints") or []]
+    return {**copied, "inputs": inputs, "checkpoints": checkpoints, "retry_of": task["id"]}
 
 
 def delete_inputs(paths: List[str]) -> Tuple[int, List[Dict[str, str]]]:

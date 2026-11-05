@@ -6,6 +6,16 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.76 - One generation with several checkpoints
+
+*4 November 2026*
+
+Pick several of your checkpoints in the Resources dialog, change the prompt and settings in txt2img, and
+queue one task that makes your generation with each of them in turn, each with its own usual settings. The
+task's images show together in the Generations tab, grouped by model.
+
+- **0.76.0** (build 621) - A queued task's checkpoint and its VAE / text encoders are now kept in a table of their own, a row per checkpoint, ready for a task that makes one generation with several checkpoints (#400). A migration, v49, backs the database up when it holds a task, moves every queued task's into it, and checks each against the one it moved before it finishes. Queuing, running, retrying and loading a task work as before. If two WebUIs share one database, update the extension in both before starting either.
+
 ## 0.75 - A picked checkpoint's usual settings
 
 *3 November 2026*

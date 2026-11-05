@@ -59,6 +59,7 @@ from ..db import get_models_db
 from ..install import INSTALL_KEY
 from ..jobs import jobs
 from . import capture, queue_enabled, replay
+from .tasks import first_checkpoint
 
 KIND = "queue"
 # How long after the person's own run the queue waits before its next task:
@@ -268,11 +269,12 @@ def files_problem(task: Dict[str, Any]) -> Optional[str]:
     Why a task cannot run in this WebUI, if a file it names is not here: it
     fails, rather than run on whatever Forge has loaded (#154).
     """
-    checkpoint = task.get("checkpoint")
+    first = first_checkpoint(task)
+    checkpoint = first.get("checkpoint")
     if checkpoint and not forge_host.checkpoint_listed(checkpoint):
         return f"The checkpoint is not in this WebUI: {checkpoint}"
     offered = {os.path.normcase(os.path.abspath(path)) for path in forge_host.installed_modules().values()}
-    for path in task.get("modules") or []:
+    for path in first.get("modules") or []:
         if os.path.normcase(os.path.abspath(path)) not in offered:
             return f"A VAE or text encoder is not in this WebUI: {path}"
     return None
@@ -317,13 +319,13 @@ def on_before_process(p) -> None:
     if run["stop"]:
         forge_host.stop_this_run()
         return
-    task = run["task"]
+    first = first_checkpoint(run["task"])
     overrides = getattr(p, "override_settings", None)
     if overrides is None:
         overrides = p.override_settings = {}
-    if task.get("checkpoint"):
-        overrides["sd_model_checkpoint"] = task["checkpoint"]
-    overrides["forge_additional_modules"] = list(task.get("modules") or [])
+    if first.get("checkpoint"):
+        overrides["sd_model_checkpoint"] = first["checkpoint"]
+    overrides["forge_additional_modules"] = list(first.get("modules") or [])
 
 
 def on_postprocess(p, processed) -> None:

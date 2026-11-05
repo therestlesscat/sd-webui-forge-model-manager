@@ -277,7 +277,8 @@ def capture(tab: str, own, others, inputs: List[Any], values, username: Optional
         models = selected_models()
         task_id = get_models_db().add_task({
             "install": INSTALL_KEY, "forge": forge_name(), "mode": tab, "inputs": named,
-            "checkpoint": models["checkpoint"], "modules": models["modules"], "username": username,
+            "checkpoints": [{"checkpoint": models["checkpoint"], "modules": models["modules"]}],
+            "username": username,
         })
     except Exception:
         shutil.rmtree(keeper.folder, ignore_errors=True)

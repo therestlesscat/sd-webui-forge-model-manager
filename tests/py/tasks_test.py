@@ -82,7 +82,7 @@ HERE_INSTALL, OTHER_INSTALL = 'install-here', 'install-other'
 def queue(n, install=HERE_INSTALL, **more):
     task = {'install': install, 'forge': 'neo', 'mode': 'txt2img',
             'inputs': {'prompt': f'task {n}', 'steps': n},
-            'checkpoint': 'model.safetensors', 'modules': ['vae.safetensors']}
+            'checkpoints': [{'checkpoint': 'model.safetensors', 'modules': ['vae.safetensors']}]}
     task.update(more)
     return db.add_task(task)
 
@@ -92,10 +92,22 @@ x = queue(9, install=OTHER_INSTALL)
 got = db.get_task(a)
 check('a task is queued pending', got['status'], 'pending')
 check('its inputs come back as written', got['inputs'], {'prompt': 'task 1', 'steps': 1})
-check('its modules too', got['modules'], ['vae.safetensors'])
+check('its checkpoint and modules too, a row of their own (#400)', got['checkpoints'],
+      [{'place': 0, 'checkpoint': 'model.safetensors', 'modules': ['vae.safetensors'], 'settings': None,
+        'status': None, 'error': None}])
+check('a task queued naming none gets one row with none',
+      [(r['checkpoint'], r['modules']) for r in db.get_task(queue(8, install='install-none', checkpoints=None))['checkpoints']],
+      [(None, None)])
 check('it has no generations yet, and no copy', (got['generations'], got['retried_as']), ([], None))
 check('it is dated when queued', bool(got['created_at']), True)
 check('a task that does not exist is None', db.get_task(10 ** 9), None)
+try:
+    queue(9, install='install-old', checkpoint='model.safetensors')
+    old_shape = 'queued'
+except ValueError:
+    old_shape = 'refused'
+check("a task in the old shape, its checkpoint a key of its own, is refused rather than lose it", old_shape,
+      'refused')
 
 # --------------------------------------------------------------- running
 check("the next task is this install's oldest pending", db.next_pending_task(HERE_INSTALL)['id'], a)
@@ -195,18 +207,26 @@ db.start_task(d)
 check('a running task is not deleted', db.delete_task(d, with_data=True), (None, []))
 check('it is still there', db.get_task(d)['status'], 'running')
 
+def checkpoint_rows(task_id):
+    return db._get_connection().execute("SELECT COUNT(*) FROM task_checkpoints WHERE task_id = ?",
+                                        (task_id,)).fetchone()[0]
+
+
 f = queue(6)
+check('a task queued has its checkpoint row', checkpoint_rows(f), 1)
 g3, p3 = generation('three')
 db.link_task_generation(f, g3)
 gone, paths = db.delete_task(f, with_data=False)
 check('without its data, the task goes', (gone['id'], db.get_task(f)), (f, None))
 check('and its links', links(f), 0)
+check('and its checkpoint rows (#400)', checkpoint_rows(f), 0)
 check('its generation stays', db.get_generation(g3) is not None, True)
 check('and no image path comes back', paths, [])
 
 gone, paths = db.delete_task(a, with_data=True)
 check('with its data, the task goes', (gone['id'], db.get_task(a)), (a, None))
 check('and its links', links(a), 0)
+check('and its checkpoint rows', checkpoint_rows(a), 0)
 check('its generations go too', (db.get_generation(g1), db.get_generation(g2)), (None, None))
 check("their images' paths come back, for the files", sorted(paths), sorted([p1, p2]))
 check('the task as it was comes back, for its own files', gone['inputs'], {'prompt': 'task 1', 'steps': 1})

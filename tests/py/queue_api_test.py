@@ -98,7 +98,8 @@ def inputs(prompt, seed=-1, steps=30, hires=None, image=None):
 
 def queue(prompt, install=INSTALL_KEY, **kw):
     return db.add_task({'install': install, 'forge': 'neo', 'mode': 'txt2img', 'inputs': inputs(prompt, **kw),
-                        'checkpoint': 'sdxl\\model.safetensors', 'modules': ['F:\\vae\\sdxl_vae.safetensors'],
+                        'checkpoints': [{'checkpoint': 'sdxl\\model.safetensors',
+                                         'modules': ['F:\\vae\\sdxl_vae.safetensors']}],
                         'username': 'sachi'})
 
 
@@ -257,8 +258,9 @@ check('the copy is pending, at the end of the queue, naming its original',
 check('the original names its copy', [t['retried_as'] for t in listed('history')['tasks'] if t['id'] == done],
       [copies[0]])
 check('the copy is the task as it was queued',
-      (copy['inputs']['fixed'], copy['checkpoint'], copy['modules'], copy['username']),
-      (db.get_task(done)['inputs']['fixed'], 'sdxl\\model.safetensors', ['F:\\vae\\sdxl_vae.safetensors'], 'sachi'))
+      (copy['inputs']['fixed'], [(r['checkpoint'], r['modules']) for r in copy['checkpoints']], copy['username']),
+      (db.get_task(done)['inputs']['fixed'], [('sdxl\\model.safetensors', ['F:\\vae\\sdxl_vae.safetensors'])],
+       'sachi'))
 random_copy = post('/model-manager/queue/retry', ids=str(done), seed='random')['queued'][0]
 check('or with a random seed', db.get_task(random_copy)['inputs']['scripts']['Seed'][0]['value'], -1)
 check('an unknown seed choice is refused',
@@ -332,6 +334,27 @@ check("not one that is not hidden, nor another install's", answer['skipped'],
       [{'id': pending, 'why': 'not hidden'}, {'id': theirs, 'why': 'not found'}])
 check('and the count follows', client.get('/model-manager/queue/status').json()['counts']['hidden'], ended - 1)
 
+# A task of three checkpoints (#400): its copy holds all three, in order, with
+# what each takes, and none of how the original's runs ended.
+three = db.add_task({'install': INSTALL_KEY, 'forge': 'neo', 'mode': 'txt2img', 'inputs': inputs('three'),
+                     'checkpoints': [{'checkpoint': 'a.safetensors', 'modules': []},
+                                     {'checkpoint': 'b.safetensors', 'modules': ['F:\\vae\\b_vae.safetensors'],
+                                      'settings': {'cfg': 4}},
+                                     {'checkpoint': 'c.safetensors', 'modules': None}]})
+run(three)
+with db._cursor() as cursor:
+    cursor.execute("UPDATE task_checkpoints SET status = 'completed' WHERE task_id = ?", (three,))
+    cursor.execute("UPDATE task_checkpoints SET status = 'failed', error = 'gone' WHERE task_id = ? AND place = 1",
+                   (three,))
+copy_of_three = db.get_task(post('/model-manager/queue/retry', ids=str(three), seed='first')['queued'][0])
+check('Retry of a task of three checkpoints copies all three, in order, statuses cleared',
+      [(r['place'], r['checkpoint'], r['modules'], r['settings'], r['status'], r['error'])
+       for r in copy_of_three['checkpoints']],
+      [(0, 'a.safetensors', [], None, None, None),
+       (1, 'b.safetensors', ['F:\\vae\\b_vae.safetensors'], {'cfg': 4}, None, None),
+       (2, 'c.safetensors', None, None, None, None)])
+
 db.close()
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

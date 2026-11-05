@@ -1205,7 +1205,7 @@ check('Remove folder: every synced generation\'s settings go, before its generat
       (settings_of(three), orphan_settings()), (None, 0))
 
 task = db.add_task({'install': 'install-here', 'forge': 'neo', 'mode': 'txt2img', 'inputs': {'prompt': 'p'},
-                    'checkpoint': 'model.safetensors', 'modules': []})
+                    'checkpoints': [{'checkpoint': 'model.safetensors', 'modules': []}]})
 made_by_task = db.record_generation(*a_generation('task'))
 db.link_task_generation(task, made_by_task)
 db.delete_task(task, True)

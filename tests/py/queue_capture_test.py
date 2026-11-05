@@ -189,8 +189,9 @@ check('a capture returns its task and prompt', (isinstance(task_id, int), prompt
 task = db.get_task(task_id)
 check('the task is pending, for this install', (task['status'], task['install'], task['mode']),
       ('pending', INSTALL_KEY, 'txt2img'))
-check('with the checkpoint and modules Forge has selected', (task['checkpoint'], task['modules']),
-      ('model.safetensors [abc123]', [r'F:\models\VAE\vae.safetensors']))
+check('with the checkpoint and modules Forge has selected',
+      [(r['checkpoint'], r['modules']) for r in task['checkpoints']],
+      [('model.safetensors [abc123]', [r'F:\models\VAE\vae.safetensors'])])
 check('and who queued it', task['username'], 'sachi')
 named = task['inputs']
 check('fixed inputs are named by Forge\'s signature, but the task id', named['fixed'],

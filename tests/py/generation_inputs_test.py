@@ -510,12 +510,13 @@ conn.execute("INSERT INTO generations (created_at, mode, image_count) VALUES ('2
 conn.commit()
 
 
-# What a later migration adds, which v44 does not touch: v46's column on
-# models (#262), and v47's key on downloads (#374). Such a table is compared
-# by its other columns, not its SQL. v48's two settings tables (#378) are new,
+# What a later migration changes, which v44 does not touch: v46's column on
+# models (#262), v47's key on downloads (#374), and the two columns v49 moves
+# out of tasks (#400). Such a table is compared by its other columns, not its
+# SQL. v48's two settings tables (#378) and v49's task_checkpoints are new,
 # and not compared.
-LATER = {'models': {'civitai_gone_at'}, 'downloads': set()}
-LATER_TABLES = ('image_params', 'generation_params')
+LATER = {'models': {'civitai_gone_at'}, 'downloads': set(), 'tasks': {'checkpoint', 'modules'}}
+LATER_TABLES = ('image_params', 'generation_params', 'task_checkpoints')
 
 
 def dump(path):

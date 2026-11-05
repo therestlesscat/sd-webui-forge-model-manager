@@ -2927,6 +2927,67 @@ def _migrate_to_v48(cursor, progress=None):
           f"{len(generations):,} generations")
 
 
+def _migrate_to_v49(cursor, db_path: str):
+    """
+    A task's checkpoints in a table of their own (#400): `task_checkpoints`,
+    a row per checkpoint in the order they run - the checkpoint by Forge's
+    name, its VAE / text encoders, the settings it takes in place of the
+    press's, and how its run ended. Every task's `checkpoint` and `modules`
+    become its one row, a task saved with none included, and the two columns
+    go. Backed up first wherever a task exists; before the drop, every task
+    is read back from its row and compared value by value, `typeof()` too -
+    a `modules` of NULL stays apart from '[]' - and any difference raises,
+    so the transaction leaves the database at v48.
+    """
+    print("[ModelManager] Migrating to v49: a task's checkpoints in a table of their own...")
+    tables = {row[0] for row in cursor.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    columns = {row[1] for row in cursor.execute("PRAGMA table_info(tasks)")} if "tasks" in tables else set()
+    moving = {"checkpoint", "modules"} <= columns
+    if "task_checkpoints" in tables and not moving:
+        print("[ModelManager] Migration to v49 already done")
+        return
+    held = moving and cursor.execute("SELECT 1 FROM tasks LIMIT 1").fetchone() is not None
+
+    connection = cursor.connection
+    if connection.in_transaction:
+        connection.commit()
+    if held:
+        _back_up(connection, db_path, 49)
+
+    # One transaction for every step: the caller's commit ends it, a raise
+    # rolls it back. The tasks are read inside it, so one the other WebUI
+    # queues meanwhile is moved and checked like the rest.
+    cursor.execute("BEGIN")
+    old = []
+    if moving:
+        old = [tuple(row) for row in cursor.execute(
+            "SELECT id, checkpoint, typeof(checkpoint), modules, typeof(modules) FROM tasks ORDER BY id")]
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS task_checkpoints (
+            task_id INTEGER NOT NULL,
+            place INTEGER NOT NULL,
+            checkpoint TEXT,
+            modules TEXT,
+            settings TEXT,
+            status TEXT,
+            error TEXT,
+            PRIMARY KEY (task_id, place)
+        )
+    """)
+    if moving:
+        cursor.execute("INSERT INTO task_checkpoints (task_id, place, checkpoint, modules) "
+                       "SELECT id, 0, checkpoint, modules FROM tasks")
+        back = cursor.execute("SELECT task_id, checkpoint, typeof(checkpoint), modules, typeof(modules) "
+                              "FROM task_checkpoints ORDER BY task_id, place").fetchall()
+        back = [tuple(row) for row in back]
+        if back != old:
+            raise RuntimeError(f"[ModelManager] v49 would lose data: {len(old)} tasks went in, "
+                               f"{len(back)} checkpoint rows came out, not the same")
+        cursor.execute("ALTER TABLE tasks DROP COLUMN checkpoint")
+        cursor.execute("ALTER TABLE tasks DROP COLUMN modules")
+    print(f"[ModelManager] Migration to v49 complete: the checkpoints of {len(old)} task(s) moved")
+
+
 def run_migrations(cursor, from_version: int, to_version: int,
                    db_path: str, db_dir: str, progress=None):
     """
@@ -2935,7 +2996,7 @@ def run_migrations(cursor, from_version: int, to_version: int,
     """
     print(f"[ModelManager] Migrating database from v{from_version} to v{to_version}...")
 
-    # Only v4, v25, v32, v37, v41 and v42 take the path; v4 the directory too.
+    # Only v4, v25, v32, v37, v41, v42 and v49 take the path; v4 the directory too.
     # Each makes a backup first.
     steps = {
         2: _migrate_to_v2, 3: _migrate_to_v3,
@@ -2957,6 +3018,7 @@ def run_migrations(cursor, from_version: int, to_version: int,
         43: _migrate_to_v43, 44: _migrate_to_v44, 45: _migrate_to_v45, 46: _migrate_to_v46,
         47: _migrate_to_v47,
         48: lambda c: _migrate_to_v48(c, progress),
+        49: lambda c: _migrate_to_v49(c, db_path),
     }
     for version in sorted(steps):
         if from_version < version <= to_version:

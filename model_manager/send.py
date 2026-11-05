@@ -1724,13 +1724,15 @@ def task_plan(db, task_id: int) -> Optional[Dict[str, Any]]:
     """
     from .forge_host import checkpoint_file
     from .install import INSTALL_KEY
+    from .scheduler.tasks import first_checkpoint
     task = db.get_task(task_id)
     if not task or task.get("install") != INSTALL_KEY:
         return None
-    path = checkpoint_file(task.get("checkpoint") or "")
-    plan = plan_for(db, path or "", task.get("modules") or [])
-    if task.get("checkpoint") and not path:
-        plan["checkpoint_missing"] = task["checkpoint"]
+    first = first_checkpoint(task)
+    path = checkpoint_file(first.get("checkpoint") or "")
+    plan = plan_for(db, path or "", first.get("modules") or [])
+    if first.get("checkpoint") and not path:
+        plan["checkpoint_missing"] = first["checkpoint"]
     return {"mode": task["mode"], **plan}
 
 

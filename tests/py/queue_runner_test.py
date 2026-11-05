@@ -212,6 +212,7 @@ def clear():
     with db._cursor() as cursor:
         cursor.execute('DELETE FROM tasks')
         cursor.execute('DELETE FROM task_generations')
+        cursor.execute('DELETE FROM task_checkpoints')
     forge.plan, forge.calls, forge.interrupts = [], [], []
     forge.waiting.clear()
     forge.release.clear()
@@ -308,6 +309,17 @@ check("each run is given its task's checkpoint and modules", forge.calls[0]['ove
 check('the queue stopped by itself when none was left', runner.status()['progress']['state'], 'stopped')
 check('and counted', (runner.status()['progress']['completed'], runner.status()['counts']['completed']), (2, 2))
 
+# A task with no checkpoint - its one row with none, as v49 moves a v48 task
+# whose columns were both NULL (#400) - runs on what Forge has loaded: no
+# checkpoint in the override, and no VAE / text encoders.
+clear()
+bare, _ = queue_task('no checkpoint')
+with db._cursor() as cursor:
+    cursor.execute("UPDATE task_checkpoints SET checkpoint = NULL, modules = NULL WHERE task_id = ?", (bare,))
+run_queue()
+check('a task saved with no checkpoint runs on what Forge has loaded', (status_of(bare), forge.calls[0]['overrides']),
+      ('completed', {'forge_additional_modules': []}))
+
 # ------------------------------------------------- failures go on
 clear()
 failing, _ = queue_task('fails')
@@ -324,7 +336,8 @@ check('and the queue goes on to the next', status_of(last), 'completed')
 clear()
 gone_model, _ = queue_task('model gone')
 with db._cursor() as cursor:
-    cursor.execute("UPDATE tasks SET checkpoint = 'missing.safetensors' WHERE id = ?", (gone_model,))
+    cursor.execute("UPDATE task_checkpoints SET checkpoint = 'missing.safetensors' WHERE task_id = ?",
+                   (gone_model,))
 gone_vae, _ = queue_task('vae gone')
 forge.modules = []
 run_queue()
