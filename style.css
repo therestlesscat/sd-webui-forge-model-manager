@@ -6102,6 +6102,12 @@ textarea.mm-settings-input {
     padding: 10px;
 }
 
+/* Queue for N checkpoints, beside txt2img's Generate (#400): made with the
+   Queue button, and hidden until the page's several mode shows it. */
+#txt2img_queue_several {
+    display: none;
+}
+
 /* The queue's state, the task it is on, its counts, and its controls. */
 .queue-bar {
     display: flex;

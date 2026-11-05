@@ -20,7 +20,7 @@ image's stored record.
 import json
 import os
 import re
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .console import say
 from .db.params_table import (RE_PARAM, image_clip_skip, read_settings_line, record_meta, size_of as _size_of,
@@ -232,17 +232,27 @@ def family_modules(db, path: str) -> List[str]:
     image's own being of the other family. None for SD and SDXL, which bring
     their own.
     """
+    return family_pick(db, path)[0]
+
+
+def family_pick(db, path: str) -> Tuple[List[str], List[str]]:
+    """
+    family_modules(), with the kinds of module the family needs that Forge
+    offers none of: a press of Queue for several checkpoints (#400) refuses
+    to run one without them, where Send names them.
+    """
     from .file_identity import classify_file
     from .forge_host import installed_modules, saved_modules
     from .forge_modules import pick, preferred_modules
     from .send_plan import picked_model
     found = picked_model(db, path)
     if found.preset in (None, "sd", "xl"):
-        return []
+        return [], []
     installed = installed_modules()
     modules = {label: classify_file(p) for label, p in installed.items()}
-    return list(pick(found.model_class, found.preset, found.bundled_text_encoder, found.bundled_vae,
-                     modules, saved_modules(found.preset), preferred_modules(found.preset))["select"])
+    picked = pick(found.model_class, found.preset, found.bundled_text_encoder, found.bundled_vae,
+                  modules, saved_modules(found.preset), preferred_modules(found.preset))
+    return list(picked["select"]), list(picked["missing"])
 
 
 def _gallery_checkpoint(path: str) -> dict:
@@ -1724,11 +1734,13 @@ def task_plan(db, task_id: int) -> Optional[Dict[str, Any]]:
     """
     from .forge_host import checkpoint_file
     from .install import INSTALL_KEY
-    from .scheduler.tasks import first_checkpoint
     task = db.get_task(task_id)
     if not task or task.get("install") != INSTALL_KEY:
         return None
-    first = first_checkpoint(task)
+    # Its first checkpoint row (#400), read here: scheduler.tasks imports the
+    # capture, which imports the press's rules, which import this module.
+    rows = task.get("checkpoints") or []
+    first = rows[0] if rows else {}
     path = checkpoint_file(first.get("checkpoint") or "")
     plan = plan_for(db, path or "", first.get("modules") or [])
     if first.get("checkpoint") and not path:

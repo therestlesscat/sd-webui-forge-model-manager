@@ -271,14 +271,21 @@ check('two scripts of one title are told apart', capture.unique_key('Seed', {'Se
 
 # ------------------------------------------------------------ wiring
 queue_button = Button('Queue', 'txt2img_queue')
+several_button, listing = Button('Queue for checkpoints', 'txt2img_queue_several'), Component(None, 'txt2img_queue_several_list')
 capture._found.clear()
-capture._found['txt2img'] = {'root': root, 'generate': generate, 'queue': queue_button}
+capture._found['txt2img'] = {'root': root, 'generate': generate, 'queue': queue_button,
+                             'several': several_button, 'listing': listing}
 capture._found['img2img'] = {'root': types.SimpleNamespace(fns={}), 'generate': i_generate,
                              'queue': Button('Queue', 'img2img_queue')}
 capture.wire_queue_buttons()
 check("the Queue button is wired to Generate's inputs and its listeners'",
       queue_button.wired['inputs'], capture.queue_inputs(own, others))
 check('it shows nothing while it captures', (queue_button.wired['outputs'], queue_button.wired['show_progress']),
+      ([], 'hidden'))
+check('Queue for N checkpoints is wired to the same inputs, its hidden list last, filled by its page code (#400)',
+      (several_button.wired['inputs'], several_button.wired.get('js') == capture._READ_SEVERAL),
+      (capture.queue_inputs(own, others) + [listing], True))
+check('and shows nothing either', (several_button.wired['outputs'], several_button.wired['show_progress']),
       ([], 'hidden'))
 check('a tab whose Generate is not found is left unwired',
       hasattr(capture._found['img2img']['queue'], 'wired'), False)

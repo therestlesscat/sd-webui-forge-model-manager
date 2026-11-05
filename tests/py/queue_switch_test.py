@@ -75,7 +75,19 @@ switch(True)
 capture.on_component(generate, elem_id='txt2img_generate')
 check('on: one', (list(capture._found), getattr(capture._found.get('txt2img', {}).get('queue'), 'elem_id', None)),
       (['txt2img'], 'txt2img_queue'))
+check('and in txt2img Queue for N checkpoints beside it, with its hidden list (#400)',
+      (getattr(capture._found['txt2img']['several'], 'elem_id', None),
+       getattr(capture._found['txt2img']['listing'], 'elem_id', None)),
+      ('txt2img_queue_several', 'txt2img_queue_several_list'))
+capture.on_component(types.SimpleNamespace(elem_id='img2img_generate'), elem_id='img2img_generate')
+check('img2img has none', (capture._found['img2img']['several'], capture._found['img2img']['listing']), (None, None))
 capture._found.clear()
+switch(False)
+capture.on_component(generate, elem_id='txt2img_generate')
+check('off: none in txt2img either', (capture._found['txt2img']['several'], capture._found['txt2img']['listing']),
+      (None, None))
+capture._found.clear()
+switch(True)
 
 # -------------------------------------------------------------- Start, Stop
 switch(False)

@@ -25,12 +25,19 @@ img2img's radios - is kept as its label ({"__label__": ...}): a list that
 grows shifts an index, never a label. Images, arrays, objects and uploads
 are kept by values.py, in a folder of the task's own.
 
+Queue for N checkpoints (#400) is a second button beside Queue, in txt2img
+alone, hidden until the page's several mode shows it: given the same inputs
+and one hidden text box, which its page code fills with the mode's list - the
+names and where they came from - read from the strip several mode draws. One
+press is one task of several checkpoints (several.py decides its rows).
+
 The same names are kept for each generation you make (#7): a listener of
 ours beside Generate's own names its inputs at the click, as Queue would,
 and keeps them under Forge's id for the run until the recorder writes them
 with the generation (generations.py). Its Send sets them back as Load to UI
 sets a task's.
 """
+import json
 import os
 import shutil
 import uuid
@@ -87,6 +94,19 @@ _READ_RUN_ID = """async (...args) => {
 }"""
 
 
+# The page side of Queue for N checkpoints: the mode's list, from the strip
+# several mode keeps it on (javascript/shared/several.mjs), into the hidden
+# text box, the last input. No strip, no list: the press says so.
+_READ_SEVERAL = """(...args) => {
+    const strip = document.getElementById('mm_several_strip');
+    args[args.length - 1] = (strip && strip.dataset.checkpoints) || '';
+    return args;
+}"""
+
+# Queue for N checkpoints' elem_id, and its hidden text box's.
+SEVERAL_BUTTON, SEVERAL_LIST = "txt2img_queue_several", "txt2img_queue_several_list"
+
+
 # ------------------------------------------------------------- the buttons
 
 def on_component(component, **kwargs) -> None:
@@ -102,10 +122,15 @@ def on_component(component, **kwargs) -> None:
         if elem_id == f"{tab}_generate":
             import gradio as gr
             from gradio.context import Context
-            queue = None
+            queue = several = listing = None
             if queue_enabled():
                 queue = gr.Button("Queue", elem_id=f"{tab}_queue", variant="secondary")
-            _found[tab] = {"root": Context.root_block, "generate": component, "queue": queue}
+                if tab == "txt2img":
+                    # Hidden by the stylesheet until several mode shows it (#400).
+                    several = gr.Button("Queue for checkpoints", elem_id=SEVERAL_BUTTON, variant="primary")
+                    listing = gr.Textbox(visible=False, elem_id=SEVERAL_LIST)
+            _found[tab] = {"root": Context.root_block, "generate": component, "queue": queue,
+                           "several": several, "listing": listing}
 
 
 def generate_listeners(root, generate) -> Tuple[Optional[Any], List[Any]]:
@@ -154,6 +179,10 @@ def wire_queue_buttons() -> None:
         inputs = queue_inputs(own, others)
         found["queue"].click(fn=_handler(tab, own, others, inputs), inputs=inputs, outputs=[],
                              show_progress="hidden")
+        if found.get("several") is not None and found.get("listing") is not None:
+            found["several"].click(fn=_several_handler(tab, own, others, inputs),
+                                   inputs=inputs + [found["listing"]], outputs=[], js=_READ_SEVERAL,
+                                   show_progress="hidden")
 
 
 def _handler(tab: str, own, others, inputs) -> Callable:
@@ -259,6 +288,38 @@ def default_inputs_folder() -> str:
 def inputs_folder() -> str:
     """Where tasks keep their files: the setting, else the WebUI's queue-inputs."""
     return str(setting(INPUTS_SETTING) or "").strip() or default_inputs_folder()
+
+
+def _several_handler(tab: str, own, others, inputs) -> Callable:
+    import gradio as gr
+
+    from . import several
+
+    def queue_several(request: gr.Request, *values):
+        try:
+            asked = json.loads(values[-1] or "{}")
+        except (TypeError, ValueError):
+            asked = {}
+        if not isinstance(asked, dict):
+            asked = {}
+        try:
+            names = asked.get("names")
+            rows = several.checkpoint_rows(get_models_db(), names if isinstance(names, list) else [],
+                                           asked.get("source"), selected_models())
+            _task_id, prompt = capture(tab, own, others, inputs, values[:-1],
+                                       getattr(request, "username", None), checkpoints=rows)
+        except several.Refused as e:
+            gr.Warning(str(e))
+            return
+        except Exception as e:
+            say_failure(f"Queue: could not queue {tab} for several checkpoints: {e}")
+            gr.Warning(f"Could not queue: {e}")
+            return
+        prompt = " ".join(str(prompt or "").split())
+        gr.Info(f"Queued for {len(rows)} checkpoint{'' if len(rows) == 1 else 's'}: "
+                f"{prompt[:60] + '…' if len(prompt) > 60 else prompt or '(no prompt)'}")
+
+    return queue_several
 
 
 def capture(tab: str, own, others, inputs: List[Any], values, username: Optional[str],
