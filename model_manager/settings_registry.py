@@ -374,7 +374,10 @@ SETTINGS: Tuple[Setting, ...] = (
             "a box under them, Send with these instead of the image's. When this is on, the box starts ticked at "
             "each pick, and Send uses them; you can still untick it for one Send. When off, it starts unticked, and "
             "Send keeps the image's own settings unless you tick it. A dialog already open keeps what it started "
-            "with.", (SEND,)),
+            "with. When you tick two checkpoints or more to queue them (Queue a generation with several "
+            "checkpoints), there is no box: each but the image's own, or the same file, runs with its own usual "
+            "settings where it has them, whatever this says.",
+            (SEND,)),
 
     # ------------------------------------------------------- Generations
     Setting("model_manager_generations_delete_files", "your_generations", "checkbox",

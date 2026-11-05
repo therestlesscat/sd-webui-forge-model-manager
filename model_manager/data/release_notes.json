@@ -1,5 +1,24 @@
 [
     {
+        "id": "several-checkpoints",
+        "version": "0.76.1",
+        "kind": "feature",
+        "audience": "everyone",
+        "tabs": [
+            "queue",
+            "gallery",
+            "generations",
+            "model_manager"
+        ],
+        "title": "Queue one generation with several checkpoints",
+        "text": "Turn on Queue a generation with several checkpoints, in Send's settings, to tick several of your checkpoints in the Resources dialog's list. Send then takes you to txt2img with the first, where Generate becomes a button such as Queue for 3 checkpoints: change the prompt and settings as you like, and it queues one task that makes your generation with each checkpoint in turn, each with its own usual settings. Change, under the button, ticks others, and the task's Show images, in the Queue tab, groups its images by model. It needs the Queue tab on.",
+        "action": {
+            "id": "settings",
+            "label": "Open settings",
+            "section": "send"
+        }
+    },
+    {
         "id": "shared-database-0-76-0",
         "version": "0.76.0",
         "kind": "warning",

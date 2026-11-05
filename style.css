@@ -2687,6 +2687,50 @@ body.mm-modal-open {
     margin-top: 4px;
 }
 
+/* Several ticked (#400): each ticked one's usual settings, one after another,
+   its name over what it runs with. */
+.mm-usual-each {
+    margin-top: 4px;
+}
+
+.mm-usual-each-name {
+    display: block;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+.mm-usual-each-what {
+    display: block;
+    color: #4b5563;
+}
+
+.dark .mm-usual-each-what {
+    color: var(--body-text-color-subdued, #9ca3af);
+}
+
+/* How a ticked row runs, a third line under its file; and the line under the
+   list - what to do where several cannot be ticked, or what stays yours for
+   another family - in the list's column. */
+.mm-pick-runs {
+    grid-column: 2 / -1;
+    font-size: 0.8em;
+    font-weight: 600;
+}
+
+.mm-pick-note {
+    margin-top: 6px;
+    font-size: 0.85em;
+    color: #4b5563;
+}
+
+.dark .mm-pick-note {
+    color: var(--body-text-color-subdued, #9ca3af);
+}
+
+.mm-pick-area > .mm-pick-note {
+    grid-column: 1;
+}
+
 .mm-usual-tick {
     display: inline-flex;
     align-items: center;

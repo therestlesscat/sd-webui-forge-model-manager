@@ -38,7 +38,7 @@ const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).sea
 const { apiCall, setText, setTitle } = await shared('core.mjs');
 const { tabShowing } = await shared('tabs.mjs');
 const { uiOptions, refreshUiOptions, SEVERAL_SETTING } = await shared('ui_options.mjs');
-const { addPickList, pickListHtml, pickRowName, pickRows } = await shared('resources.mjs');
+const { addPickList, pickListHtml, pickRowName, pickRows, withUnlisted } = await shared('resources.mjs');
 const { openDialog } = await shared('dialog.mjs');
 
 // What this uses that has a start(): the actions' listener, ui-options, and
@@ -197,19 +197,6 @@ async function openChange() {
     holder.pickList = error ? { loading: false, error, search: '', tab: null }
         : { loading: false, error: '', data: withUnlisted(data, holder.ticked), search: '', tab: 'all' };
     element.querySelector('[data-pick-list="several"]')?.replaceWith(listElement(holder));
-}
-
-/**
- * The list's answer with a row first for each name the mode holds that
- * Forge's list does not - a checkpoint gone since, or one Forge has renamed
- * since the list was made - ticked, saying so, so it can be unticked: hidden,
- * it stayed ticked, and the press refused the whole task for it.
- */
-function withUnlisted(data, names) {
-    const listed = new Set((data.checkpoints || []).map((c) => c.name));
-    const unlisted = names.filter((name) => !listed.has(name))
-        .map((name) => ({ name, file: name, family: null, read: true, supported: true, unlisted: true }));
-    return { ...data, checkpoints: [...unlisted, ...(data.checkpoints || [])] };
 }
 
 /** The list drawn afresh, as an element. */

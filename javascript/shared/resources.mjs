@@ -486,6 +486,7 @@ function startSendLine(send) {
     // The settings asked afresh as the dialog opens: Forge's Settings page
     // does not refresh the page's copy (#377).
     fetchUiOptions().then((data) => {
+        startSeveral(line, data);
         line.usualOn = data?.usual_settings !== false;
         // Picked before the answer came, the tick unpressed: it starts as the setting says.
         if (line.chosen && !line.usualPressed && line.usual !== line.usualOn && resourcesSend === line) {
@@ -497,6 +498,31 @@ function startSendLine(send) {
         startBox(line);
     });
     return line;
+}
+
+/**
+ * Whether the line ticks several checkpoints (#400): the setting Queue a
+ * generation with several checkpoints on, the Queue on and built at this
+ * start - its button is made only as the WebUI starts - and the send going
+ * into txt2img. With the setting on and the Queue off, or turned on since,
+ * the list keeps its round buttons and says what to do. Decided as the
+ * dialog opens: a dialog open keeps what it started with.
+ */
+function startSeveral(line, data) {
+    const wanted = data?.queue_several === true && line.tab === 'txt2img';
+    const queue = data?.tabs?.queue;
+    const queueOn = data?.queue_enabled !== false && queue?.on !== false;
+    line.several = wanted && queueOn && queue?.built === true;
+    line.severalWhy = !wanted || line.several ? ''
+        : !queueOn ? 'Turn the Queue on to tick several checkpoints here and queue them.'
+            : 'Restart the WebUI to tick several checkpoints here: the Queue was turned on since it started.';
+    if (line.several) {
+        line.ticked = line.chosen ? [line.chosen] : [];
+        // The first tick is Send's, the rest a queued run's.
+        line.loads = 'Send or a queued run';
+        line.rowNote = (row) => runsNote(line, row);
+    }
+    if (resourcesSend === line && (line.several || line.severalWhy)) redrawSendBar();
 }
 
 /**
@@ -630,7 +656,7 @@ function sendAgainButton() {
                                  + 'data-action="resources.checkAgain">Check again</button>' : '';
     return `<div class="mm-resources-send-wrap">
             ${line.choosing ? `<div class="mm-pick-area">${pickListHtml(line, 'dialog')}`
-                              + `<div class="mm-usual" data-usual>${usualHtml()}</div></div>` : ''}
+                              + `<div class="mm-usual" data-usual>${usualHtml()}</div>${pickNoteHtml(line)}</div>` : ''}
             <div class="mm-dialog-buttons mm-resources-send">${box}${text}${again}
                 <button type="button" class="mm-btn primary" data-action="resources.sendAgain"${
                     enabled ? '' : ` disabled title="${escapeHtml((line.choosing ? status.text : line.why) || status.text || '')}"`}>${
@@ -644,7 +670,11 @@ function sendLineStatus() {
     const line = resourcesSend;
     if (line.choosing) {
         const row = line.chosen && pickRows(line).find((r) => r.name === line.chosen);
-        if (!row) return { text: 'Pick a checkpoint to send with.' };
+        if (!row) return { text: line.ticked ? 'Tick a checkpoint to send with.' : 'Pick a checkpoint to send with.' };
+        if (line.ticked?.length > 1) {
+            return { text: `Sends with ${pickRowName(row)}, then Queue for ${line.ticked.length} checkpoints in txt2img `
+                           + 'queues them all.' };
+        }
         const asMade = (row.why || []).some((why) => AS_MADE.includes(why));
         const usual = line.usual && usualApplies(line.usualAnswers.get(line.chosen)) ? ' With its usual settings.' : '';
         return { text: `Sends with ${pickRowName(row)}. ${asMade ? 'The image comes out as made.'
@@ -740,6 +770,19 @@ function listOf(element) {
 function redrawListBody(root, holder) {
     const body = root?.querySelector('.mm-pick-body');
     if (body && holder?.pickList?.data) body.innerHTML = pickBodyHtml(holder, root.dataset.pickList);
+}
+
+/**
+ * A list's answer with a row first for each ticked name it does not hold -
+ * a checkpoint gone since, or one Forge has renamed since the list was made
+ * (#400) - ticked, saying so, so it can be unticked: hidden, it stayed
+ * ticked, and the press refused the whole task for it.
+ */
+export function withUnlisted(data, names) {
+    const listed = new Set((data.checkpoints || []).map((c) => c.name));
+    const unlisted = names.filter((name) => !listed.has(name))
+        .map((name) => ({ name, file: name, family: null, read: true, supported: true, unlisted: true }));
+    return { ...data, checkpoints: [...unlisted, ...(data.checkpoints || [])] };
 }
 
 /** The tab a list opens on: Suggested first; with none, the image's own family, All where that is not known. */
@@ -857,10 +900,12 @@ function pickRowHtml(holder, name, row, family) {
                                         : 'Forge could not tell what model this is'] : []),
                  ...(row.model ? [`<span class="mm-pick-file">${escapeHtml(row.file)}</span>`] : [])]
         .join(' · ');
-    // Several picks (#400): a tick box each, and what could not load it is a queued run, not Send.
+    // Several picks (#400): a tick box each, and what could not load it is a queued run, not Send;
+    // the holder may say how each ticked one runs.
     const ticks = Array.isArray(holder.ticked);
+    const runs = holder.rowNote?.(row) || '';
     const on = ticks ? holder.ticked.includes(row.name) : holder.chosen === row.name;
-    const loads = ticks ? 'a queued run' : 'Send';
+    const loads = holder.loads || (ticks ? 'a queued run' : 'Send');
     const title = can ? row.name
         : row.family ? `This WebUI has no UI preset for this checkpoint's family, so ${loads} could not load it.`
             : `Forge's model detector could not tell what model this checkpoint is, so ${loads} could not set Forge up for it.`;
@@ -874,7 +919,7 @@ function pickRowHtml(holder, name, row, family) {
         + `<span class="mm-pick-name">${escapeHtml(row.model || row.file)}${
             row.model && row.version ? ` <span class="mm-pick-ver">${escapeHtml(row.version)}</span>` : ''}</span>`
         + `<span class="mm-pick-base">${escapeHtml(row.base_model || '')}</span>`
-        + `<span class="mm-pick-sub">${sub}</span></label>`;
+        + `<span class="mm-pick-sub">${sub}</span>${runs ? `<span class="mm-pick-runs">${escapeHtml(runs)}</span>` : ''}</label>`;
 }
 
 /** The model the image's checkpoint is of, as the dialog has learnt it - its row's, or Civitai's answer. */
@@ -882,6 +927,14 @@ function imageModel() {
     const row = resourcesRows.find((r) => isCheckpoint(r.type));
     if (!row) return null;
     return row.modelId || civitaiModels.get(row.versionId)?.modelId || null;
+}
+
+/** What the list is asked with: the image's checkpoint as the dialog's lookup learnt it. */
+function pickListParams(line) {
+    const row = resourcesRows.find((r) => isCheckpoint(r.type));
+    const civitai = row ? civitaiModels.get(row.versionId) : null;
+    return { ...line.list, model_id: imageModel() || '', base_model: civitai?.baseModel || '',
+             same_file: civitai?.sameFile?.version_id || '' };
 }
 
 /**
@@ -897,21 +950,20 @@ async function askPickList({ again = false } = {}) {
     if (!list.data) redrawSendBar();
     await modelsAsked;
     if (resourcesSend !== line) return;
-    const row = resourcesRows.find((r) => isCheckpoint(r.type));
-    const civitai = row ? civitaiModels.get(row.versionId) : null;
-    const params = { ...line.list, model_id: imageModel() || '', base_model: civitai?.baseModel || '',
-                     same_file: civitai?.sameFile?.version_id || '' };
+    const params = pickListParams(line);
     try {
         const data = await apiCall({ endpoint: '/model-manager/send/checkpoints', params });
         if (resourcesSend !== line) return;
         if (!data?.success) throw new Error(data?.error || 'the server did not answer');
-        list.data = data;
+        // Asked again - a download landed, Forge listed the checkpoint - a tick it no longer lists stays in sight.
+        list.data = line.ticked?.length ? withUnlisted(data, line.ticked) : data;
         list.loading = false;
         list.error = '';
         if (list.tab === null) list.tab = firstPickTab(data);
         // The pick made first: the image comes out as made (#304's same file among them).
         if (!line.chosen && data.picked) {
             line.chosen = data.picked;
+            if (line.ticked) line.ticked = [data.picked];
             askUsual(line, line.chosen);
         }
     } catch (error) {
@@ -965,6 +1017,7 @@ const usualHint = (text) => `<div class="mm-usual-note mm-usual-hint">${escapeHt
 function usualHtml() {
     const line = resourcesSend;
     if (!line) return '';
+    if (line.ticked?.length > 1) return severalUsualHtml(line);
     const row = line.chosen && pickRows(line).find((r) => r.name === line.chosen);
     if (!row) return usualHint(USUAL_HINT.none);
     const answer = line.usualAnswers.get(line.chosen);
@@ -1003,6 +1056,35 @@ function usualHtml() {
         + `<div class="mm-usual-from">${escapeHtml(from + hires)}</div>${tick}`;
 }
 
+/**
+ * Two or more ticked (#400): what each runs with - its usual settings, as made,
+ * or yours - one after another, and no tick: each takes its own when the task
+ * is queued, and Hires fix follows each run's.
+ */
+function severalUsualHtml(line) {
+    const rows = new Map(pickRows(line).map((row) => [row.name, row]));
+    const each = line.ticked.map((name) => {
+        const row = rows.get(name);
+        const answer = line.usualAnswers.get(name);
+        let what;
+        if (row && (row.why || []).some((why) => AS_MADE.includes(why))) what = 'Runs as made, with the image\'s settings.';
+        else if (!answer || answer.loading) what = 'Reading its usual settings…';
+        else if (answer.error) what = 'Runs with your settings: its usual settings could not be read.';
+        else if (!answer.applies) what = 'Runs as made, with the image\'s settings.';
+        else if (!usualApplies(answer)) what = 'Runs with your settings: too few uses record its own.';
+        else {
+            what = (answer.settings || [])
+                .filter((r) => r.value !== null && r.value !== undefined && !r.thin && !r.missing)
+                .map((r) => `${USUAL_NAMES[r.key] || r.key} ${shownValue(r.value)}`).join(' · ');
+        }
+        return `<div class="mm-usual-each"><span class="mm-usual-each-name">${escapeHtml(row ? pickRowName(row) : name)}</span>`
+            + `<span class="mm-usual-each-what">${escapeHtml(what)}</span></div>`;
+    }).join('');
+    return `<div class="mm-usual-head">What each runs with</div>${each}`
+        + '<div class="mm-usual-from">A setting too few uses record, or one this WebUI lacks, stays as you set it. '
+        + 'Hires fix follows each run\'s sampler, schedule type, CFG, and Distilled CFG or Shift.</div>';
+}
+
 /** The block again, in place: the list's rows, their scroll and the search box are left as they are. */
 function redrawUsual() {
     const block = document.querySelector('.mm-resources-modal .mm-usual');
@@ -1015,6 +1097,7 @@ function redrawUsual() {
     }
     const status = document.querySelector('.mm-resources-modal .mm-res-send-status');
     if (status) status.textContent = sendLineStatus().text || '';
+    redrawSeveral();
     if (resourcesSend) drawnSendBar = sendAgainButton();
 }
 
@@ -1079,7 +1162,11 @@ async function recheckSend() {
 }
 
 /** A pick in the dialog's list: what Send says, and Send itself, without redrawing the rows - their scroll stays. */
-function pickInDialog(name) {
+function pickInDialog(name, input) {
+    if (resourcesSend.ticked) {
+        tickInDialog(name, input);
+        return;
+    }
     resourcesSend.chosen = name;
     const button = document.querySelector('.mm-resources-modal [data-action="resources.sendAgain"]');
     if (button) {
@@ -1096,6 +1183,112 @@ function pickInDialog(name) {
     redrawUsual();
 }
 
+/**
+ * A tick in the dialog's list (#400): the first ticked is the one Send loads,
+ * each ticked one's usual settings asked; the rows are not drawn again -
+ * their scroll stays - only what each ticked one says, and the Send line.
+ */
+function tickInDialog(name, input) {
+    const line = resourcesSend;
+    const ticked = line.ticked.filter((n) => n !== name);
+    if (input?.checked) ticked.push(name);
+    line.ticked = ticked;
+    const first = ticked[0] || null;
+    // The usual tick is one pick's: it starts as the setting says again only for a new first.
+    if (first !== line.chosen) {
+        line.usual = line.usualOn;
+        line.usualPressed = false;
+    }
+    line.chosen = first;
+    input?.closest('.mm-pick-row')?.classList.toggle('picked', Boolean(input?.checked));
+    ticked.forEach((n) => askUsual(line, n));
+    const button = document.querySelector('.mm-resources-modal [data-action="resources.sendAgain"]');
+    if (button) {
+        button.disabled = !line.chosen;
+        if (line.chosen) button.removeAttribute('title');
+        else button.title = 'Tick a checkpoint to send with.';
+    }
+    redrawUsual();
+}
+
+/** Words as a sentence lists them: "a", "a and b", "a, b and c". */
+function listNames(names) {
+    return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0] || '';
+}
+
+/**
+ * How a ticked checkpoint runs, said on its row once two or more are ticked
+ * (#400): as made - the image's own, or the same file - with its usual
+ * settings, or with yours where it has none; and, for a file no sync has
+ * read, that its family is read when the task is queued.
+ */
+function runsNote(line, row) {
+    if (!(line.ticked?.length > 1) || !line.ticked.includes(row.name)) return '';
+    const unread = row.read ? '' : ' Its family is read when you queue.';
+    if ((row.why || []).some((why) => AS_MADE.includes(why))) return `Runs as made, with the image's settings.${unread}`;
+    const answer = line.usualAnswers.get(row.name);
+    if (!answer || answer.loading) return `Reading its usual settings…${unread}`;
+    if (answer.error) return `Runs with your settings: its usual settings could not be read.${unread}`;
+    if (!answer.applies) return `Runs as made, with the image's settings.${unread}`;
+    if (usualApplies(answer)) return `Runs with its usual settings.${unread}`;
+    return `Runs with your settings: too few uses record its own.${unread}`;
+}
+
+/**
+ * The line under the list: what to do where several cannot be ticked; else,
+ * with ticks of more than one family, what stays as you set it for those of
+ * another family than the first, which Send loads - usual settings record
+ * none of it.
+ */
+function pickNote(line) {
+    if (line.severalWhy) return line.severalWhy;
+    if (!(line.ticked?.length > 1)) return '';
+    const rows = new Map(pickRows(line).map((row) => [row.name, row]));
+    const first = rows.get(line.ticked[0]);
+    const others = line.ticked.slice(1).map((name) => rows.get(name))
+        .filter((row) => row?.family && first?.family && row.family !== first.family);
+    if (!others.length) return '';
+    return `The size, the prompt and its LoRAs, ADetailer, ControlNet and Diffusion in Low Bits stay as you set them `
+        + `for ${listNames(others.map(pickRowName))}, of another family than ${pickRowName(first)}.`;
+}
+
+/** The line under the list, where it says something: none, as before #400, where it does not. */
+function pickNoteHtml(line) {
+    const text = pickNote(line);
+    return text ? `<div class="mm-pick-note" data-pick-note>${escapeHtml(text)}</div>` : '';
+}
+
+/** What each ticked row says, and the line under the list, drawn again in place: the rows keep their scroll. */
+function redrawSeveral() {
+    const line = resourcesSend;
+    const modal = document.querySelector('.mm-resources-modal');
+    if (!line || !modal) return;
+    const rows = new Map(pickRows(line).map((row) => [row.name, row]));
+    modal.querySelectorAll('[data-pick-list="dialog"] .mm-pick-row').forEach((element) => {
+        const row = rows.get(element.querySelector('input')?.value);
+        const text = row ? runsNote(line, row) : '';
+        let note = element.querySelector('.mm-pick-runs');
+        if (!text) {
+            note?.remove();
+            return;
+        }
+        if (!note) {
+            note = document.createElement('span');
+            note.className = 'mm-pick-runs';
+            element.append(note);
+        }
+        if (note.textContent !== text) note.textContent = text;
+    });
+    const under = modal.querySelector('[data-pick-note]');
+    const text = pickNote(line);
+    if (!text) under?.remove();
+    else if (under) {
+        if (under.textContent !== text) under.textContent = text;
+    } else {
+        modal.querySelector('.mm-pick-area')?.insertAdjacentHTML('beforeend', pickNoteHtml(line));
+    }
+}
+
 // The dialog's Send: closed, and the image sent - with the checkpoint picked,
 // or, the box unticked, its own. It goes through every check, and never
 // opens the dialog again: the tab's box is read by the tab's own Send alone.
@@ -1104,6 +1297,7 @@ function sendAgain() {
     if (!send) return undefined;
     if (send.choosing) {
         if (!send.chosen) return undefined;
+        if (send.ticked?.length > 1) return sendSeveral(send);
         const row = pickRows(send).find((r) => r.name === send.chosen);
         const usual = send.usual && usualApplies(send.usualAnswers.get(send.chosen)) && row
             ? { name: pickRowName(row) } : null;
@@ -1115,6 +1309,26 @@ function sendAgain() {
     closeMetaModal();
     resourcesSend = null;
     return send.run();
+}
+
+/**
+ * Two or more ticked (#400): the image sent with the first, as made - each
+ * run takes its own usual settings when the task is queued - then txt2img
+ * enters several mode with them all, where they came from - the image, as
+ * send/usual is asked - how each is named, and what the list was asked with,
+ * for Change.
+ */
+async function sendSeveral(send) {
+    const names = [...send.ticked];
+    const rows = new Map(pickRows(send).map((row) => [row.name, row]));
+    const labels = Object.fromEntries(names.filter((name) => rows.has(name))
+        .map((name) => [name, pickRowName(rows.get(name))]));
+    const model = imageModel();
+    const source = { image: { ...send.usualSource, image_model: model || '' } };
+    const listParams = pickListParams(send);
+    closeMetaModal();
+    resourcesSend = null;
+    return send.pickSeveral(names, model, { source, labels, listParams });
 }
 
 // ------------------------------------------- View, in the Civitai Browser
