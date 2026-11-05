@@ -704,7 +704,8 @@ const WHY_TEXT = {
 // ------------------------------------------- the list, wherever it is drawn
 // The list draws from what it is handed - a holder, `{ pickList, chosen }`:
 // the server's answer with the search and the family tab shown, and the name
-// picked - never from the open dialog itself. Its markup carries the name it
+// picked; or, for several picks (#400), `{ pickList, ticked }`, the names
+// ticked, a tick box each - never from the open dialog itself. Its markup carries the name it
 // was offered under (pickListHtml's data-pick-list), and its radios a group
 // of that name, so its search, a tab and a pick act on that list alone. The
 // Resources dialog's is one, `dialog`; several mode's Change window draws
@@ -739,6 +740,12 @@ function listOf(element) {
 function redrawListBody(root, holder) {
     const body = root?.querySelector('.mm-pick-body');
     if (body && holder?.pickList?.data) body.innerHTML = pickBodyHtml(holder, root.dataset.pickList);
+}
+
+/** The tab a list opens on: Suggested first; with none, the image's own family, All where that is not known. */
+function firstPickTab(data) {
+    const families = new Set((data?.checkpoints || []).map((c) => c.family).filter(Boolean));
+    return data?.suggested?.length ? 'suggested' : families.has(data?.family) ? data.family : 'all';
 }
 
 /** Every checkpoint of the list's answer, each with why it is suggested, if it is. */
@@ -841,20 +848,29 @@ function pickRowHtml(holder, name, row, family) {
                  ...(holder.pickList.data.loaded === row.name
                      ? ['<span class="mm-pick-loaded">Loaded in Forge now</span>'] : []),
                  ...(family && row.family ? [escapeHtml(familyName(row.family))] : []),
+                 // A name a list holds that Forge's list does not (#400): gone, or renamed.
+                 ...(row.unlisted ? ['Forge does not list it'] : []),
                  // Not asked of Civitai until a sync reads it.
-                 ...(!row.model && row.read ? ['Not on Civitai'] : []),
+                 ...(!row.model && row.read && !row.unlisted ? ['Not on Civitai'] : []),
                  ...(!row.read ? ['Not read by a sync yet'] : []),
                  ...(!can ? [row.family ? escapeHtml(`No UI preset for ${familyName(row.family)} in this WebUI`)
                                         : 'Forge could not tell what model this is'] : []),
                  ...(row.model ? [`<span class="mm-pick-file">${escapeHtml(row.file)}</span>`] : [])]
         .join(' · ');
+    // Several picks (#400): a tick box each, and what could not load it is a queued run, not Send.
+    const ticks = Array.isArray(holder.ticked);
+    const on = ticks ? holder.ticked.includes(row.name) : holder.chosen === row.name;
+    const loads = ticks ? 'a queued run' : 'Send';
     const title = can ? row.name
-        : row.family ? 'This WebUI has no UI preset for this checkpoint\'s family, so Send could not load it.'
-            : 'Forge\'s model detector could not tell what model this checkpoint is, so Send could not set Forge up for it.';
-    return `<label class="mm-pick-row${can ? '' : ' mm-pick-greyed'}${holder.chosen === row.name ? ' picked' : ''}"`
+        : row.family ? `This WebUI has no UI preset for this checkpoint's family, so ${loads} could not load it.`
+            : `Forge's model detector could not tell what model this checkpoint is, so ${loads} could not set Forge up for it.`;
+    const input = ticks ? '<input type="checkbox"' : `<input type="radio" name="mm_pick_${escapeHtml(name)}"`;
+    // A tick box ticked stays open to untick, whatever the row: a list holds it, and must be able to let it go.
+    const off = !can && !(ticks && on);
+    return `<label class="mm-pick-row${can ? '' : ' mm-pick-greyed'}${on ? ' picked' : ''}"`
         + ` title="${escapeHtml(title)}">`
-        + `<input type="radio" name="mm_pick_${escapeHtml(name)}" value="${escapeHtml(row.name)}" data-action="resources.pickRow"${
-            holder.chosen === row.name ? ' checked' : ''}${can ? '' : ' disabled'}>`
+        + `${input} value="${escapeHtml(row.name)}" data-action="resources.pickRow"${
+            on ? ' checked' : ''}${off ? ' disabled' : ''}>`
         + `<span class="mm-pick-name">${escapeHtml(row.model || row.file)}${
             row.model && row.version ? ` <span class="mm-pick-ver">${escapeHtml(row.version)}</span>` : ''}</span>`
         + `<span class="mm-pick-base">${escapeHtml(row.base_model || '')}</span>`
@@ -892,11 +908,7 @@ async function askPickList({ again = false } = {}) {
         list.data = data;
         list.loading = false;
         list.error = '';
-        if (list.tab === null) {
-            // Suggested first; an image with none opens on its own family, All where that is not known.
-            const families = new Set((data.checkpoints || []).map((c) => c.family).filter(Boolean));
-            list.tab = data.suggested?.length ? 'suggested' : families.has(data.family) ? data.family : 'all';
-        }
+        if (list.tab === null) list.tab = firstPickTab(data);
         // The pick made first: the image comes out as made (#304's same file among them).
         if (!line.chosen && data.picked) {
             line.chosen = data.picked;

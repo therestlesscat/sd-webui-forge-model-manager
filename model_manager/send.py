@@ -1732,7 +1732,7 @@ def task_plan(db, task_id: int) -> Optional[Dict[str, Any]]:
         The plan with the task's `mode` and its `checkpoints` by name, or
         None for no task this install queued.
     """
-    from .forge_host import checkpoint_file
+    from .forge_host import checkpoint_file, checkpoint_name
     from .install import INSTALL_KEY
     task = db.get_task(task_id)
     if not task or task.get("install") != INSTALL_KEY:
@@ -1746,8 +1746,13 @@ def task_plan(db, task_id: int) -> Optional[Dict[str, Any]]:
     if first.get("checkpoint") and not path:
         plan["checkpoint_missing"] = first["checkpoint"]
     # Every row's checkpoint by Forge's name, in order: the page enters
-    # several mode with them where there are more than one (#400).
-    return {"mode": task["mode"], **plan, "checkpoints": [row.get("checkpoint") for row in rows]}
+    # several mode with them where there are more than one (#400). The name
+    # Forge lists the file under now - Forge adds a file's hash to its name
+    # the first time it loads it, and Change's list shows that name; one
+    # Forge does not list keeps the name it was queued with.
+    def now(name):
+        return (checkpoint_name(checkpoint_file(name)) or name) if name else name
+    return {"mode": task["mode"], **plan, "checkpoints": [now(row.get("checkpoint")) for row in rows]}
 
 
 # ---------------------------------------- the Resources dialog's checkpoints

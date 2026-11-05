@@ -363,6 +363,17 @@ check("a task's row lists each checkpoint and how its run ended, for the Queue t
 # mode with them where there are more than one; a task of one names its one.
 check("Load to UI's plan names each of a task's checkpoints, in order",
       task_plan_of(three).json().get('checkpoints'), ['a.safetensors', 'b.safetensors', 'c.safetensors'])
+# Forge adds a file's hash to its name the first time it loads it: the plan
+# names each file as Forge lists it now, so Change's list shows it once. One
+# Forge does not list keeps the name it was queued with.
+real_file, real_name = forge_host.checkpoint_file, forge_host.checkpoint_name
+FILES = {'a.safetensors': 'F:\\m\\a.safetensors', 'b.safetensors': 'F:\\m\\b.safetensors'}
+NOW = {'F:\\m\\a.safetensors': 'a.safetensors [abcd1234]', 'F:\\m\\b.safetensors': 'b.safetensors'}
+forge_host.checkpoint_file = lambda name: FILES.get(name)
+forge_host.checkpoint_name = lambda path: NOW.get(path)
+check("a checkpoint renamed by Forge since is named as Forge lists it now; one it does not list, as queued",
+      task_plan_of(three).json().get('checkpoints'), ['a.safetensors [abcd1234]', 'b.safetensors', 'c.safetensors'])
+forge_host.checkpoint_file, forge_host.checkpoint_name = real_file, real_name
 
 db.close()
 

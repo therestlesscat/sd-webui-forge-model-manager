@@ -177,6 +177,15 @@ check("against a task, each name it held runs as it ran there",
 check('and a name added since takes its usual settings, asked with no image',
       ([a['use_checkpoint'] for a in asked], rows[2]['settings']['usual']),
       (['flux.safetensors'], USUAL['flux.safetensors']))
+# Forge adds a file's hash to its name the first time it loads it, and Load
+# to UI hands the name Forge lists the file under now: the task's row is
+# found by its file, and runs as it ran there - not as one added since.
+FILES['anime.safetensors [abcd1234]'] = FILES['anime.safetensors']
+asked.clear()
+rows = several.checkpoint_rows(db, ['anime.safetensors [abcd1234]', 'photo.safetensors'], {'task': task}, SELECTED)
+check("a name Forge has renamed since: its task's row found by its file, run as it ran there, nothing asked",
+      ([r['settings'] for r in rows], [a['use_checkpoint'] for a in asked]), ([None, {'usual': {'steps': 12}}], []))
+del FILES['anime.safetensors [abcd1234]']
 theirs = db.add_task({'install': 'another-install', 'mode': 'txt2img', 'inputs': {'fixed': {}},
                       'checkpoints': [{'checkpoint': 'photo.safetensors', 'settings': {'usual': {'steps': 99}}}]})
 check("another install's task is not read",

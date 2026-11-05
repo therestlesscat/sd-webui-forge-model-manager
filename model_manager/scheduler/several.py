@@ -18,7 +18,8 @@ Then each name's row:
   - its usual settings (#378), as Send works them out for one pick
     (usual_settings.chosen): against the image Send was given, its own
     checkpoint or the same file runs as made and takes none; against a task
-    Load to UI loaded, a name the task held keeps what it ran with there. A
+    Load to UI loaded, a name the task held - or the file it named, renamed
+    by Forge since - keeps what it ran with there. A
     task deleted since holds nothing: each name takes its usual settings,
     and the press says so (gone_task).
 
@@ -54,6 +55,14 @@ def checkpoint_rows(db, names: List[str], source: Optional[Dict[str, Any]],
         raise Refused("No checkpoint to queue for.")
     source = source if isinstance(source, dict) else {}
     held = _task_rows(db, source.get("task"))
+    # And by the file each names: Forge adds a file's hash to its name the
+    # first time it loads it, and Load to UI hands the name it lists the file
+    # under now, so a name the task held may come back renamed.
+    held_files = {}
+    for held_name, held_settings in held.items():
+        held_path = forge_host.checkpoint_file(held_name)
+        if held_path:
+            held_files.setdefault(os.path.normcase(held_path), held_settings)
     image: Dict[str, Any] = source["image"] if isinstance(source.get("image"), dict) else {}
 
     for name in names:
@@ -81,8 +90,11 @@ def checkpoint_rows(db, names: List[str], source: Optional[Dict[str, Any]],
                               f"which this WebUI does not have.")
             installed = forge_host.installed_modules()
             modules = [installed[label] for label in labels if label in installed]
+        file_key = os.path.normcase(path) if path else None
         if name in held:
             usual = (held[name] or {}).get("usual")
+        elif file_key in held_files:
+            usual = (held_files[file_key] or {}).get("usual")
         else:
             usual = chosen(db, {**image, "usual": True, "use_checkpoint": name})
         settings: Dict[str, Any] = {}

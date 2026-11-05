@@ -3,7 +3,7 @@
  * task that makes the generation with each in turn. Generate is hidden and
  * Queue for N checkpoints stands in its place - made beside the Queue button
  * as the WebUI starts (scheduler/capture.py), hidden by the stylesheet until
- * this shows it. A strip under them names the list, with Leave.
+ * this shows it. A strip under them names the list, with Change and Leave.
  *
  * The press is the server's: as it is clicked, its page code reads the list
  * from the strip's data-checkpoints (capture._READ_SEVERAL) - the names, and
@@ -13,7 +13,11 @@
  *
  * Entered by `several.enter` - Load to UI of a task of several checkpoints -
  * with two names or more, while the setting Queue a generation with several
- * checkpoints is on and the button was made at this start. Ended by Leave,
+ * checkpoints is on and the button was made at this start. The strip's
+ * Change opens your checkpoint list in a window of its own, ticked as the
+ * mode holds it - the Resources dialog's list, its search and family tabs
+ * (resources.mjs) - whose Use these changes the list and sends nothing: the
+ * prompt and settings stay as they are. Ended by Leave,
  * `several.leave` - every plain Send calls it - the setting turned off,
  * heard from the settings window and from Forge's Settings page, or the
  * Queue switched off: this service stops with the Queue tab, and its scope
@@ -31,12 +35,15 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { setText, setTitle } = await shared('core.mjs');
+const { apiCall, setText, setTitle } = await shared('core.mjs');
 const { tabShowing } = await shared('tabs.mjs');
 const { uiOptions, refreshUiOptions, SEVERAL_SETTING } = await shared('ui_options.mjs');
+const { addPickList, pickListHtml, pickRowName, pickRows } = await shared('resources.mjs');
+const { openDialog } = await shared('dialog.mjs');
 
-// What this uses that has a start(): the actions' listener, and ui-options.
-export const STARTS = ['calls.mjs', 'ui_options.mjs'];
+// What this uses that has a start(): the actions' listener, ui-options, and
+// the list's search, tabs and picks, which Change's window draws.
+export const STARTS = ['calls.mjs', 'ui_options.mjs', 'resources.mjs'];
 
 // Queue for N checkpoints (capture.SEVERAL_BUTTON), and the strip its page code reads.
 const BUTTON = 'txt2img_queue_several';
@@ -48,7 +55,9 @@ const MODE_CLASS = 'mm-several';
 // the keys is theirs, as the Queue tab's large-batch question counts it.
 const KEYS_CLICK_MS = 1000;
 
-let list = null;            // { names, source } while in the mode
+let list = null;            // { names, source, labels, listParams } while in the mode
+// Change's window while open: its element, how to close it, and the list it draws from.
+let changing = null;
 let settingOn = false;
 let settingRead = Promise.resolve();
 let keys = null;            // the last Ctrl+Enter: { at, queues }
@@ -74,27 +83,35 @@ function generating() {
 /**
  * Hold these checkpoints: `names` by Forge's name, in order, a name twice
  * once; `source` where they came from, as the press hands it to the server -
- * `{task}` or `{image}`. Answers true once held. Otherwise the mode is left,
- * and it answers why: 'off', the setting is off - the caller says so - or
- * false, fewer than two names or no button made at this start.
+ * `{task}` or `{image}`; `labels`, how the strip names each, where known;
+ * `listParams`, what Change asks the list of your checkpoints with, so it
+ * suggests as the Resources dialog did. Answers true once held. Otherwise
+ * the mode is left, and it answers why: 'off', the setting is off - the
+ * caller says so - or false, fewer than two names or no button made at this
+ * start.
  */
-async function enter({ names, source = null } = {}) {
+async function enter({ names, source = null, labels = null, listParams = null } = {}) {
     const unique = [...new Set((Array.isArray(names) ? names : []).filter((n) => typeof n === 'string' && n))];
     await settingRead;
     if (unique.length < 2 || !settingOn || !byId(BUTTON)) {
         leave();
         return unique.length >= 2 && !settingOn ? 'off' : false;
     }
-    list = { names: unique, source: source && typeof source === 'object' && !Array.isArray(source) ? source : null };
+    const object = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : null);
+    list = { names: unique, source: object(source), labels: { ...object(labels) }, listParams: { ...object(listParams) } };
     draw();
     return true;
 }
 
-/** Generate back, the strip gone. */
+/** Generate back, the strip gone, Change's window closed. */
 function leave() {
     list = null;
+    changing?.handle.close('code');
     draw();
 }
+
+/** A checkpoint as the strip names it: its model and version where known, else its file. */
+const labelOf = (name) => list?.labels?.[name] || checkpointLabel(name);
 
 /**
  * The page as the mode says: the body's class, the button's words, and the
@@ -118,6 +135,8 @@ function draw() {
         strip.id = STRIP;
         strip.className = 'mm-several-strip';
         strip.innerHTML = '<span class="mm-several-names"></span>'
+            + '<button type="button" class="mm-btn mm-btn-small" data-action="several.change"'
+            + ' title="Tick the checkpoints to queue with. Your prompt and settings stay as they are.">Change</button>'
             + '<button type="button" class="mm-btn mm-btn-small" data-action="several.leave"'
             + ' title="Generate comes back, and the list is let go.">Leave</button>';
     }
@@ -126,8 +145,114 @@ function draw() {
     const data = JSON.stringify({ names: list.names, source: list.source });
     if (strip.dataset.checkpoints !== data) strip.dataset.checkpoints = data;
     const names = strip.querySelector('.mm-several-names');
-    setText(names, `Queues with ${listed(list.names.map(checkpointLabel))}`);
+    setText(names, `Queues with ${listed(list.names.map(labelOf))}`);
     setTitle(names, list.names.join('\n'));
+}
+
+// ------------------------------------------------------- Change's window
+
+/**
+ * Change: your checkpoint list in a window of its own, ticked as the mode
+ * holds it, asked of the server as the Resources dialog asks it. Cancel, Esc
+ * or a click beside it changes nothing; Use these takes the ticks, in the
+ * order they were ticked, and sends nothing.
+ */
+async function openChange() {
+    if (!list || changing) return;
+    const holder = { pickList: { loading: true, search: '', tab: null }, ticked: [...list.names] };
+    const element = document.createElement('dialog');
+    element.className = 'mm-question mm-several-change';
+    element.setAttribute('aria-labelledby', 'mm_several_change_title');
+    element.innerHTML = `<div class="mm-dialog mm-question-box">
+            <h3 id="mm_several_change_title">Checkpoints to queue with</h3>
+            <p class="mm-question-message">Tick each checkpoint to make your generation with; they run in the
+                order you tick them. Your prompt and settings stay as they are.</p>
+            ${pickListHtml(holder, 'several')}
+            <div class="mm-dialog-buttons">
+                <span class="mm-several-ticked" data-several-ticked></span>
+                <button type="button" class="mm-btn secondary" data-several-cancel>Cancel</button>
+                <button type="button" class="mm-btn primary" data-several-use>Use these</button>
+            </div>
+        </div>`;
+    const handle = openDialog(element, { onClose: () => {
+        element.remove();
+        if (changing?.element === element) changing = null;
+    } });
+    changing = { element, handle, holder };
+    // On its own buttons: they go with it.
+    element.addEventListener('click', (event) => {
+        if (event.target.closest?.('[data-several-cancel]')) handle.close('cancel');
+        else if (event.target.closest?.('[data-several-use]')) useTicked();
+    });
+    drawTicked();
+    let data = null;
+    let error = '';
+    try {
+        data = await apiCall({ endpoint: '/model-manager/send/checkpoints', params: list.listParams || {} });
+        if (!data?.success) throw new Error(data?.error || 'the server did not answer');
+    } catch (failure) {
+        error = `Could not read your checkpoints: ${failure.message || failure}`;
+    }
+    if (changing?.holder !== holder) return;
+    holder.pickList = error ? { loading: false, error, search: '', tab: null }
+        : { loading: false, error: '', data: withUnlisted(data, holder.ticked), search: '', tab: 'all' };
+    element.querySelector('[data-pick-list="several"]')?.replaceWith(listElement(holder));
+}
+
+/**
+ * The list's answer with a row first for each name the mode holds that
+ * Forge's list does not - a checkpoint gone since, or one Forge has renamed
+ * since the list was made - ticked, saying so, so it can be unticked: hidden,
+ * it stayed ticked, and the press refused the whole task for it.
+ */
+function withUnlisted(data, names) {
+    const listed = new Set((data.checkpoints || []).map((c) => c.name));
+    const unlisted = names.filter((name) => !listed.has(name))
+        .map((name) => ({ name, file: name, family: null, read: true, supported: true, unlisted: true }));
+    return { ...data, checkpoints: [...unlisted, ...(data.checkpoints || [])] };
+}
+
+/** The list drawn afresh, as an element. */
+function listElement(holder) {
+    const wrap = document.createElement('div');
+    wrap.innerHTML = pickListHtml(holder, 'several');
+    return wrap.firstElementChild;
+}
+
+/** How many are ticked, and Use these, which needs two. */
+function drawTicked() {
+    if (!changing) return;
+    const count = changing.holder.ticked.length;
+    setText(changing.element.querySelector('[data-several-ticked]'), `${count} ticked`);
+    const use = changing.element.querySelector('[data-several-use]');
+    if (!use) return;
+    use.disabled = count < 2;
+    if (count < 2) use.title = 'Tick two checkpoints or more. To generate with one, press Leave and use Generate.';
+    else use.removeAttribute('title');
+}
+
+/** A tick in Change's window: the window's list alone, its rows left as they are - their scroll stays. */
+function tickInChange(name, input) {
+    const holder = changing?.holder;
+    if (!holder) return;
+    const ticked = holder.ticked.filter((n) => n !== name);
+    if (input?.checked) ticked.push(name);
+    holder.ticked = ticked;
+    input?.closest('.mm-pick-row')?.classList.toggle('picked', Boolean(input?.checked));
+    drawTicked();
+}
+
+/** Use these: the mode holds the ticks, named as the list names them; nothing is sent. */
+function useTicked() {
+    if (!changing || !list || changing.holder.ticked.length < 2) return;
+    const rows = new Map(pickRows(changing.holder).map((row) => [row.name, row]));
+    const labels = { ...list.labels };
+    for (const name of changing.holder.ticked) {
+        if (rows.has(name) && !rows.get(name).unlisted) labels[name] = pickRowName(rows.get(name));
+    }
+    list = { ...list, names: [...changing.holder.ticked], labels };
+    changing.handle.close('use');
+    draw();
 }
 
 /** The setting as now said: turned off, the mode ends. */
@@ -136,9 +261,19 @@ function takeSetting(value) {
     if (!settingOn) leave();
 }
 
-/** Generate's click, on its way down: in the mode, the person's becomes Queue for N checkpoints. */
+/**
+ * Generate's click, on its way down: in the mode, the person's becomes Queue
+ * for N checkpoints. The one Ctrl+Enter makes while Change's window is open
+ * does nothing: the list is being changed, and Generate is not the mode's.
+ */
 function onGenerate(event) {
     if (!list || !event.target?.closest?.('#txt2img_generate')) return;
+    if (!event.isTrusted && keys?.held && Date.now() - keys.at <= KEYS_CLICK_MS) {
+        keys = null;
+        event.stopImmediatePropagation();
+        event.preventDefault();
+        return;
+    }
     const queues = event.isTrusted ? tabShowing('txt2img') && !generating()
         : Boolean(keys?.queues) && Date.now() - keys.at <= KEYS_CLICK_MS;
     if (!queues) return;
@@ -155,6 +290,10 @@ function onGenerate(event) {
  */
 function onKeys(event) {
     if (event.key !== 'Enter' || !(event.ctrlKey || event.metaKey)) return;
+    if (list && changing) {
+        keys = { at: Date.now(), queues: false, held: true };
+        return;
+    }
     keys = { at: Date.now(), queues: Boolean(list) && tabShowing('txt2img') && !generating() };
 }
 
@@ -167,6 +306,8 @@ export function start(scope) {
     settingRead = uiOptions().then((data) => { settingOn = data?.queue_several === true; });
     scope.provide('several.enter', (args) => enter(args));
     scope.provide('several.leave', () => leave());
+    scope.provide('several.change', () => openChange());
+    scope.onStop(addPickList('several', { holder: () => changing?.holder || null, picked: tickInChange }));
     // Caught on the way down, before Forge's own listeners and the Queue tab's.
     scope.listen(document, 'keydown', onKeys, true);
     scope.listen(document, 'click', onGenerate, true);
@@ -181,9 +322,10 @@ export function start(scope) {
         settingRead = uiOptions().then((data) => takeSetting(data?.queue_several === true));
     });
     scope.afterUpdate(draw);
-    // The Queue switched off: Generate back at once.
+    // The Queue switched off: Generate back at once, Change's window closed.
     scope.onStop(() => {
         list = null;
+        changing?.handle.close('code');
         draw();
     });
 }

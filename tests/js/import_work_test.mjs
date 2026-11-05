@@ -94,7 +94,7 @@ const STARTED = {
     // Several mode (#400): Generate's click and Ctrl+Enter caught on their way
     // down, the setting heard, the strip drawn again after each update.
     'several.mjs': ['document listener: click', 'document listener: keydown', 'onAfterUiUpdate',
-                    'provide several.enter', 'provide several.leave',
+                    'provide several.change', 'provide several.enter', 'provide several.leave',
                     'window listener: mm-settings-page-applied', 'window listener: mm-settings-saved'],
 };
 // Each started as a tab starts it, through the loading module (#186): with a
