@@ -330,4 +330,23 @@ check('    after a search, a recheck leaves the Send area, its search box and wh
 check('    and after a tab', await keptThroughRecheck(() => press(modal().querySelector('[data-action="resources.pickTab"][data-family="xl"]'))),
       [true, '']);
 
+// The rows in the order of the names they show, whatever Forge's order - Neo's changes
+// at every start: case aside, a number read as one. Suggested keeps its own order.
+const B12 = row('basis_v12.safetensors [g7]', 'xl', 'Basis', 'v12', 'SDXL 1.0');
+const B2 = row('basis_v2.safetensors [h8]', 'xl', 'Basis', 'v2', 'SDXL 1.0');
+const LOWER = row('alpha_lite.safetensors [i9]', 'xl', 'alpha lite', 'v1', 'SDXL 1.0');
+const savedList = list;
+list = { success: true, checkpoints: [XL3, B12, SD1, B2, LOWER], picked: null, same_base: null, loaded: null, family: 'xl',
+         suggested: [{ name: XL3.name, why: ['same model'] }, { name: B12.name, why: ['same base model'] }] };
+await showImageResources(image(8003), null, { send: stopped() });
+await waitFor('the list', () => rows().length);
+check('    Suggested keeps its order, closest first', shownNames(), [XL3.name, B12.name]);
+pickTab('all');
+check('    All: by the name each row shows, case aside, v2 before v12', shownNames(),
+      [LOWER.name, B2.name, B12.name, SD1.name, XL3.name]);
+pickTab('xl');
+check('    a family\'s tab the same', shownNames(), [LOWER.name, B2.name, B12.name, XL3.name]);
+close();
+list = savedList;
+
 done();

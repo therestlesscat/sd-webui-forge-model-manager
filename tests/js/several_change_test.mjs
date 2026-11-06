@@ -125,14 +125,14 @@ check('Change: a window of its own, the list asked of the server once',
       [true, 'Checkpoints to queue with', 1]);
 check('each row a tick box, ticked as the mode holds it, three ticked; no round buttons',
       [inputs().every((i) => i.type === 'checkbox'), ticked(), tickedText(), use()?.disabled],
-      [true, [ANIME, PHOTO, FLUX], '3 ticked', false]);
+      [true, [ANIME, FLUX, PHOTO], '3 ticked', false]);
 check('its tabs open on All, every ticked row in it, though one is suggested; the loaded one said; the ticked rows marked',
       [[...win().querySelectorAll('.mm-pick-tab')].map((t) => t.textContent.trim()),
        win()?.querySelector('.mm-pick-tab.active')?.textContent.trim(),
        inputOf(PHOTO)?.closest('.mm-pick-row')?.querySelector('.mm-pick-loaded')?.textContent,
        [...win().querySelectorAll('.mm-pick-row.picked')].map((r) => r.querySelector('input')?.value)],
       [['Suggested 1', 'Flux 1', 'Qwen-Image 1', 'SD 1.x 1', 'SDXL 2', 'All 5'], 'All 5', 'Loaded in Forge now',
-       [ANIME, PHOTO, FLUX]]);
+       [ANIME, FLUX, PHOTO]]);
 check('focus starts on Cancel, the safe button, as every window\'s does',
       document.activeElement === win()?.querySelector('[data-several-cancel]'), true);
 check('a family this WebUI cannot run: greyed, its box off, saying a queued run could not load it',
@@ -145,11 +145,11 @@ tick(DREAM, true);
 const marked = () => [...win().querySelectorAll('.mm-pick-row.picked')].map((r) => r.querySelector('input')?.value);
 check('a tick changes the window alone, its row marked with it: the mode keeps its list until Use these',
       [ticked(), marked(), tickedText(), severalList()?.names],
-      [[ANIME, FLUX, DREAM], [ANIME, FLUX, DREAM], '3 ticked', [ANIME, PHOTO, FLUX]]);
+      [[ANIME, DREAM, FLUX], [ANIME, DREAM, FLUX], '3 ticked', [ANIME, PHOTO, FLUX]]);
 search('flux');
 check('its search narrows its rows', inputs().map((i) => i.value), [FLUX]);
 search('');
-check('and the ticks stay as they were', ticked(), [ANIME, FLUX, DREAM]);
+check('and the ticks stay as they were', ticked(), [ANIME, DREAM, FLUX]);
 tick(ANIME, false);
 tick(FLUX, false);
 check('one ticked: Use these off, saying why', [tickedText(), use()?.disabled, use()?.title],
@@ -159,7 +159,7 @@ tick(FLUX, true);
 document.dispatchEvent(Object.assign(new window.Event('keydown', { bubbles: true }), { key: 'Enter', ctrlKey: true }));
 byId('txt2img_generate').dispatchEvent(new window.Event('click', { bubbles: true, cancelable: true }));
 check('Ctrl+Enter while the window is open: nothing queued, nothing generated, the window as it was',
-      [queued, generated, Boolean(win()), ticked()], [[], [], true, [FLUX, DREAM]]);
+      [queued, generated, Boolean(win()), ticked()], [[], [], true, [DREAM, FLUX]]);
 
 // -------------------------------------------------------------- Use these
 const plansBefore = asked.filter((h) => h.includes('/send/plan')).length;
@@ -181,7 +181,7 @@ act('several.change');
 act('several.change');
 await waitFor('the list in the window', () => inputs().length);
 check('opened again - pressed twice, one window - ticked as the mode holds it now, the list asked afresh once',
-      [document.querySelectorAll('dialog.mm-several-change').length, ticked(), listAsks()], [1, [FLUX, DREAM], 2]);
+      [document.querySelectorAll('dialog.mm-several-change').length, ticked(), listAsks()], [1, [DREAM, FLUX], 2]);
 tick(FLUX, false);
 tick(ANIME, true);
 win()?.querySelector('[data-several-cancel]')?.click();

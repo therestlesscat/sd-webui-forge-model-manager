@@ -863,6 +863,17 @@ function pickListInner(holder, name) {
 }
 
 /**
+ * Rows by the name each shows, ignoring case, a number read as one ("v2" before "v12"), Forge's
+ * name breaking a tie; a ticked one Forge no longer lists first, to be let go. In Forge's order
+ * they moved: Neo gathers the files in a set, whose order changes at every start.
+ */
+function byShownName(a, b) {
+    if (Boolean(a.unlisted) !== Boolean(b.unlisted)) return a.unlisted ? -1 : 1;
+    return pickRowName(a).localeCompare(pickRowName(b), undefined, { sensitivity: 'base', numeric: true })
+        || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+}
+
+/**
  * The tabs and the rows, redrawn as the search narrows them - the search box kept, focus and all.
  * Suggested is a tab of its own, first (#377, R4): the suggestions sat on top of every tab. A
  * family's tab holds every checkpoint of it, suggested or not, the image's base model first.
@@ -870,7 +881,7 @@ function pickListInner(holder, name) {
 function pickBodyHtml(holder, name) {
     const list = holder.pickList;
     const data = list.data;
-    const rows = pickRows(holder);
+    const rows = pickRows(holder).sort(byShownName);
     const words = String(list.search || '').toLowerCase().split(/\s+/).filter(Boolean);
     const shown = rows.filter((r) => matches(r, words));
     // By the name each tab shows: in the order Forge listed them, the tabs moved as files were added or read.
