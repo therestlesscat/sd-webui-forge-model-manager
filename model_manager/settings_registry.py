@@ -362,10 +362,12 @@ SETTINGS: Tuple[Setting, ...] = (
             "Queue a generation with several checkpoints",
             "When on, the Resources dialog's Select several, beside Choose the checkpoint to send with, starts "
             "ticked, so you can tick several of your checkpoints in its list. Send then takes you to txt2img, where "
-            "Generate becomes a button such as Queue for 3 checkpoints: one task in the Queue that makes your "
-            "generation with each checkpoint in turn. Each checkpoint but the image's own, or the same file, runs "
-            "with its usual settings where it has them - sampler, schedule type, steps, CFG and Distilled CFG or "
-            "Shift, with Hires fix following them - in place of yours. When off, Select several starts unticked. "
+            "Generate and Queue become buttons such as Generate for 3 checkpoints and Queue for 3 checkpoints: "
+            "each queues one task that makes your generation with each checkpoint in turn, and Generate for 3 "
+            "checkpoints runs it next, without resuming the queue. Each checkpoint but the image's own, or the same "
+            "file, runs with its usual settings where it has them - sampler, schedule type, steps, CFG and "
+            "Distilled CFG or Shift, with Hires fix following them - in place of yours. When off, Select several "
+            "starts unticked. "
             "Ticking or clearing it in the dialog lasts until the page is reloaded. This applies while Choose the "
             "checkpoint at every Send is on. A task of several checkpoints loads back into txt2img whole with Load "
             "to UI, whatever this says.",

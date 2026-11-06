@@ -241,6 +241,52 @@ said.clear()
 press(request, 'a red apple', 20, json.dumps({'names': ['anime.safetensors', 'photo.safetensors'],
                                               'source': {'task': task}}))
 check('from a task still there, nothing more is said', said, [('info', 'Queued for 2 checkpoints: a red apple')])
+
+# Generate for N checkpoints: the same task, then the runner's Run next for it
+# alone - after the running task, or now - and said; left queued where Run
+# next does not put it first, saying why and where to start it.
+answers = []
+asked_next = []
+def run_next(ids, alone=False):
+    asked_next.append((ids, alone))
+    answer = answers.pop(0)
+    if isinstance(answer, Exception):
+        raise answer
+    return answer
+go = capture._several_handler('txt2img', None, [], ['prompt', 'steps'], run_next=run_next)
+LIST = json.dumps({'names': ['photo.safetensors', 'flux.safetensors'], 'source': {'image': IMAGE}})
+said.clear()
+saved.clear()
+answers[:] = [{'first': [41], 'after': None, 'skipped': [], 'missing': []}]
+go(request, 'a red apple', 20, LIST)
+check('Generate for N checkpoints saves the task as Queue for N does, then asks Run next for it alone',
+      ([(t, v, [r['checkpoint'] for r in c]) for t, v, _u, c in saved], asked_next),
+      ([('txt2img', ['a red apple', 20], ['photo.safetensors', 'flux.safetensors'])], [([41], True)]))
+check('started now: said so', said, [('info', 'Generating for 2 checkpoints: a red apple')])
+cases = [
+    ({'first': [41], 'after': 7, 'skipped': [], 'missing': []},
+     ('info', 'Queued for 2 checkpoints, to run once task #7 ends: a red apple')),
+    ({'first': [], 'after': None, 'skipped': [],
+      'missing': [{'task': 41, 'prompt': 'a red apple', 'missing': ['Gone Script', 'Another']}]},
+     ('warning', 'Queued for 2 checkpoints, not started: it uses Another, Gone Script, which this WebUI no longer '
+                 'has. Start it from the Queue tab.')),
+    ({'first': [], 'after': None, 'skipped': [], 'missing': [], 'stopping': True},
+     ('warning', 'Queued for 2 checkpoints, not started: the queue is stopping. Start it from the Queue tab.')),
+    ({'first': [], 'after': None, 'skipped': [], 'missing': [], 'off': True},
+     ('warning', 'Queued for 2 checkpoints, not started: the Queue is off. Start it from the Queue tab.')),
+    (RuntimeError('the database is busy'),
+     ('warning', 'Queued for 2 checkpoints, but it could not start: the database is busy. Start it from the Queue tab.')),
+]
+for answer, want in cases:
+    said.clear()
+    answers[:] = [answer]
+    go(request, 'a red apple', 20, LIST)
+    check(f'Run next answering {answer!r}: said as it is', said, [want])
+said.clear()
+asked_next.clear()
+go(request, 'a red apple', 20, json.dumps({'names': ['gone.safetensors']}))
+check('a refused press saves nothing and starts nothing', (asked_next, said),
+      ([], [('warning', 'Forge does not list the checkpoint gone.safetensors: refresh its list, or pick another.')]))
 capture.capture = real_capture
 
 db.close()

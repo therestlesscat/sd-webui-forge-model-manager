@@ -700,7 +700,7 @@ function sendLineStatus() {
         const row = line.chosen && pickRows(line).find((r) => r.name === line.chosen);
         if (!row) return { text: line.ticked ? 'Tick a checkpoint to send with.' : 'Pick a checkpoint to send with.' };
         if (line.ticked?.length > 1) {
-            return { text: `Sends with ${pickRowName(row)}, then Queue for ${line.ticked.length} checkpoints in txt2img `
+            return { text: `Sends with ${pickRowName(row)}, then Generate or Queue for ${line.ticked.length} checkpoints in txt2img `
                            + 'queues them all.' };
         }
         const asMade = (row.why || []).some((why) => AS_MADE.includes(why));

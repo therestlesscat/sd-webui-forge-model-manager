@@ -79,13 +79,18 @@ check('and in txt2img Queue for N checkpoints beside it, with its hidden list (#
       (getattr(capture._found['txt2img']['several'], 'elem_id', None),
        getattr(capture._found['txt2img']['listing'], 'elem_id', None)),
       ('txt2img_queue_several', 'txt2img_queue_several_list'))
+check('and Generate for N checkpoints, the one shown in Generate\'s place',
+      (getattr(capture._found['txt2img']['go'], 'elem_id', None), getattr(capture._found['txt2img']['go'], 'variant', None),
+       getattr(capture._found['txt2img']['several'], 'variant', None)),
+      ('txt2img_generate_several', 'primary', 'secondary'))
 capture.on_component(types.SimpleNamespace(elem_id='img2img_generate'), elem_id='img2img_generate')
-check('img2img has none', (capture._found['img2img']['several'], capture._found['img2img']['listing']), (None, None))
+check('img2img has none', (capture._found['img2img']['several'], capture._found['img2img']['go'],
+                           capture._found['img2img']['listing']), (None, None, None))
 capture._found.clear()
 switch(False)
 capture.on_component(generate, elem_id='txt2img_generate')
-check('off: none in txt2img either', (capture._found['txt2img']['several'], capture._found['txt2img']['listing']),
-      (None, None))
+check('off: none in txt2img either', (capture._found['txt2img']['several'], capture._found['txt2img']['go'],
+                                      capture._found['txt2img']['listing']), (None, None, None))
 capture._found.clear()
 switch(True)
 

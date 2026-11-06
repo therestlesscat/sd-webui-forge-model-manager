@@ -1,9 +1,10 @@
 /**
  * Several mode (#400): txt2img holding a list of checkpoints, to queue one
  * task that makes the generation with each in turn. Generate is hidden and
- * Queue for N checkpoints stands in its place - made beside the Queue button
- * as the WebUI starts (scheduler/capture.py), hidden by the stylesheet until
- * this shows it. A strip under them names the list, with Change and Leave.
+ * Generate for N checkpoints stands in its place, Queue for N checkpoints in
+ * the Queue button's - both made beside it as the WebUI starts
+ * (scheduler/capture.py), hidden by the stylesheet until this shows them. A
+ * strip under them names the list, with Change and Leave.
  *
  * The press is the server's: as it is clicked, its page code reads the list
  * from the strip's data-checkpoints (capture._READ_SEVERAL) - the names, and
@@ -25,7 +26,7 @@
  *
  * Generate's click is caught on the way down, only while txt2img shows and
  * nothing is generating: a click the person made, or the one Forge's
- * Ctrl+Enter makes for them, becomes Queue for N checkpoints. Every other
+ * Ctrl+Enter makes for them, becomes Generate for N checkpoints. Every other
  * click passes - Generate forever's. The listener is added before the Queue
  * tab's large-batch one, which it stops: in the mode, the "Generate N
  * images?" question never comes to offer Generate.
@@ -44,8 +45,10 @@ const { openDialog } = await shared('dialog.mjs');
 // the list's search, tabs and picks, which Change's window draws.
 export const STARTS = ['calls.mjs', 'ui_options.mjs', 'resources.mjs'];
 
-// Queue for N checkpoints (capture.SEVERAL_BUTTON), and the strip its page code reads.
+// Queue for N checkpoints (capture.SEVERAL_BUTTON), Generate for N checkpoints
+// (capture.SEVERAL_GO_BUTTON), and the strip their page code reads.
 const BUTTON = 'txt2img_queue_several';
+const GO = 'txt2img_generate_several';
 const STRIP = 'mm_several_strip';
 // On the page's body while the mode holds a list: the stylesheet hides
 // Generate and shows the button by it.
@@ -125,6 +128,10 @@ function draw() {
     setText(button, `Queue for ${list.names.length} checkpoints`);
     setTitle(button, 'Queue one task that makes this generation with each checkpoint in turn. '
                      + 'The queue does not start.');
+    const go = byId(GO);
+    setText(go, `Generate for ${list.names.length} checkpoints`);
+    setTitle(go, 'Queue one task that makes this generation with each checkpoint in turn, and run it next: '
+                 + 'after the task the queue is on, if any. The queue does not resume.');
     if (!strip) {
         strip = document.createElement('div');
         strip.id = STRIP;
@@ -256,7 +263,7 @@ function onGenerate(event) {
     keys = null;
     event.stopImmediatePropagation();
     event.preventDefault();
-    byId(BUTTON)?.click();
+    (byId(GO) || byId(BUTTON))?.click();
 }
 
 /**

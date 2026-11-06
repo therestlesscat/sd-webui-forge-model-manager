@@ -61,7 +61,14 @@ def draw(make):
 
 TABS = {'model_manager': tab_model_manager.create_ui, 'civitai_browser': tab_civitai_browser.create_civitai_browser_ui,
         'generations': tab_generations.create_generations_ui, 'queue': tab_queue.create_queue_ui}
+# What the Queue tab hands the Queue buttons' wiring: the runner's Run next,
+# which Generate for N checkpoints calls (#400) - the runner imports capture.
+wired = []
+tab_queue.wire_queue_buttons = lambda *args, **kwargs: wired.append((args, kwargs))
 pages = {tab: draw(make) for tab, make in TABS.items()}
+from model_manager.scheduler import runner  # noqa: E402
+check('the Queue tab wires the Queue buttons once, handing them the runner\'s Run next',
+      wired, [((runner.run_next,), {})])
 
 gears = {tab: re.findall(r'<button[^>]*class="mm-settings-btn"[^>]*>', page) for tab, page in pages.items()}
 check('each tab draws one gear, opening the settings window on its own tab',

@@ -40,6 +40,7 @@ document.body.insertAdjacentHTML('afterbegin', `
             <button id="txt2img_generate">Generate</button>
             <button id="txt2img_queue">Queue</button>
             <button id="txt2img_queue_several">Queue for checkpoints</button>
+            <button id="txt2img_generate_several">Generate for checkpoints</button>
         </div>
         <div id="txt2img_tools"></div>
     </div>
@@ -50,7 +51,7 @@ document.body.insertAdjacentHTML('afterbegin', `
 sendLoaders(document, { answer: () => ({ mode: 0, skipped: [], notes: [] }) });
 const byId = (id) => document.getElementById(id);
 const pressed = [];
-for (const id of ['txt2img_queue', 'txt2img_queue_several', 'img2img_queue']) {
+for (const id of ['txt2img_queue', 'txt2img_queue_several', 'txt2img_generate_several', 'img2img_queue']) {
     byId(id).addEventListener('click', () => pressed.push(id));
 }
 
@@ -122,12 +123,16 @@ const notices = () => [...document.querySelectorAll('.mm-notice')].map((n) => n.
 const clearNotices = () => document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
 
 // ---------------------------------------------------- entered by Load to UI
-check('before: no mode, no strip, the button as made', [inMode(), strip(), byId('txt2img_queue_several').textContent],
-      [false, null, 'Queue for checkpoints']);
+const words = () => [byId('txt2img_generate_several').textContent, byId('txt2img_queue_several').textContent];
+check('before: no mode, no strip, the buttons as made', [inMode(), strip(), words()],
+      [false, null, ['Generate for checkpoints', 'Queue for checkpoints']]);
 await loadTask(30);
 check('Load to UI of a task of three, the setting on: several mode, with its list and the task it came from',
       [inMode(), severalList()], [true, { names: NAMES, source: { task: 30 } }]);
-check('the button reads how many', byId('txt2img_queue_several').textContent, 'Queue for 3 checkpoints');
+check('the buttons read how many', words(), ['Generate for 3 checkpoints', 'Queue for 3 checkpoints']);
+check('Generate for N says it runs next and resumes nothing', byId('txt2img_generate_several').title,
+      'Queue one task that makes this generation with each checkpoint in turn, and run it next: after the task the '
+      + 'queue is on, if any. The queue does not resume.');
 check('a strip right under Generate\'s box names each, short; in full on hover',
       [strip()?.previousElementSibling?.id, strip()?.querySelector('.mm-several-names')?.textContent,
        strip()?.querySelector('.mm-several-names')?.title],
@@ -151,11 +156,12 @@ watcher.disconnect();
 check('an update with nothing changed writes nothing', written.length, 0);
 strip()?.remove();
 byId('txt2img_queue_several').textContent = 'Queue for checkpoints';
+byId('txt2img_generate_several').textContent = 'Generate for checkpoints';
 redraw();
 check('an update after a redraw took the strip and the words puts both back',
-      [byId('txt2img_queue_several').textContent, strip()?.previousElementSibling?.id,
-       JSON.parse(strip()?.dataset.checkpoints || 'null')],
-      ['Queue for 3 checkpoints', 'txt2img_generate_box', { names: NAMES, source: { task: 30 } }]);
+      [words(), strip()?.previousElementSibling?.id, JSON.parse(strip()?.dataset.checkpoints || 'null')],
+      [['Generate for 3 checkpoints', 'Queue for 3 checkpoints'], 'txt2img_generate_box',
+       { names: NAMES, source: { task: 30 } }]);
 
 // The press's page code, as the server hands it to Gradio (capture._READ_SEVERAL),
 // puts the strip's list in its last input.
@@ -165,26 +171,30 @@ check('the press reads the list and where it came from off the strip',
       typeof readSeveral === 'function' ? JSON.parse(readSeveral('a red apple', 20, '').at(-1) || 'null') : null,
       { names: NAMES, source: { task: 30 } });
 
-// The stylesheet is what hides Generate: linkedom has no cascade, so its rule
-// is read. Interrupt, Skip and Queue are named nowhere in it.
+// The stylesheet is what hides Generate and Queue: linkedom has no cascade, so
+// its rule is read. Interrupt and Skip are named nowhere in it.
 const css = readFileSync(`${ROOT}/style.css`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
 const rule = css.match(/([^{}]*)\{\s*display:\s*none\s*!important;\s*\}/g)
     ?.find((r) => r.includes('#txt2img_queue_several'));
-// It is made after the Queue button: the box puts it first, in Generate's place.
-const own = css.match(/(?:^|})\s*#txt2img_queue_several\s*\{([^}]*)\}/)?.[1] || '';
-check('the stylesheet puts the button first in Generate\'s box, as tall as Generate',
-      [/(^|;|\s)order:\s*-1\s*;/.test(own), /min-height:\s*4\.5em/.test(own)], [true, true]);
-check('the stylesheet hides Generate alone in the mode, and the button outside it',
+// Made after the Queue button: the box puts Generate for N first, in Generate's
+// place; Queue for N, made right after Queue, stands where Queue was.
+const own = (id) => css.match(new RegExp(`(?:^|})\\s*#${id}\\s*\\{([^}]*)\\}`))?.[1] || '';
+check('the stylesheet puts Generate for N first in Generate\'s box, as tall as Generate',
+      [/(^|;|\s)order:\s*-1\s*;/.test(own('txt2img_generate_several')),
+       /min-height:\s*4\.5em/.test(own('txt2img_generate_several'))], [true, true]);
+check('and leaves Queue for N where it is made, as Queue is', own('txt2img_queue_several'), '');
+check('the stylesheet hides Generate and Queue in the mode, and both buttons outside it',
       rule?.split('{')[0].split(',').map((s) => s.trim()).sort(),
-      ['body.mm-several #txt2img_generate', 'body:not(.mm-several) #txt2img_queue_several']);
+      ['body.mm-several #txt2img_generate', 'body.mm-several #txt2img_queue',
+       'body:not(.mm-several) #txt2img_generate_several', 'body:not(.mm-several) #txt2img_queue_several']);
 
 // ------------------------------------------------------ Generate's presses
 pressed.length = 0;
 ctrlEnter();
-check('Ctrl+Enter presses Queue for N checkpoints, never Generate', pressed, ['txt2img_queue_several']);
+check('Ctrl+Enter presses Generate for N checkpoints, never Generate', pressed, ['txt2img_generate_several']);
 pressed.length = 0;
 click(true);
-check('so does a click of the person\'s on Generate', pressed, ['txt2img_queue_several']);
+check('so does a click of the person\'s on Generate', pressed, ['txt2img_generate_several']);
 pressed.length = 0;
 click(false);
 check('Generate forever\'s click, no keys before it, passes to Generate', pressed, ['txt2img_generate']);
@@ -214,8 +224,8 @@ byId('txt2img_batch_count').querySelector('input').value = '5';
 pressed.length = 0;
 ctrlEnter();
 await new Promise((resolve) => setTimeout(resolve, 20));
-check('a large batch in the mode: Queue for N checkpoints, and no question offering Generate',
-      [pressed, Boolean(dialog())], [['txt2img_queue_several'], false]);
+check('a large batch in the mode: Generate for N checkpoints, and no question offering Generate',
+      [pressed, Boolean(dialog())], [['txt2img_generate_several'], false]);
 
 // --------------------------------------------------------------- Leave
 // Pressed only where drawn: a break that never draws it fails the checks before, not the suite.

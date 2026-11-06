@@ -14,6 +14,7 @@ and this tab is ours, built after Forge has wired Generate.
 """
 import gradio as gr
 
+from ..scheduler import runner
 from ..scheduler.capture import wire_queue_buttons
 from ..scheduler.load import wire_send_buttons
 from .header import header_actions
@@ -86,6 +87,6 @@ def create_queue_ui():
                 <div id="queue_history" class="queue-list"><div class="queue-empty">Loading…</div></div>
             </div>
         """.replace("<!-- actions -->", header_actions("queue")), elem_id="queue_container")
-        wire_queue_buttons()
+        wire_queue_buttons(runner.run_next)
         wire_send_buttons()
     return queue_tab

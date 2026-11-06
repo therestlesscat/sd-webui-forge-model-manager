@@ -517,6 +517,72 @@ check('Run anyway runs it without them', status_of(uses), 'completed')
 RUNNER.inputs[:], RUNNER.scripts[:], SCRIPT_LIST.choices[:] = saved
 own.inputs = FIXED + RUNNER.inputs
 
+# Generate for N checkpoints' Run next (#400), `alone`: a stopped queue runs
+# the task asked for, and any asked while it runs - not one an earlier Run
+# next left listed first, in a queue stopped before it.
+def left_listed():
+    """Run next asked for a task, then Stop before it ran: it stays listed first."""
+    first, _ = queue_task('first')
+    listed, _ = queue_task('listed')
+    forge.plan = ['running']
+    runner.start()
+    forge.waiting.wait(5)
+    runner.run_next([listed])
+    runner.stop()
+    forge.release.set()
+    jobs.join(10)
+    forge.waiting.clear()
+    forge.release.clear()
+    forge.calls.clear()
+    return listed, first
+
+
+clear()
+listed, _ = left_listed()
+check('Stop before a task Run next asked for leaves it listed first', (runner.first(), status_of(listed)),
+      ([listed], 'pending'))
+c, _ = queue_task('c')
+answer = runner.run_next([c], alone=True)
+jobs.join(10)
+check('alone, a stopped queue runs the task asked for and no other, then stops',
+      (answer['first'], ran(), status_of(listed), status_of(c), runner.status()['progress']['state']),
+      ([c], [c], 'pending', 'completed', 'stopped'))
+check('the one left listed stays first, for Run next or Start', runner.first(), [listed])
+answer = runner.run_next([listed])
+jobs.join(10)
+check('and the Queue tab\'s own Run next runs it, as before', (ran(), status_of(listed)), ([c, listed], 'completed'))
+
+clear()
+listed, _ = left_listed()
+c, _ = queue_task('c')
+d, _ = queue_task('d')
+forge.plan = ['running']
+runner.run_next([c], alone=True)
+forge.waiting.wait(5)
+check('while it runs, Run next would move the one left listed: that queue would not take it',
+      listed in runner.unmoved(), False)
+runner.run_next([d])
+forge.release.set()
+jobs.join(10)
+check('a task Run next asks for while it runs, it takes too; the one left listed it does not',
+      (ran(), status_of(d), status_of(listed), runner.first()), ([c, d], 'completed', 'pending', [listed]))
+check('and it ends, the one it does not take still listed', runner.status()['progress']['state'], 'stopped')
+
+clear()
+listed, older = left_listed()
+# The task Stop ended, waiting again: older than the one left listed.
+with db._cursor() as cursor:
+    cursor.execute("UPDATE tasks SET status = 'pending' WHERE id = ?", (older,))
+c, _ = queue_task('c')
+forge.plan = ['running']
+runner.run_next([c], alone=True)
+forge.waiting.wait(5)
+check('Start, while it runs, has it go on with every task', runner.start(), {'started': True, 'missing': []})
+forge.release.set()
+jobs.join(10)
+check('the one left listed among them, first as Run next listed it, before an older one',
+      (ran(), status_of(listed), status_of(older)), ([c, listed, older], 'completed', 'completed'))
+
 # ------------------------------------- the person's own generation first
 modules.progress = types.SimpleNamespace(current_task='task(abc)',
                                          pending_tasks={'task(mmq-3-1)': 1.0, 'task(def)': 2.0})

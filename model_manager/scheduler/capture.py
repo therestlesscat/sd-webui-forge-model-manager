@@ -30,6 +30,8 @@ alone, hidden until the page's several mode shows it: given the same inputs
 and one hidden text box, which its page code fills with the mode's list - the
 names and where they came from - read from the strip several mode draws. One
 press is one task of several checkpoints (several.py decides its rows).
+Generate for N checkpoints, a third, makes the same task and runs it next,
+as the Queue tab's Run next does: the task alone, the queue not resumed.
 
 The same names are kept for each generation you make (#7): a listener of
 ours beside Generate's own names its inputs at the click, as Queue would,
@@ -103,8 +105,9 @@ _READ_SEVERAL = """(...args) => {
     return args;
 }"""
 
-# Queue for N checkpoints' elem_id, and its hidden text box's.
+# Queue for N checkpoints' elem_id, and its hidden text box's; Generate for N checkpoints'.
 SEVERAL_BUTTON, SEVERAL_LIST = "txt2img_queue_several", "txt2img_queue_several_list"
+SEVERAL_GO_BUTTON = "txt2img_generate_several"
 
 
 # ------------------------------------------------------------- the buttons
@@ -122,15 +125,16 @@ def on_component(component, **kwargs) -> None:
         if elem_id == f"{tab}_generate":
             import gradio as gr
             from gradio.context import Context
-            queue = several = listing = None
+            queue = several = go = listing = None
             if queue_enabled():
                 queue = gr.Button("Queue", elem_id=f"{tab}_queue", variant="secondary")
                 if tab == "txt2img":
-                    # Hidden by the stylesheet until several mode shows it (#400).
-                    several = gr.Button("Queue for checkpoints", elem_id=SEVERAL_BUTTON, variant="primary")
+                    # Hidden by the stylesheet until several mode shows them (#400).
+                    several = gr.Button("Queue for checkpoints", elem_id=SEVERAL_BUTTON, variant="secondary")
+                    go = gr.Button("Generate for checkpoints", elem_id=SEVERAL_GO_BUTTON, variant="primary")
                     listing = gr.Textbox(visible=False, elem_id=SEVERAL_LIST)
             _found[tab] = {"root": Context.root_block, "generate": component, "queue": queue,
-                           "several": several, "listing": listing}
+                           "several": several, "go": go, "listing": listing}
 
 
 def generate_listeners(root, generate) -> Tuple[Optional[Any], List[Any]]:
@@ -164,10 +168,12 @@ def queue_inputs(own, others) -> List[Any]:
     return inputs
 
 
-def wire_queue_buttons() -> None:
+def wire_queue_buttons(run_next: Optional[Callable] = None) -> None:
     """
     Give each Queue button Generate's inputs. Called inside a Blocks our
-    tabs build, which renders into the page with them.
+    tabs build, which renders into the page with them. `run_next` is the
+    runner's (runner.run_next), handed in by the Queue tab: the runner
+    imports this module.
     """
     for tab, found in _found.items():
         if found.get("root") is None or found.get("queue") is None:
@@ -183,6 +189,10 @@ def wire_queue_buttons() -> None:
             found["several"].click(fn=_several_handler(tab, own, others, inputs),
                                    inputs=inputs + [found["listing"]], outputs=[], js=_READ_SEVERAL,
                                    show_progress="hidden")
+            if found.get("go") is not None and run_next is not None:
+                found["go"].click(fn=_several_handler(tab, own, others, inputs, run_next=run_next),
+                                  inputs=inputs + [found["listing"]], outputs=[], js=_READ_SEVERAL,
+                                  show_progress="hidden")
 
 
 def _handler(tab: str, own, others, inputs) -> Callable:
@@ -290,7 +300,11 @@ def inputs_folder() -> str:
     return str(setting(INPUTS_SETTING) or "").strip() or default_inputs_folder()
 
 
-def _several_handler(tab: str, own, others, inputs) -> Callable:
+def _several_handler(tab: str, own, others, inputs, run_next: Optional[Callable] = None) -> Callable:
+    """
+    Queue for N checkpoints' press; with `run_next`, Generate for N
+    checkpoints': the same task, then run next (_started).
+    """
     import gradio as gr
 
     from . import several
@@ -308,8 +322,8 @@ def _several_handler(tab: str, own, others, inputs) -> Callable:
             rows = several.checkpoint_rows(db, names if isinstance(names, list) else [],
                                            asked.get("source"), selected_models())
             gone = several.gone_task(db, asked.get("source"))
-            _task_id, prompt = capture(tab, own, others, inputs, values[:-1],
-                                       getattr(request, "username", None), checkpoints=rows)
+            task_id, prompt = capture(tab, own, others, inputs, values[:-1],
+                                      getattr(request, "username", None), checkpoints=rows)
         except several.Refused as e:
             gr.Warning(str(e))
             return
@@ -318,13 +332,44 @@ def _several_handler(tab: str, own, others, inputs) -> Callable:
             gr.Warning(f"Could not queue: {e}")
             return
         prompt = " ".join(str(prompt or "").split())
-        gr.Info(f"Queued for {len(rows)} checkpoint{'' if len(rows) == 1 else 's'}: "
-                f"{prompt[:60] + '…' if len(prompt) > 60 else prompt or '(no prompt)'}")
+        shown = prompt[:60] + '…' if len(prompt) > 60 else prompt or '(no prompt)'
+        count = f"{len(rows)} checkpoint{'' if len(rows) == 1 else 's'}"
+        if run_next is None:
+            gr.Info(f"Queued for {count}: {shown}")
+        else:
+            _started(gr, run_next, task_id, count, shown)
         if gone is not None:
             # The list came from a task deleted since: what each ran with there went with it.
             gr.Info(f"Task #{gone} is deleted, so each checkpoint runs with its usual settings where it has them.")
 
     return queue_several
+
+
+def _started(gr, run_next: Callable, task_id: int, count: str, shown: str) -> None:
+    """
+    Generate for N checkpoints, the task queued: run next, as the Queue tab's
+    Run next does - after the running task, or now, a stopped queue started
+    for it alone (`alone`: not for tasks an earlier Run next left listed) and
+    a paused one left paused - and said. A task whose script is gone, or a
+    queue stopping, is left queued: Start it from the Queue tab.
+    """
+    try:
+        answer = run_next([task_id], alone=True)
+    except Exception as e:
+        say_failure(f"Queue: could not start task #{task_id}: {e}")
+        gr.Warning(f"Queued for {count}, but it could not start: {e}. Start it from the Queue tab.")
+        return
+    if task_id in (answer.get("first") or []):
+        after = answer.get("after")
+        gr.Info(f"Generating for {count}: {shown}" if after is None
+                else f"Queued for {count}, to run once task #{after} ends: {shown}")
+        return
+    missing = sorted({name for found in answer.get("missing") or [] for name in found.get("missing") or []})
+    why = (f"it uses {', '.join(missing)}, which this WebUI no longer has" if missing
+           else "the queue is stopping" if answer.get("stopping")
+           else "the Queue is off" if answer.get("off")
+           else "it could not be put first")
+    gr.Warning(f"Queued for {count}, not started: {why}. Start it from the Queue tab.")
 
 
 def capture(tab: str, own, others, inputs: List[Any], values, username: Optional[str],

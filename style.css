@@ -6251,24 +6251,27 @@ textarea.mm-settings-input {
     padding: 10px;
 }
 
-/* Queue for N checkpoints, beside txt2img's Generate (#400): made with the
-   Queue button, and standing in Generate's place only while the page's
-   several mode holds a list (javascript/shared/several.mjs). Interrupt and
-   Skip lie over the box as before: only Generate is hidden. */
+/* Generate for N checkpoints and Queue for N checkpoints, beside txt2img's
+   Generate (#400): made with the Queue button, and standing in Generate's
+   place and Queue's only while the page's several mode holds a list
+   (javascript/shared/several.mjs). Interrupt and Skip lie over the box as
+   before: only Generate and Queue are hidden. */
 body:not(.mm-several) #txt2img_queue_several,
-body.mm-several #txt2img_generate {
+body:not(.mm-several) #txt2img_generate_several,
+body.mm-several #txt2img_generate,
+body.mm-several #txt2img_queue {
     display: none !important;
 }
 
 /* As tall as the Generate it stands in for (the WebUI's own rule), and first
    in the box, where Generate was: it is made after the Queue button, and drew
-   below it. */
-#txt2img_queue_several {
+   below it. Queue for N checkpoints, made after Queue, stands where Queue was. */
+#txt2img_generate_several {
     order: -1;
     min-height: 4.5em;
 }
 
-.generate-box-compact #txt2img_queue_several {
+.generate-box-compact #txt2img_generate_several {
     min-height: 3em;
 }
 

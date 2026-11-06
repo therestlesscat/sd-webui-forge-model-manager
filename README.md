@@ -16,8 +16,9 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 **0.76 - One generation with several checkpoints.** Tick Select several in the Resources dialog,
 beside Choose the checkpoint to send with, and tick several of your checkpoints in its list. In
-txt2img, Generate becomes Queue for N checkpoints: change the prompt and settings, and one task in
-the Queue makes your generation with each checkpoint in turn, each with its own usual settings. The
+txt2img, Generate and Queue become Generate for N checkpoints and Queue for N checkpoints: change the
+prompt and settings, and one task in the Queue makes your generation with each checkpoint in turn,
+each with its own usual settings - at once with Generate for N checkpoints, which runs it next. The
 Generations tab shows the task as one tile, which opens onto its runs, each named by its checkpoint.
 
 **0.75 - A picked checkpoint's usual settings.** When you send with one of your own checkpoints

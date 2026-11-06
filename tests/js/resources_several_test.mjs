@@ -164,8 +164,8 @@ check('its usual tick, unticked, stays so while other rows are ticked and untick
 // ------------------------------------------------------- two and more
 tick(REAL.name);
 await waitFor('the notes', () => runs(REAL.name).startsWith('Runs'));
-check('two ticked: the Send line sends with the first, then says Queue for 2 checkpoints queues them all',
-      status(), 'Sends with Anime Mix v12, then Queue for 2 checkpoints in txt2img queues them all.');
+check('two ticked: the Send line sends with the first, then says Generate or Queue for 2 checkpoints queues them all',
+      status(), 'Sends with Anime Mix v12, then Generate or Queue for 2 checkpoints in txt2img queues them all.');
 check('each ticked row says it runs with its usual settings',
       [runs(MIX.name), runs(REAL.name)], ['Runs with its usual settings.', 'Runs with its usual settings.']);
 check('the block lists what each runs with, with no tick; Hires fix following each run',
@@ -203,7 +203,7 @@ check('the family judged against the first ticked, not the image\'s: Flux first,
 tick(FLUX.name, false);
 tick(REAL.name);
 check('back to two of one family: their notes and the line as they should be, the Send line counting two',
-      [runs(FLUX.name), note(), status()], ['', '', 'Sends with Anime Mix v12, then Queue for 2 checkpoints in txt2img queues them all.']);
+      [runs(FLUX.name), note(), status()], ['', '', 'Sends with Anime Mix v12, then Generate or Queue for 2 checkpoints in txt2img queues them all.']);
 
 // -------------------------------------------------------------- Send
 press(sendButton());
@@ -241,7 +241,7 @@ await open();
 options.several = false;
 tick(MIX.name);
 check('the setting turned off with the dialog open: its tick boxes stay', [kinds(), status()],
-      [['checkbox'], 'Sends with Own v1, then Queue for 2 checkpoints in txt2img queues them all.']);
+      [['checkbox'], 'Sends with Own v1, then Generate or Queue for 2 checkpoints in txt2img queues them all.']);
 close();
 options.several = true;
 
@@ -303,7 +303,7 @@ check('ticked: tick boxes, the one picked ticked, the Send line saying to tick',
 tick(MIX.name);
 await waitFor('their notes', () => runs(MIX.name).startsWith('Runs'));
 check('two ticked: each says how it runs, the Send line queues both', [runs(REAL.name), status()],
-      ['Runs with its usual settings.', 'Sends with Real v2, then Queue for 2 checkpoints in txt2img queues them all.']);
+      ['Runs with its usual settings.', 'Sends with Real v2, then Generate or Queue for 2 checkpoints in txt2img queues them all.']);
 pressSeveral(false);
 check('unticked: round buttons, the first ticked the one picked, no row notes, one sent',
       [kinds(), modal()?.querySelector('.mm-pick-row input:checked')?.value, runs(REAL.name), runs(MIX.name), status()],

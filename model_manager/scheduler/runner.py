@@ -118,11 +118,16 @@ class Progress(object):
 class Queue(object):
     """A run of the queue: jobs.py's service for it."""
 
-    def __init__(self, only: bool = False):
+    def __init__(self, only: bool = False, alone: Optional[List[int]] = None):
         self.progress = Progress()
         self.run_now: Optional[Dict[str, Any]] = None
         # Started by Run next: only its tasks, then stop - until Start.
         self.only = only
+        # Started by Generate for N checkpoints (#400): only the tasks Run next
+        # asks for from its start - its own, and any asked while it runs - not
+        # those an earlier Run next left listed first, in a queue stopped
+        # before them. None: every task Run next lists.
+        self.alone: Optional[Set[int]] = set(alone) if alone is not None else None
         self._stop = threading.Event()
         self._wake = threading.Event()
         self._paused = False
@@ -219,16 +224,16 @@ class Queue(object):
                 if task is None or task["status"] != "pending" or task.get("install") != INSTALL_KEY:
                     _first.remove(task_id)
                     _go.discard(task_id)
-                elif not self._paused or task_id in _go:
+                elif (not self._paused or task_id in _go) and (self.alone is None or task_id in self.alone):
                     return task
         if self._paused or self.only:
             return None
         return db.next_pending_task(INSTALL_KEY)
 
     def _end(self) -> bool:
-        """Whether the queue is done: not if Run next asked for a task meanwhile."""
+        """Whether the queue is done: not if Run next asked for a task meanwhile that it takes."""
         with _first_lock:
-            self._ending = not _first
+            self._ending = not [t for t in _first if self.alone is None or t in self.alone]
             return self._ending
 
     def _run_task(self, db, task: Dict[str, Any]) -> None:
@@ -485,9 +490,9 @@ def missing_extensions() -> List[Dict[str, Any]]:
     return _missing([task for task in tasks if task["status"] == "pending"])
 
 
-def _make(only: bool = False) -> Queue:
+def _make(only: bool = False, alone: Optional[List[int]] = None) -> Queue:
     global _queue
-    _queue = Queue(only)
+    _queue = Queue(only, alone)
     return _queue
 
 
@@ -522,18 +527,21 @@ def start(force: bool = False) -> Dict[str, Any]:
         with _first_lock:
             if not queue._ending:
                 queue.only = False
+                queue.alone = None
                 return {"started": True, "missing": []}
         return {"started": jobs.start(KIND, _make, lambda queue: queue.run(), again=True), "missing": []}
     return {"started": jobs.start(KIND, _make, lambda queue: queue.run()), "missing": []}
 
 
-def run_next(task_ids: List[int], force: bool = False) -> Dict[str, Any]:
+def run_next(task_ids: List[int], force: bool = False, alone: bool = False) -> Dict[str, Any]:
     """
     Run these pending tasks before any other, in the order they were queued
     (#169): after the running task, or now - a stopped queue starts for them
     alone, a paused one runs them and stays paused. Not while the queue is
     stopping: it would end before them. Unless forced, not when one uses a
-    script that is gone, as Start.
+    script that is gone, as Start. With `alone` (Generate for N checkpoints,
+    #400), a stopped queue starts for these alone, not for tasks an earlier
+    Run next left listed first; those stay listed, for Run next or Start.
 
     Returns:
         first: the tasks put first; after: the task they wait for, if one is
@@ -567,8 +575,11 @@ def run_next(task_ids: List[int], force: bool = False) -> Dict[str, Any]:
     with _first_lock:
         _first.extend(task_id for task_id in ids if task_id not in _first)
         _go.update(ids)
+        # A queue started for its own tasks takes these too, asked while it runs.
+        if queue is not None and queue.alone is not None:
+            queue.alone.update(ids)
     running = queue.run_now if queue is not None else None
-    jobs.start(KIND, lambda: _make(only=True), lambda queue: queue.run(), again=True)
+    jobs.start(KIND, lambda: _make(only=True, alone=ids if alone else None), lambda queue: queue.run(), again=True)
     return {**answer, "first": ids, "after": running["task"]["id"] if running else None}
 
 
@@ -589,7 +600,8 @@ def unmoved() -> Set[int]:
     if queue is None or queue.progress.state == "stopping":
         return set()
     with _first_lock:
-        found = {task_id for task_id in _first if not queue._paused or task_id in _go}
+        found = {task_id for task_id in _first if (not queue._paused or task_id in _go)
+                 and (queue.alone is None or task_id in queue.alone)}
     if not queue._paused and not queue.only:
         oldest = get_models_db().next_pending_task(INSTALL_KEY)
         if oldest is not None:

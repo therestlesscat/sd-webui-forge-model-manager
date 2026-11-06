@@ -272,12 +272,17 @@ check('two scripts of one title are told apart', capture.unique_key('Seed', {'Se
 # ------------------------------------------------------------ wiring
 queue_button = Button('Queue', 'txt2img_queue')
 several_button, listing = Button('Queue for checkpoints', 'txt2img_queue_several'), Component(None, 'txt2img_queue_several_list')
+go_button = Button('Generate for checkpoints', 'txt2img_generate_several')
 capture._found.clear()
 capture._found['txt2img'] = {'root': root, 'generate': generate, 'queue': queue_button,
-                             'several': several_button, 'listing': listing}
+                             'several': several_button, 'go': go_button, 'listing': listing}
 capture._found['img2img'] = {'root': types.SimpleNamespace(fns={}), 'generate': i_generate,
                              'queue': Button('Queue', 'img2img_queue')}
 capture.wire_queue_buttons()
+check('handed no Run next, Generate for N checkpoints is left unwired', hasattr(go_button, 'wired'), False)
+del queue_button.wired, several_button.wired
+ran = []
+capture.wire_queue_buttons(lambda ids, alone=False: ran.append(ids) or {'first': ids, 'after': None})
 check("the Queue button is wired to Generate's inputs and its listeners'",
       queue_button.wired['inputs'], capture.queue_inputs(own, others))
 check('it shows nothing while it captures', (queue_button.wired['outputs'], queue_button.wired['show_progress']),
@@ -287,6 +292,10 @@ check('Queue for N checkpoints is wired to the same inputs, its hidden list last
       (capture.queue_inputs(own, others) + [listing], True))
 check('and shows nothing either', (several_button.wired['outputs'], several_button.wired['show_progress']),
       ([], 'hidden'))
+check('handed Run next, Generate for N checkpoints is wired as Queue for N, to a press of its own',
+      (go_button.wired['inputs'], go_button.wired.get('js') == capture._READ_SEVERAL, go_button.wired['outputs'],
+       go_button.wired['show_progress'], go_button.wired['fn'] is not several_button.wired['fn']),
+      (capture.queue_inputs(own, others) + [listing], True, [], 'hidden', True))
 check('a tab whose Generate is not found is left unwired',
       hasattr(capture._found['img2img']['queue'], 'wired'), False)
 
