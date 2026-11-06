@@ -5555,8 +5555,32 @@ textarea.mm-settings-input {
     align-items: center;
     justify-content: center;
     height: 26px;
+}
+
+/* What a group's tile holds, and a task's (#401) - its facts in a block of
+   their own, where a batch has Send, beside the same Delete a batch has: a
+   Delete inside the group's row took its smaller text. */
+.gen-actions.gen-group-facts,
+.gen-task-facts .gen-task-count {
     font-size: 0.8em;
-    color: var(--body-text-color-subdued, #9ca3af);
+    color: var(--body-text-color-subdued, #9ca3af) !important;
+}
+
+.gen-actions.gen-task-facts {
+    align-items: center;
+}
+
+/* Its facts give way, cut short, the whole on hover: the Delete keeps its size. */
+.gen-task-facts .gen-task-count {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: center;
+}
+
+.gen-task-facts .mm-btn {
+    flex: 0 0 auto;
 }
 
 /* In this tab, an image's NSFW badge is at its top-left: ⋯ has the top-right. */

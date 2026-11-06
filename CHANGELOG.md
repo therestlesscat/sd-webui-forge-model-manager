@@ -12,8 +12,9 @@ structure keeps its version and moves the build on, and is not listed here.
 
 Pick several of your checkpoints in the Resources dialog, change the prompt and settings in txt2img, and
 queue one task that makes your generation with each of them in turn, each with its own usual settings. The
-task's images show together in the Generations tab, grouped by model.
+task is one tile in the Generations tab, which opens onto its runs, each named by its checkpoint.
 
+- **0.76.4** (build 635) - A queued task of several checkpoints is one tile in the Generations tab: open it onto its runs, each named by its checkpoint, or delete, select and rate it whole (#401). Show images, on the task's row in the Queue tab, opens it there.
 - **0.76.3** (build 632) - Groundwork for showing a queued task of several checkpoints as one tile in the Generations tab (#401).
 - **0.76.2** (build 630) - In txt2img's several mode, Queue for N checkpoints stood below the Queue button, where Generate was above it; it now takes Generate's place, first (#400).
 - **0.76.1** (build 629) - Queue one generation with several checkpoints (#400). Turn on Queue a generation with several checkpoints, in Send's settings, and the Resources dialog's list of your checkpoints takes several ticks; with two or more ticked, each ticked row says whether it runs with its usual settings, with yours, or as made. Send loads the first and takes you to txt2img, where Generate becomes Queue for N checkpoints: change the prompt and settings, and it queues one task that makes your generation with each checkpoint in turn, each with its own usual settings - the image's own checkpoint, or the same file, as made. Change, under the button, ticks others; Leave brings Generate back; Load to UI of such a task brings its list back. The Queue tab shows each checkpoint and which run a task is on, and Show images groups the task's images by model. It needs the Queue tab on.

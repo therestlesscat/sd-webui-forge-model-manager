@@ -378,6 +378,14 @@ function tileIds(tile) {
     return tile.images?.[0] ? [`image:${tile.images[0].id}`] : [];
 }
 
+/** What a task's tile holds, on its row: cut short where the row is narrow, the whole on hover. */
+function taskFacts(tile) {
+    const n = tile.matching_count;
+    const runs = tile.task.generations.length;
+    const text = `${n} image${n === 1 ? '' : 's'} · ${runs} generation${runs === 1 ? '' : 's'}`;
+    return `<span class="gen-task-count" title="${escapeHtml(text)}">${escapeHtml(text)}</span>`;
+}
+
 /** "Task #12 · 3 checkpoints": a task's tile and its level, by the checkpoints the task holds. */
 function taskTitle(task) {
     const n = Number(task.checkpoints) || 0;
@@ -521,8 +529,8 @@ function tileHtml(tile, index) {
     if (label) media += `<span class="gen-date">${escapeHtml(label)}</span>`;
 
     // A group is not rated whole: its images are of any prompt and settings.
-    // Nor yet a task (#401): its rating comes with the server's.
-    const rateRow = rating && tile.kind !== 'group' && !task
+    // A task's are of one prompt and one press (#401): it is, as a batch is.
+    const rateRow = rating && tile.kind !== 'group'
         ? ratingRowHtml(folded ? tile : image, 'generations.rate', { tile: index }) : '';
 
     const classes = ['gen-tile', wide(image) && 'gen-wide', folded && 'gen-group',
@@ -537,8 +545,8 @@ function tileHtml(tile, index) {
         ? `<div class="gen-actions gen-group-facts">${counted(tile.matching_count)}`
           + ` · ${tile.group.generations} generation${tile.group.generations === 1 ? '' : 's'}</div>`
         : task
-        ? `<div class="gen-actions gen-group-facts">${counted(tile.matching_count)}`
-          + ` · ${tile.task.generations.length} generation${tile.task.generations.length === 1 ? '' : 's'}</div>`
+        ? `<div class="gen-actions gen-task-facts">${taskFacts(tile)}`
+          + `<button type="button" class="mm-btn danger mm-btn-small" data-action="generations.delete" data-tile="${index}">Delete</button></div>`
         : `<div class="gen-actions">
                 ${sendHtml(image, mode, `data-action="generations.send" data-tile="${index}"`)}${mode}</button>
                 <button type="button" class="mm-btn danger mm-btn-small" data-action="generations.delete" data-tile="${index}">Delete</button>
@@ -719,8 +727,11 @@ function showChooseCheckpoint(value) {
  */
 async function rateTile(index, value) {
     const tile = tiles[index];
-    // A task's tile has no rating row yet (#401).
-    if (!tile || tile.kind === 'group' || tile.kind === 'task') return;
+    if (!tile || tile.kind === 'group') return;
+    if (tile.kind === 'task') {
+        await rateTask(index, tile, value);
+        return;
+    }
     const single = tile.kind === 'image' || (tile.kind === 'generation' && tile.matching_count <= 1);
     if (single) {
         await rateImage(index, tile.images[0], value);
@@ -745,6 +756,36 @@ async function rateTile(index, value) {
         redrawTile(index);
     } else {
         removeTile(index);
+    }
+    state = answer.state;
+    scope = answer.scope;
+    renderBanner();
+    renderPath();
+}
+
+/**
+ * Rate a task's tile (#401): the images the tab shows of the generations it
+ * stood for when drawn - a run landing since is not among them - with no
+ * `generation`, so a server from before rates nothing. The answer is the
+ * level's tiles of those generations as it now draws them: one task's tile
+ * takes this one's place, none takes it away, anything else - a rating
+ * cleared can leave one checkpoint's runs shown - asks the level again.
+ */
+async function rateTask(index, tile, value) {
+    const level = tile.user_level === value ? '' : value;
+    const answer = await postRating({ group: groupBy, in_group: at.in_group, in_subgroup: at.in_subgroup, search,
+                                      generations: tile.task.generations.join(','), level });
+    if (!answer) return;
+    markAboveChanged();
+    const drawn = answer.tiles || [];
+    if (drawn.length === 1 && drawn[0].kind === 'task' && drawn[0].task.id === tile.task.id) {
+        tiles[index] = drawn[0];
+        redrawTile(index);
+    } else if (!drawn.length) {
+        removeTile(index);
+    } else {
+        await reloadKeepingPlace();
+        return;
     }
     state = answer.state;
     scope = answer.scope;
@@ -854,8 +895,9 @@ function switchRating(checked) {
  * - and an image, or a batch of one shown, that image - i:. A group nothing.
  */
 function tileKey(tile) {
-    // A task's tile has no tick yet (#401): today's key would pick its newest run alone.
-    if (!tile || tile.kind === 'group' || tile.kind === 'task') return null;
+    if (!tile || tile.kind === 'group') return null;
+    // A task's tile (#401): every generation it stood for when drawn.
+    if (tile.kind === 'task') return `t:${tile.task.id}`;
     if (tile.kind === 'image' || (tile.matching_count || 0) <= 1) {
         return tile.images?.[0] ? `i:${tile.images[0].id}` : null;
     }
@@ -869,6 +911,14 @@ function selection() {
         const key = tileKey(tile);
         if (!key || !selected.has(key)) continue;
         const id = Number(key.slice(2));
+        if (key.startsWith('t:')) {
+            const all = tile.task.images || tile.matching_count || 0;
+            out.images += all;
+            out.hidden += Math.max(0, all - (tile.matching_count || 0));
+            out.generationIds.push(...tile.task.generations);
+            tile.task.generations.forEach((g) => out.generations.add(g));
+            continue;
+        }
         if (key.startsWith('g:')) {
             const all = tile.generation.image_count || tile.matching_count || 1;
             out.images += all;
@@ -1315,8 +1365,11 @@ async function deleteFromViewer() {
  */
 async function deleteTile(index) {
     const tile = tiles[index];
-    // A task's tile has no Delete yet (#401): its runs are deleted once it is open.
-    if (!tile || tile.kind === 'group' || tile.kind === 'task') return;
+    if (!tile || tile.kind === 'group') return;
+    if (tile.kind === 'task') {
+        await deleteTask(index, tile);
+        return;
+    }
     if (tile.matching_count <= 1 || tile.kind === 'image') {
         await deleteImage(index, tile.images[0]);
         return;
@@ -1329,6 +1382,36 @@ async function deleteTile(index) {
         markAboveChanged();
         await refreshTotals();
     }
+}
+
+/**
+ * Delete a task's tile (#401): every image of the generations it stood for
+ * when drawn, hidden ones too, as a batch's Delete takes the whole batch -
+ * and nothing else of the task: a run landing since is not on it. Through
+ * Select's own request, each generation its own transaction.
+ */
+async function deleteTask(index, tile) {
+    const runs = tile.task.generations.length;
+    const n = tile.task.images || tile.matching_count || 0;
+    const answer = await askToDelete(`Delete these ${runs} generation${runs === 1 ? '' : 's'} of task #${Number(tile.task.id)}, `
+                                     + `${n} image${n === 1 ? '' : 's'}?`, n);
+    if (!answer) return;
+    const data = await deleteManyGenerations({ generationIds: tile.task.generations, withFiles: answer.withFiles });
+    if (!data.success) {
+        setStatus(`Delete failed: ${data.error || 'no answer'}`);
+        return;
+    }
+    markAboveChanged();
+    // A generation the server could not delete is still there: the level is
+    // asked again, rather than the tile taken away with it.
+    if (data.missing?.length) {
+        await reloadKeepingPlace();
+        setStatus(`${data.missing.length} generation(s) could not be deleted`);
+        return;
+    }
+    removeTile(index);
+    await refreshTotals();
+    setStatus(tiles.length ? bulkDeleteReport(data, answer.withFiles) : emptyText());
 }
 
 /** Delete one image, asking first; true once it is gone, from the grid too. */
@@ -1450,7 +1533,10 @@ async function showTask(taskId) {
     const id = Number(taskId);
     await showSearch(`task:${id}`);
     const index = tiles.findIndex((tile) => tile.kind === 'task' && Number(tile.task?.id) === id);
-    if (index >= 0) await openTile(index);
+    if (index < 0) return;
+    // Select on, a click on a task's tile ticks it: Show images is asked for the task's runs.
+    if (selecting) switchSelecting(false);
+    await openTile(index);
 }
 
 /**

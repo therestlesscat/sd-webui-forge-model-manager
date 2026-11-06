@@ -1250,6 +1250,26 @@ if has_fastapi:
         not_its = rate(generation=gid[21], task=105, level=4, nsfw_images='all').json()
         inside = rate(generation=gid[6], task=100, level=4, nsfw_images='all').json()
         outside = rate(generation=gid[6], level=1, nsfw_images='all').json()
+        # A task's tile rated whole (#401): the generations it stood for, no `generation`.
+        def rate_tile(gs, level, nsfw):
+            return rate(generations=','.join(str(gid[g]) for g in gs), level=level, nsfw_images=nsfw).json()
+        whole = rate_tile([18, 16, 11, 8], 1, 'all')
+        task_103 = [i for g in (8, 11, 16, 18) for i in tdb.get_generation(gid[g])['images']]
+        hidden = rate_tile([18, 16, 11, 8], 8, 'safe')
+        part_of = rate_tile([16, 11], 4, 'all')
+        # Through the NSFW switch: only the images it lets through are rated.
+        shown_110 = [i['id'] for g in (3, 14) for i in tdb.get_generation(gid[g])['images']
+                     if (i['user_nsfw_level'] if i['user_nsfw_level'] is not None else i['prompt_nsfw_level'] or 99) <= 3]
+        through = rate_tile([14, 3], 2, 'safe')
+        rated_110 = [i['id'] for g in (3, 14) for i in tdb.get_generation(gid[g])['images'] if i['user_nsfw_level'] == 2]
+        nothing = rate(generations='abc,,', level=4, nsfw_images='all')
+        rated_ids = {i['id'] for g in (11, 16) for i in tdb.get_generation(gid[g])['images'] if i['user_nsfw_level'] == 4}
+        others = {i['id'] for g in (8, 18) for i in tdb.get_generation(gid[g])['images'] if i['user_nsfw_level'] == 4}
+        # A tile of task 106 drawn with g26 alone: its Delete takes g26, and g28 - a run not on it - stays.
+        deleted = client.post('/model-manager/generations/delete-many',
+                              data={'generation_ids': f'{gid[26]}', 'delete_files': 'false'}).json()
+        task_row_kept = tdb.get_task(106) is not None
+        gone = [tdb.get_generation(gid[g]) is None for g in (26, 28)]
     finally:
         dbmod._db_instance = held_db
         tdb.close()
@@ -1259,6 +1279,23 @@ if has_fastapi:
           [3, 'b', 6, {'id': 100, 'checkpoints': 3}])
     check('a generation two tasks link, rated inside the higher: nothing rated, no tile',
           [not_its.get('rated'), not_its.get('tile')], [0, None])
+    check('a task\'s tile rated whole: every image of its runs shown, the tile back, rated, one task\'s',
+          [whole.get('rated'), len(task_103), [(t['kind'], t.get('task', {}).get('id'), t['user_level'])
+                                              for t in whole.get('tiles', [])]],
+          [9, 9, [('task', 103, 1)]])
+    check('rated X with NSFW hidden: every image now hidden, no tile', hidden.get('tiles'), [])
+    check('the generations the tile stood for alone: a run that is not among them is not rated, and two of one '
+          'checkpoint come back as batches', [len(rated_ids), len(others),
+                                              [t['kind'] for t in part_of.get('tiles', [])]],
+          [5, 0, ['generation', 'generation']])
+    check('Delete of a task tile, through delete-many: every image of its generations gone, a run not on it '
+          'kept, the task\'s row kept', [deleted.get('images'), gone, task_row_kept], [3, [True, False], True])
+    check('rated through the NSFW switch: the images it shows alone', [through.get('rated'), sorted(rated_110)],
+          [len(shown_110), sorted(shown_110)])
+    check('which are not all of them: the check can tell',
+          0 < len(shown_110) < sum(len(tdb.get_generation(gid[g])['images']) for g in (3, 14)), True)
+    check('a list holding no generation is nothing to rate, as a server before it answers',
+          [nothing.status_code, nothing.json().get('error')], [400, 'Nothing to rate'])
     check('the same run rated outside the task: the header counts the whole level',
           [(outside.get('scope') or {}).get('count', 0) > 6, 'task' in (outside.get('scope') or {})], [True, False])
 

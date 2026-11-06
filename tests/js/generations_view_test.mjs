@@ -765,14 +765,14 @@ check('a task of several checkpoints is one tile: folded, named by its task and 
       [taskEl.classList.contains('gen-task'), taskEl.dataset.task, taskEl.querySelector('.gen-group-name')?.textContent,
        taskEl.querySelector('.gen-count')?.textContent, taskEl.querySelectorAll('.mm-generation-tile').length],
       [true, '9', 'Task #9 · 3 checkpoints', '×4', 4]);
-check('its row says what it holds, with no Send - which checkpoint would it send? - and no Delete yet',
-      [taskEl.querySelector('.gen-actions')?.textContent.trim(), !!taskEl.querySelector('[data-action="generations.send"]'),
-       !!taskEl.querySelector('[data-action="generations.delete"]')], ['4 images · 3 generations', false, false]);
+check('its row says what it holds, with no Send - which checkpoint would it send? - and its Delete',
+      [taskEl.querySelector('.gen-task-count')?.textContent.trim(), !!taskEl.querySelector('[data-action="generations.send"]'),
+       !!taskEl.querySelector('[data-action="generations.delete"]')], ['4 images · 3 generations', false, true]);
 check('a click on it opens it, as a batch\'s does',
       taskEl.querySelector('.gen-openable')?.dataset.action, 'generations.open');
 tick('generations.rating', true);
-check('no rating row on a task tile yet; the batch beside it has its own',
-      [!!tileEls()[0].querySelector('.mm-rate-chip'), !!tileEls()[1].querySelector('.mm-rate-chip')], [false, true]);
+check('a rating row on a task tile, as on the batch beside it',
+      [!!tileEls()[0].querySelector('.mm-rate-chip'), !!tileEls()[1].querySelector('.mm-rate-chip')], [true, true]);
 tick('generations.rating', false);
 
 // The viewer walks into the task tile's images, each its own run's.

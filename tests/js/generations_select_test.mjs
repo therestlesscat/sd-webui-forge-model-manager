@@ -157,28 +157,92 @@ check('opened, a group\'s batches can be picked: Select is back', $('gen_select'
 await act('generations.back');
 check('and hidden again back at the top', $('gen_select').closest('label').hidden, true);
 
-// A queued task of several checkpoints, one tile (#401): no tick on it until
-// it can be deleted whole - a batch's key would pick its newest run alone,
-// and Select all's one Delete would take that run and leave the rest.
+// A queued task of several checkpoints, one tile (#401): its tick, its Delete
+// and its rating reach every generation it stood for when drawn, whole - and
+// nothing else of the task.
 call('generations.groupBy', '');
-const TASK = { kind: 'task', task: { id: 9, checkpoints: 3, generations: [52, 51, 50], images: 3 },
+const TASK = { kind: 'task', task: { id: 9, checkpoints: 3, generations: [52, 51, 50], images: 4 },
                generation: { id: 52, mode: 'txt2img', image_count: 1 }, matching_count: 3,
                images: [img(521, 52), img(511, 51), img(501, 50)], level: 1, user_level: null };
 tiles = [TASK, TILES[1]];
+const ratings = [];
+let ratingAnswer = null;
+const fetchBeforeTask = globalThis.fetch;
+globalThis.fetch = async (url, init = {}) => {
+    if (String(url).includes('/generations/rate')) {
+        ratings.push(Object.fromEntries(new URLSearchParams(String(init.body))));
+        return { ok: true, json: async () => structuredClone(ratingAnswer) };
+    }
+    return fetchBeforeTask(url, init);
+};
 await act('generations.refresh');
 await waitFor('the task tile', () => document.querySelectorAll('#gen_grid .gen-tile').length === 2);
 tick('generations.selecting', true);
-check('a task\'s tile has no tick; the batch beside it has its own',
-      ticks().map((box) => Number(box.dataset.genPick)), [1]);
-const deletesBefore = deletes.length;
+check('a task\'s tile has a tick, as the batch beside it', ticks().map((box) => Number(box.dataset.genPick)), [0, 1]);
+if (ticks()[0]) pick(0);
+check('ticked: every image of its generations, the one hidden too', count(), '4 images selected');
 await press(button('Select all loaded'));
-check('Select all leaves the task out: one image, of the batch beside it', count(), '1 image selected');
+const deletingTask = (async () => press(button('Delete...')))();
+await waitFor('the question', () => document.querySelector('dialog.mm-question[open]'));
+const question = document.querySelector('dialog.mm-question[open]');
+check('the one question counts the task\'s images and generations with the batch\'s, the one hidden too',
+      question?.textContent.replace(/\s+/g, ' ').includes('Delete 5 images of 4 generations? (1 of them hidden by the filters)'),
+      true);
+question?.querySelector('[data-value="true"]')?.dispatchEvent(new window.Event('click', { bubbles: true }));
+await deletingTask;
+check('one request: the task\'s generations whole, the batch\'s image; both tiles gone',
+      [deletes.at(-1)?.generation_ids, deletes.at(-1)?.image_ids, document.querySelectorAll('#gen_grid .gen-tile').length],
+      ['52,51,50', '21', 0]);
 tick('generations.selecting', false);
+
+// Its own Delete, on its facts row.
+tiles = [TASK, TILES[1]];
+await act('generations.refresh');
+await waitFor('the task tile again', () => document.querySelector('#gen_grid .gen-task'));
+const own = (async () => call('generations.delete', { tile: 0 }))();
+await waitFor('its question', () => document.querySelector('dialog.mm-question[open]'));
+check('its Delete asks once, naming the task, its generations and images',
+      document.querySelector('dialog.mm-question[open]')?.textContent.includes('Delete these 3 generations of task #9, 4 images?'),
+      true);
+document.querySelector('dialog.mm-question[open] [data-value="true"]')
+    ?.dispatchEvent(new window.Event('click', { bubbles: true }));
+await own;
+check('and sends its generations alone, through Select\'s request, its files too as the box says',
+      [deletes.at(-1)?.generation_ids, deletes.at(-1)?.image_ids, deletes.at(-1)?.delete_files], ['52,51,50', '', 'true']);
+
+// Its rating row: the generations it stood for, no `generation`.
+tiles = [TASK, TILES[1]];
+await act('generations.refresh');
+await waitFor('the task tile once more', () => document.querySelector('#gen_grid .gen-task'));
 tick('generations.rating', true);
-check('nor a rating row on it yet: the batch has its own',
-      Array.from(document.querySelectorAll('#gen_grid .gen-tile')).map((t) => !!t.querySelector('.mm-rate-chip')),
-      [false, true]);
+check('a rating row on the task tile, as on the batch', Array.from(document.querySelectorAll('#gen_grid .gen-tile'))
+    .map((t) => !!t.querySelector('.mm-rate-chip')), [true, true]);
+ratingAnswer = { success: true, rated: 3, tiles: [{ ...TASK, user_level: 4, level: 4 }], state: { total: 9, filtered: 8 },
+                 scope: { count: 8 } };
+await call('generations.rate', { tile: 0, level: 4 });
+check('rated: the task\'s generations named, no generation - a server before it rates nothing',
+      [ratings.at(-1)?.generations, 'generation' in (ratings.at(-1) || {})], ['52,51,50', false]);
+check('its tile drawn again from the answer, alone', document.querySelector('#gen_grid .gen-task')
+    ?.querySelector('.mm-rate-mine')?.textContent.trim(), 'R');
+let reloaded = false;
+const fetchBeforeReload = globalThis.fetch;
+globalThis.fetch = async (url, init) => {
+    if (String(url).includes('/generations/browse')) reloaded = true;
+    return fetchBeforeReload(url, init);
+};
+ratingAnswer = { success: true, rated: 3, tiles: [TILES[0], TILES[1]], state: { total: 9, filtered: 8 }, scope: { count: 8 } };
+await call('generations.rate', { tile: 0, level: 4 });
+check('an answer of anything but one task tile - a cleared rating left one checkpoint\'s runs - asks the level again',
+      reloaded, true);
+await waitFor('the level again', () => document.querySelector('#gen_grid .gen-tile'));
+tiles = [TASK, TILES[1]];
+await act('generations.refresh');
+await waitFor('the task tile, to hide', () => document.querySelector('#gen_grid .gen-task'));
+ratingAnswer = { success: true, rated: 3, tiles: [], state: { total: 9, filtered: 5 }, scope: { count: 5 } };
+await call('generations.rate', { tile: 0, level: 8 });
+check('an answer of no tile - every image of it now hidden - takes the tile away',
+      [document.querySelector('#gen_grid .gen-task'), document.querySelectorAll('#gen_grid .gen-tile').length], [null, 1]);
+globalThis.fetch = fetchBeforeTask;
 tick('generations.rating', false);
-check('and nothing was deleted', deletes.length, deletesBefore);
 
 done();

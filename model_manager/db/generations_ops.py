@@ -254,6 +254,8 @@ class Scope:
     # Whether the level's images are keyed by task where a task's runs of
     # two or more checkpoints are shown (#401): the unit "run" reads it.
     task_key: bool = False
+    # These generations alone, as one JSON value: a task tile's (#401).
+    only_generations: Optional[List[int]] = None
 
 
 def _unit_columns(unit: str, section: Optional[str]) -> List[str]:
@@ -862,6 +864,9 @@ class GenerationsOps:
         if scope.task is not None:
             where.append("gi.generation_id IN (SELECT generation_id FROM task_generations WHERE task_id = ?)")
             args_where.append(scope.task)
+        if scope.only_generations is not None:
+            where.append("gi.generation_id IN (SELECT value FROM json_each(?))")
+            args_where.append(json.dumps([int(g) for g in scope.only_generations]))
         if scope.in_task is not None:
             # A generation linked to two tasks is the lower-numbered's (#401).
             where.append("gi.generation_id IN (SELECT generation_id FROM task_generations "

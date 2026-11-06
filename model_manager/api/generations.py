@@ -505,6 +505,30 @@ def rated_batch(db, nsfw: Any, generation: int, group: str = "", in_group: str =
     return {"tile": tiles[0] if tiles else None, "state": state, "scope": scope_info}
 
 
+def _ids(text: str) -> List[int]:
+    """A comma-joined list of ids, each once, in order; anything but digits left out."""
+    return list(dict.fromkeys(int(v) for v in (text or "").split(",") if v.strip().isdigit()))
+
+
+def rated_task(db, nsfw: Any, generations: List[int], group: str = "", in_group: str = "",
+               in_subgroup: str = "", search: str = "") -> Dict[str, Any]:
+    """
+    After a task tile's rating (#401): the level narrowed to the tile's
+    generations, as it now draws them, keyed by task - `tiles`, one task's
+    tile while its runs shown are of two checkpoints or more; none, if the
+    NSFW switch hides them all; else a batch each, which the tab takes as a
+    reason to ask the level again - and the level's totals. Classic, as for
+    a batch: the generations are found by index.
+    """
+    chain = grouping_chain(group)
+    level = _scope(group, in_group, None, in_subgroup, search)
+    narrowed = dataclasses.replace(level, only_generations=list(generations), task_key=True)
+    with db.generation_scope_level(narrowed, "run", None, nsfw, single_pass=False) as those:
+        tiles = _tiles(db, those, "generation", None, None, those.units(0, len(generations) + 1))
+    state, scope_info = _level_info(db, level, chain, None, nsfw)
+    return {"tiles": tiles, "state": state, "scope": scope_info}
+
+
 def browse_page(db, nsfw: Any, page: int = 1, group: str = "",
                 in_group: str = "", generation: Optional[int] = None,
                 in_subgroup: str = "", search: str = "", expand: bool = False,
@@ -884,7 +908,8 @@ def _register(app: FastAPI):
                               generation: Optional[int] = Form(default=None), path: str = Form(default=""),
                               nsfw_images: str = Form(default=SAFE),
                               hide_promptless_images: bool = Form(default=False),
-                              search: str = Form(default=""), task: Optional[int] = Form(default=None)):
+                              search: str = Form(default=""), task: Optional[int] = Form(default=None),
+                              generations: str = Form(default="")):
         """
         Rate your own images' NSFW level - `level` one of nsfw.USER_LEVELS, or
         empty to clear the rating, back to what the prompt gives. Which images:
@@ -895,7 +920,10 @@ def _register(app: FastAPI):
         - `generation`: a batch of the Generations tab - within the group
           `in_group` (and `in_subgroup`), if opened from one, and the task
           `task` (#401), if inside one - its images the tab shows, through
-          its search and the NSFW switch.
+          its search and the NSFW switch;
+        - `generations`, comma-joined: a task's tile (#401) - the generations
+          it stood for when drawn, their images the tab shows, the same way.
+          Sent with no `generation`, so a server before it rates nothing.
 
         Only what the page showed is rated: an image a switch hid, nobody saw.
         A group is not rated whole: its images are of any number of prompts
@@ -921,11 +949,20 @@ def _register(app: FastAPI):
             elif generation is not None:
                 rows = db.generation_scope_rows(_scope(group, in_group, generation, in_subgroup, search, task))
                 ids = [r["id"] for r in _filtered(rows, nsfw, False)[0]]
+            elif _ids(generations):
+                # A list holding no id is nothing to rate, as a server before it answers.
+                tile_generations = _ids(generations)
+                rows = db.generation_scope_rows(dataclasses.replace(
+                    _scope(group, in_group, None, in_subgroup, search), only_generations=tile_generations))
+                ids = [r["id"] for r in _filtered(rows, nsfw, False)[0]]
             else:
                 return JSONResponse({"success": False, "error": "Nothing to rate"}, status_code=400)
             rated = db.set_generation_image_levels(ids, chosen)
             answer = {"success": True, "rated": rated}
-            if image_id is None and not path:
+            if image_id is None and not path and generation is None:
+                # A task's tile (#401): the level's tiles of its generations, as it now draws them.
+                answer.update(rated_task(db, nsfw, tile_generations, group, in_group, in_subgroup, search))
+            elif image_id is None and not path:
                 # A Generations batch: its tile, as the level now draws it (#239).
                 answer.update(rated_batch(db, nsfw, generation, group, in_group, in_subgroup, search, task))
             if image_id is not None:
@@ -954,20 +991,17 @@ def _register(app: FastAPI):
             images: how many image records went; deleted_files, failed (as
             delete_generation); and missing: ids already gone.
         """
-        def ids(text):
-            return list(dict.fromkeys(int(v) for v in (text or "").split(",") if v.strip().isdigit()))
-
         try:
             db = get_models_db()
             paths, missing, images = [], [], 0
-            for image_id in ids(image_ids):
+            for image_id in _ids(image_ids):
                 try:
                     found, _ = db.delete_generation_image(image_id)
                     paths += found
                     images += 1
                 except Exception as e:
                     missing.append({"image": image_id, "error": str(e)})
-            for generation_id in ids(generation_ids):
+            for generation_id in _ids(generation_ids):
                 try:
                     count = db.count_generation_images(generation_id)
                     paths += db.delete_generation(generation_id)

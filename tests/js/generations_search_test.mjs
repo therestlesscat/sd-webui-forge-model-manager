@@ -129,6 +129,14 @@ check('the grouping chosen before is still the one remembered, here too',
 await call('generations.back');
 check('Back: the task\'s one tile', [...document.querySelectorAll('#gen_grid .gen-tile')].map((t) => t.dataset.task),
       ['20']);
+// Select on, a click on a task's tile ticks it (#401): Show images turns Select
+// off, and opens the task's runs all the same.
+tick('generations.selecting', true);
+browsed.length = 0;
+await openTab('generations', 'showTask', 20);
+await waitFor('the task opened, from Select', () => browsed.some((b) => b.task === '20'));
+check('Show images with Select on: Select turned off, the task\'s tile opened onto its runs',
+      [document.getElementById('gen_select').checked, browsed.at(-1)?.task], [false, '20']);
 // No task tile to open: every image hidden, or Expand on - the tab stays on what it found.
 browsed.length = 0;
 await openTab('generations', 'showTask', 21);
