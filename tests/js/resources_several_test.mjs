@@ -102,7 +102,8 @@ const runs = (name) => {
 const answered = (name) => Boolean(runs(name)) && !runs(name).startsWith('Reading');
 // A row's lines: its box, its name, its base model, its second line - none added at a tick.
 const rowParts = (name) => rowOf(name)?.children.length;
-const note = () => modal()?.querySelector('.mm-pick-note')?.textContent || '';
+// The family note, first in the usual settings block.
+const note = () => block()?.querySelector('[data-family-note]')?.textContent || '';
 // Select several, beside Choose the checkpoint to send with: its box, and what it says.
 const several = () => modal()?.querySelector('[data-action="resources.severalTick"]');
 const severalSays = () => (several() ? [several().checked, several().disabled, several().closest('label')?.title] : null);
@@ -200,7 +201,10 @@ check('and still no ticked row takes a line more', [OWN.name, LEAN.name, UNREAD.
 check('all of one family, or not known: nothing under the list', note(), '');
 tick(FLUX.name);
 await waitFor('its answer', () => answered(FLUX.name));
-check('a checkpoint of another family than the first: the line under the list says what stays yours for it',
+check('a checkpoint of another family than the first: first under the block\'s heading, a note in its own grey',
+      [block()?.querySelector('.mm-usual-head')?.nextElementSibling?.matches('[data-family-note].mm-usual-note'),
+       Boolean(modal()?.querySelector('.mm-pick-area > [data-family-note]'))], [true, false]);
+check('and it says what stays yours for it',
       note(), 'The size, the prompt and its LoRAs, ADetailer, ControlNet and Diffusion in Low Bits stay as you set them '
               + 'for Flux Dev fp8, of another family than Anime Mix v12.');
 check('every ticked one\'s usual settings asked once', usualAsked.slice().sort(),

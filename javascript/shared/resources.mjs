@@ -673,7 +673,7 @@ function sendAgainButton() {
                                  + 'data-action="resources.checkAgain">Check again</button>' : '';
     return `<div class="mm-resources-send-wrap">
             ${line.choosing ? `<div class="mm-pick-area">${pickListHtml(line, 'dialog')}`
-                              + `<div class="mm-usual" data-usual>${usualHtml()}</div>${pickNoteHtml(line)}</div>` : ''}
+                              + `<div class="mm-usual" data-usual>${usualHtml()}</div></div>` : ''}
             <div class="mm-dialog-buttons mm-resources-send">${box}${text}${again}
                 <button type="button" class="mm-btn primary" data-action="resources.sendAgain"${
                     enabled ? '' : ` disabled title="${escapeHtml((line.choosing ? status.text : line.why) || status.text || '')}"`}>${
@@ -1121,7 +1121,9 @@ function severalUsualHtml(line) {
         return `<div class="mm-usual-each"><span class="mm-usual-each-name">${escapeHtml(row ? pickRowName(row) : name)}</span>`
             + `<span class="mm-usual-each-what">${escapeHtml(what)}</span></div>`;
     }).join('');
-    return `<div class="mm-usual-head">What each runs with</div>${each}`
+    const family = pickNote(line);
+    return `<div class="mm-usual-head">What each runs with</div>${
+        family ? `<div class="mm-usual-note mm-usual-family" data-family-note>${escapeHtml(family)}</div>` : ''}${each}`
         + '<div class="mm-usual-from">A setting too few uses record, or one this WebUI lacks, stays as you set it. '
         + 'Hires fix follows each run\'s sampler, schedule type, CFG, and Distilled CFG or Shift.</div>';
 }
@@ -1138,7 +1140,6 @@ function redrawUsual() {
     }
     const status = document.querySelector('.mm-resources-modal .mm-res-send-status');
     if (status) status.textContent = sendLineStatus().text || '';
-    redrawSeveral();
     if (resourcesSend) drawnSendBar = sendAgainButton();
 }
 
@@ -1258,9 +1259,11 @@ function listNames(names) {
 }
 
 /**
- * The line under the list: with ticks of more than one family, what stays as you set it for those of
+ * With ticks of more than one family, what stays as you set it for those of
  * another family than the first, which Send loads - usual settings record
- * none of it.
+ * none of it: the first line of the block's several view. Under the list,
+ * the room kept for it was 38 px of empty space with Select several ticked,
+ * and the dialog grew and shrank as the box was ticked and unticked.
  */
 function pickNote(line) {
     if (!(line.ticked?.length > 1)) return '';
@@ -1271,27 +1274,6 @@ function pickNote(line) {
     if (!others.length) return '';
     return `The size, the prompt and its LoRAs, ADetailer, ControlNet and Diffusion in Low Bits stay as you set them `
         + `for ${listNames(others.map(pickRowName))}, of another family than ${pickRowName(first)}.`;
-}
-
-/** The line under the list, where it says something: none, as before #400, where it does not. */
-function pickNoteHtml(line) {
-    const text = pickNote(line);
-    return text ? `<div class="mm-pick-note" data-pick-note>${escapeHtml(text)}</div>` : '';
-}
-
-/** The line under the list, drawn again in place: the rows keep their scroll. */
-function redrawSeveral() {
-    const line = resourcesSend;
-    const modal = document.querySelector('.mm-resources-modal');
-    if (!line || !modal) return;
-    const under = modal.querySelector('[data-pick-note]');
-    const text = pickNote(line);
-    if (!text) under?.remove();
-    else if (under) {
-        if (under.textContent !== text) under.textContent = text;
-    } else {
-        modal.querySelector('.mm-pick-area')?.insertAdjacentHTML('beforeend', pickNoteHtml(line));
-    }
 }
 
 // The dialog's Send: closed, and the image sent - with the checkpoint picked,
