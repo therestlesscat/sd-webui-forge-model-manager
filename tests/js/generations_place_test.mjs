@@ -198,4 +198,37 @@ check('noted inside the batch, it shows', showing(), true);
 await press(document.querySelector('[data-action="generations.back"]'));
 check('Back clears it', showing(), false);
 
+// ------------------------------------------------------------ a task's tile (#401)
+// A Send from the first run's batch noted its image and batch; the task's
+// next run landed after, and the two runs are one task tile now, its newest
+// run's image first. The tile is each of its runs too, so the place is found.
+tiles.splice(0, tiles.length, {
+    kind: 'task', task: { id: 9, checkpoints: 2, generations: [2, 1], images: 2 },
+    generation: { ...generation, id: 2 }, matching_count: 2, loras: [], level: 1, user_level: null,
+    images: [{ ...image, id: 21, generation_id: 2, url: '/model-manager/generations/images/21/file' }, image] });
+await press(document.getElementById('gen_refresh_btn'));
+await waitFor('the task tile', () => document.querySelector('#gen_grid .gen-tile'));
+localStorage.setItem('gen_scroll_position', '3000');
+localStorage.setItem('gen_scroll_target', JSON.stringify(['image:11', 'generation:1']));
+check('a place noted at a run\'s batch is found in the task tile its runs became', await pressBack(), 'tile 0, centred');
+clear();
+
+// Opened, the task's level is its runs; a Send from the second, and Back to
+// image finds that run - not the first of the task's runs.
+const runsOfTask = [
+    { kind: 'generation', generation: { ...generation, id: 2 }, matching_count: 1, loras: [], level: 1, user_level: null,
+      checkpoint, images: [{ ...image, id: 21, generation_id: 2, url: '/model-manager/generations/images/21/file' }] },
+    { kind: 'generation', generation, matching_count: 1, images: [image], loras: [], level: 1, user_level: null, checkpoint },
+];
+tiles.splice(0, tiles.length, ...runsOfTask);      // what the task's level answers
+await press(document.querySelector('#gen_grid [data-action="generations.open"][data-tile="0"]'));
+await waitFor('the runs', () => document.querySelectorAll('#gen_grid .gen-tile').length === 2);
+scrollY(3500);
+const sentBefore = pastes.length;
+await press(document.querySelector('#gen_grid [data-action="generations.send"][data-tile="1"]'));
+await waitFor('the paste', () => pastes.length > sentBefore);
+check('a Send from a run inside the task notes the image, its run, then the task',
+      JSON.parse(localStorage.getItem('gen_scroll_target') || 'null'), ['image:11', 'generation:1', 'task:9']);
+check('pressed, Back to image finds the run sent from, not the task\'s first run', await pressBack(), 'tile 1, centred');
+
 done();

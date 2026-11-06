@@ -33,7 +33,32 @@ const tile = (generation, kind = 'generation') => ({
     images: [image(generation * 10, generation, generation % 4 === 0)], matching_count: 1,
     ...(kind === 'group' ? { group: { id: `g${generation}`, value: `group ${generation}`, by: 'prompt', generations: 1 } } : {}),
 });
+// A queued task of several checkpoints (#401): the first tile of the plain
+// top level, for a page that asks for task tiles - one more image than its
+// batch had - and opened, its three runs, each named by its checkpoint. Only
+// while each control is compared both ways: the checks after count the 250.
+let withTask = false;
+const runTile = (generation, name) => ({ ...tile(generation), checkpoint: { name, path: `C:/${name}.safetensors` } });
 function answer(params) {
+    if (params.task === '9') {
+        const tiles = [runTile(9003, 'ck_c'), runTile(9002, 'ck_b'), runTile(9001, 'ck_a')];
+        return { success: true, tiles, more: false, scope: { count: 3 },
+                 state: { total: 3, filtered: 3, hidden_nsfw: 0, nsfw_count: 0 } };
+    }
+    const plain = !params.search && !params.group && params.expand !== 'true' && params.nsfw_images !== 'all';
+    if (plain && params.tasks === '1' && withTask) {
+        const answered = plainAnswer(params);
+        if (Number(params.page || 1) === 1) {
+            answered.tiles[0] = { ...answered.tiles[0], kind: 'task', matching_count: 2,
+                                  task: { id: 9, checkpoints: 3, generations: [9003, 9002, 9001], images: 3 },
+                                  images: [answered.tiles[0].images[0], image(9002, 9002, false)] };
+        }
+        answered.state = { ...answered.state, total: answered.state.total + 1, filtered: answered.state.filtered + 1 };
+        return answered;
+    }
+    return plainAnswer(params);
+}
+function plainAnswer(params) {
     const count = params.search ? 30 : params.group ? 40 : params.expand === 'true' ? 260
         : params.nsfw_images === 'all' ? 255 : 250;
     const offset = params.search ? 1000 : params.expand === 'true' ? 2000 : params.nsfw_images === 'all' ? 3000 : 0;
@@ -145,8 +170,10 @@ async function run(choice) {
     view({ top: 0, height: 100000 });
     window.scrollY = 0;
     const seen = [];
-    const asked = () => browsed.splice(0).map(({ page, search, group, nsfw_images: nsfw, expand }) =>
-        JSON.stringify({ page, search, group, nsfw, expand }));
+    const asked = () => browsed.splice(0).map(({ page, search, group, nsfw_images: nsfw, expand, task, tasks }) =>
+        JSON.stringify({ page, search, group, nsfw, expand, task, tasks }));
+    const names = () => [...gridEl().querySelectorAll('.gen-tile')]
+        .map((t) => t.querySelector('.gen-group-name')?.textContent || '');
     // What a control asked and drew, once its level is loaded whole - or,
     // for one that asks nothing, once it has had its turn: the comparison
     // says too that neither way asked more.
@@ -154,7 +181,7 @@ async function run(choice) {
         browsed.length = 0;
         await step();
         await settled(label, () => loaded());
-        seen.push([label, asked(), generations()]);
+        seen.push([label, asked(), generations(), names()]);
     };
     await look('Search', async () => {
         const box = document.getElementById('gen_search');
@@ -178,15 +205,27 @@ async function run(choice) {
     await look('Select off', () => tick('generations.selecting', false));
     await look('Preserve order', () => tick('generations.preserveOrder', true));
     await look('Preserve order off', () => tick('generations.preserveOrder', false));
+    await look('A task tile opened', () => call('generations.open', { tile: 0 }));
+    await look('Back from the task', () => call('generations.back'));
     view({ top: 0, height: 1000 });
     return seen;
 }
+withTask = true;
 const classic = await run('Classic');
 const fast = await run('Fast');
+withTask = false;
 classic.forEach(([label, asked, tiles], i) => {
     check(`${label}: the same asked of the server, both ways`, fast[i][1], asked);
     check(`${label}: the same tiles, in the same order, both ways`, fast[i][2], tiles);
+    check(`${label}: the same names on them, both ways`, fast[i][3], classic[i][3]);
 });
+const opened = classic.find(([label]) => label === 'A task tile opened');
+check('the task tile opened: its runs asked for by the task, each named by its checkpoint, both ways',
+      [opened?.[1], opened?.[2], opened?.[3]],
+      [[JSON.stringify({ page: '1', nsfw: 'safe', expand: 'false', task: '9', tasks: '1' })], [9003, 9002, 9001], ['ck_c', 'ck_b', 'ck_a']]);
+const back = classic.find(([label]) => label === 'Back from the task');
+check('and Back: the task tile first again, named, with nothing asked', [back?.[1], back?.[3][0]],
+      [[], 'Task #9 · 3 checkpoints']);
 check('the controls were tried with tiles to show', classic.every(([, , tiles]) => tiles.length > 0), true);
 
 // --------------------------------------------- reset, or the place kept

@@ -5801,6 +5801,17 @@ textarea.mm-settings-input {
     pointer-events: none;
 }
 
+/* Inside a task (#401), a run of one image is named over the image itself,
+   where its NSFW badge - its only level shown - sits at the top-left: the
+   badge stays above the strip, and the name starts below it. */
+.gen-tile:not(.gen-group) .gen-media:has(> .gen-group-name) .mm-nsfw-badge {
+    z-index: 1;
+}
+
+.gen-tile:not(.gen-group) .gen-media:has(.mm-nsfw-badge) > .gen-group-name {
+    padding-top: 28px;
+}
+
 /* Inside a group or a batch: Back, the way here, and what it is. */
 .gen-path {
     display: flex;

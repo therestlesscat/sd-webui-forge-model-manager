@@ -677,4 +677,112 @@ check('the switches, Back and the banner are one block, the grid outside it',
 check('held at the top by the rule the other tabs\' banners use',
       /\.filter-banner-sticky,\s*\.gen-sticky-head\s*\{[^}]*position:\s*sticky/.test(css), true);
 
+// ------------------------------------------------- a task of several checkpoints (#401)
+// A queued task of three checkpoints made three runs: one tile for them, which
+// opens onto the runs, each named by its checkpoint, and which the viewer walks
+// image by image, each sent with its own run. The server's answers as
+// api/generations.browse_page is to give them to a page that asks for task
+// tiles, from #401's commit 2, whose tile_reading_test holds it to this shape.
+const CK = (name) => ({ path: `C:/models/Stable-diffusion/${name}.safetensors`, name, in_library: true,
+                         version_id: null, model_id: null, model_name: null });
+const run = (id, created_at, checkpoint, ids) => ({
+    generation: { id, mode: 'txt2img', created_at, image_count: ids.length, checkpoint_path: checkpoint?.path || null },
+    images: ids.map((imageId, position) => ({ ...img(imageId, id, position), created_at, mode: 'txt2img',
+                                              checkpoint_path: checkpoint?.path || null, checkpoint, loras: [] })),
+    checkpoint,
+});
+// Newest first, the last checkpoint run at the top; the first run's checkpoint is one the library lacks.
+const runs = [run(52, '2026-09-30T12:00:30', CK('ck_c'), [521]),
+              run(51, '2026-09-30T12:00:20', CK('ck_b'), [511, 512]),
+              run(50, '2026-09-30T12:00:10', null, [501])];
+const taskTile = {
+    kind: 'task', task: { id: 9, checkpoints: 3, generations: [52, 51, 50], images: 4 },
+    generation: runs[0].generation, matching_count: 4,
+    images: runs.flatMap((r) => r.images), checkpoint_path: null, checkpoint: null, loras: [], level: 1, user_level: null,
+};
+const batchTile = { kind: 'generation', generation: generations[0].generation, matching_count: 1,
+                    images: [{ ...generations[0].images[0], checkpoint_path: ANIMA_PATH, checkpoint: ANIMA, loras: [] }],
+                    checkpoint_path: ANIMA_PATH, checkpoint: ANIMA, loras: [], level: 1, user_level: null };
+const runTile = (r) => ({ kind: 'generation', generation: r.generation, matching_count: r.images.length,
+                          images: r.images, checkpoint_path: r.checkpoint?.path || null, checkpoint: r.checkpoint,
+                          ...(r.checkpoint ? {} : { checkpoint_name: 'lacking_ck' }),
+                          loras: [], level: 1, user_level: null });
+const taskState = { total: 5, filtered: 5, hidden_nsfw: 0, nsfw_count: 0, nsfw_images: 'safe', stored_generations: 4 };
+const planAsked = [];
+const answerBefore = globalThis.fetch;
+globalThis.fetch = async (url, init = {}) => {
+    const href = String(url);
+    const params = new URL(href, 'http://webui').searchParams;
+    if (href.includes('/model-manager/send/plan')) planAsked.push(params);
+    if (!href.includes('/generations/browse')) return answerBefore(url, init);
+    asked.push(params);
+    const inTask = params.get('task') === '9';
+    // Answered whatever the page asks, so that a page that does not ask fails the checks, not the suite.
+    const run51 = runs.find((r) => r.generation.id === Number(params.get('generation')));
+    const tiles = run51 ? run51.images.map((i) => ({ kind: 'image', generation: run51.generation, matching_count: 1,
+                                                     images: [i], checkpoint: run51.checkpoint, loras: [], level: 1,
+                                                     user_level: null }))
+        : inTask ? runs.map(runTile) : [taskTile, batchTile];
+    return { ok: true, json: async () => ({
+        success: true, tiles, more: false, state: taskState,
+        scope: { count: inTask ? 4 : 5, first: '2026-09-28T20:00:00', last: '2026-09-30T12:00:30' } }) };
+};
+await act('generations.refresh');
+await waitFor('the task tile', () => tileEls().length === 2);
+check('the page asks for task tiles', lastAsked().get('tasks'), '1');
+const taskEl = tileEls()[0] || document.createElement('div');
+check('a task of several checkpoints is one tile: folded, named by its task and checkpoints, counting its images',
+      [taskEl.classList.contains('gen-task'), taskEl.dataset.task, taskEl.querySelector('.gen-group-name')?.textContent,
+       taskEl.querySelector('.gen-count')?.textContent, taskEl.querySelectorAll('.mm-generation-tile').length],
+      [true, '9', 'Task #9 · 3 checkpoints', '×4', 4]);
+check('its row says what it holds, with no Send - which checkpoint would it send? - and no Delete yet',
+      [taskEl.querySelector('.gen-actions')?.textContent.trim(), !!taskEl.querySelector('[data-action="generations.send"]'),
+       !!taskEl.querySelector('[data-action="generations.delete"]')], ['4 images · 3 generations', false, false]);
+check('a click on it opens it, as a batch\'s does',
+      taskEl.querySelector('.gen-openable')?.dataset.action, 'generations.open');
+tick('generations.rating', true);
+check('no rating row on a task tile yet; the batch beside it has its own',
+      [!!tileEls()[0].querySelector('.mm-rate-chip'), !!tileEls()[1].querySelector('.mm-rate-chip')], [false, true]);
+tick('generations.rating', false);
+
+// The viewer walks into the task tile's images, each its own run's.
+await call('generations.view', { tile: 1 });
+click(viewer().querySelector('.mm-viewer-prev'));
+await settle();
+const madeAt = (at) => [new Date(at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }), 'txt2img'].join(' · ');
+check('back from the batch, the viewer is on the task\'s last image, saying where it is in the task',
+      [shownId(), viewer()?.querySelector('.mm-viewer-where')?.textContent], ['501', '4 of 4 in this task']);
+check('its details are its own run\'s: when it was made, and its checkpoint - here none the library holds',
+      [field('Made'), field('Checkpoint')], [madeAt('2026-09-30T12:00:10'), undefined]);
+click(viewer().querySelector('.mm-viewer-prev'));
+await settle();
+check('the image before it is another run\'s, with that run\'s date and checkpoint',
+      [shownId(), field('Made'), field('Checkpoint')], ['512', madeAt('2026-09-30T12:00:20'), 'ck_b.safetensors']);
+const plansBefore = planAsked.length;
+click(viewer().querySelector('[data-gen-send]'));
+await waitFor('the send', () => planAsked.length > plansBefore);
+check('Send from the viewer sends that image with its own run, not the task tile\'s newest',
+      [planAsked.at(-1)?.get('generation'), viewer()], ['51', null]);
+await settle();
+
+// Opened: its runs, each named by its checkpoint, the task named in the path.
+await call('generations.open', { tile: 0 });
+await waitFor('the runs', () => tileEls().length === 3);
+check('the task opens onto its runs, asking for its level by the task',
+      [lastAsked().get('task'), lastAsked().get('tasks'), pathText().includes('Task #9 · 3 checkpoints')], ['9', '1', true]);
+check('each run named by its checkpoint - a run of one image too - the one the library lacks by the name read for it',
+      tileEls().map((t) => t.querySelector('.gen-group-name')?.textContent), ['ck_c', 'ck_b', 'lacking_ck']);
+check('a run of one image opens the viewer; of two, its batch',
+      tileEls().map((t) => t.querySelector('.gen-viewable, .gen-openable')?.dataset.action),
+      ['generations.view', 'generations.open', 'generations.view']);
+// A run opened from the task: its images, all of one checkpoint, carry no name.
+await call('generations.open', { tile: 1 });
+await waitFor('the run of two', () => lastAsked().get('generation') === '51' && tileEls().length === 2);
+check('a run opened from the task: its images, unnamed, asked for inside the task',
+      [tileEls().map((t) => !!t.querySelector('.gen-group-name')), lastAsked().get('task')], [[false, false], '9']);
+await call('generations.back');
+await call('generations.back');
+check('Back: the task tile again', [tileEls()[0]?.dataset.task, lastAsked().get('task')], ['9', '9']);
+globalThis.fetch = answerBefore;
+
 done();

@@ -8,7 +8,7 @@
 // infotext, or sets its kept press back (#7), and says which - and shows the
 // tab it was made in; the Model Manager's script never loads. What the server
 // does with the source is send_text_test.py's and img2img_send_test.py's.
-import { ROOT, act, checker, mountTab, sendLoaders, sharedModule, startTab } from './harness.mjs';
+import { ROOT, act, call, checker, mountTab, sendLoaders, sharedModule, startTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_generations.py');
 const { check, waitFor, done } = checker();
@@ -524,5 +524,27 @@ await act('generations.send', { tile: 0 });
 await waitFor('the send, unticked', () => loaderAsked.length > at);
 check('    and Send sends as before: no dialog', !!dialog(), false);
 globalThis.fetch = fetchBeforeList;
+
+// ------------------------------------------------- a task of several checkpoints (#401)
+// A task's tile holds images of several runs, its newest run made in txt2img
+// and an older one in img2img: the viewer sends each image with its own run,
+// into the tab that run was made in.
+tiles = [{ kind: 'task', task: { id: 9, checkpoints: 2, generations: [2, 3], images: 2 },
+           generation: { ...generation, id: 2 }, matching_count: 2, loras: [], level: 1, user_level: null,
+           images: [{ ...image, id: 21, generation_id: 2, created_at: generation.created_at, mode: 'txt2img' },
+                    { ...image, id: 31, generation_id: 3, created_at: '2026-10-02T09:00:00', mode: 'img2img' }] }];
+await act('generations.refresh');
+await waitFor('the task tile', () => document.querySelector('#gen_grid .gen-task'));
+// A task's tile opens; its images are reached in the viewer, as from the tile beside it.
+await call('generations.view', { tile: 0, image: 1 });
+await waitFor('the viewer on the img2img run', () => document.querySelector('[data-gen-send]'));
+check('the viewer offers the img2img run\'s image to img2img',
+      document.querySelector('[data-gen-send]')?.parentElement?.textContent.includes('Send to img2img'), true);
+at = loaderAsked.length;
+const shownBefore = shown.length;
+document.querySelector('[data-gen-send]').dispatchEvent(new window.Event('click', { bubbles: true }));
+await waitFor('the send of the img2img run', () => loaderAsked.length > at && lastSource()?.image === 31);
+check('and sends it with its own run, through img2img\'s button, showing img2img',
+      [lastSource()?.generation, loaderAsked.at(-1)?.tab, shown.slice(shownBefore)[0]], [3, 'img2img', 'tab_img2img-button']);
 
 done();

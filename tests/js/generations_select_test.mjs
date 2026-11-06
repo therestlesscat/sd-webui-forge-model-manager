@@ -157,4 +157,28 @@ check('opened, a group\'s batches can be picked: Select is back', $('gen_select'
 await act('generations.back');
 check('and hidden again back at the top', $('gen_select').closest('label').hidden, true);
 
+// A queued task of several checkpoints, one tile (#401): no tick on it until
+// it can be deleted whole - a batch's key would pick its newest run alone,
+// and Select all's one Delete would take that run and leave the rest.
+call('generations.groupBy', '');
+const TASK = { kind: 'task', task: { id: 9, checkpoints: 3, generations: [52, 51, 50], images: 3 },
+               generation: { id: 52, mode: 'txt2img', image_count: 1 }, matching_count: 3,
+               images: [img(521, 52), img(511, 51), img(501, 50)], level: 1, user_level: null };
+tiles = [TASK, TILES[1]];
+await act('generations.refresh');
+await waitFor('the task tile', () => document.querySelectorAll('#gen_grid .gen-tile').length === 2);
+tick('generations.selecting', true);
+check('a task\'s tile has no tick; the batch beside it has its own',
+      ticks().map((box) => Number(box.dataset.genPick)), [1]);
+const deletesBefore = deletes.length;
+await press(button('Select all loaded'));
+check('Select all leaves the task out: one image, of the batch beside it', count(), '1 image selected');
+tick('generations.selecting', false);
+tick('generations.rating', true);
+check('nor a rating row on it yet: the batch has its own',
+      Array.from(document.querySelectorAll('#gen_grid .gen-tile')).map((t) => !!t.querySelector('.mm-rate-chip')),
+      [false, true]);
+tick('generations.rating', false);
+check('and nothing was deleted', deletes.length, deletesBefore);
+
 done();

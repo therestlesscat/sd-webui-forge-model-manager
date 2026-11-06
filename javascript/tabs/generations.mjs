@@ -232,9 +232,12 @@ async function loadNext() {
     loading = true;
     const asked = ++request;
     try {
+        // `tasks`: this page draws a task's tile (#401) - a server sends one to no
+        // page that does not say so, as an older page would draw it as a batch.
         const data = await apiCall({ endpoint: '/model-manager/generations/browse', params: {
             page: part + 1, nsfw_images: nsfwMode, group: groupBy,
-            in_group: at.in_group, in_subgroup: at.in_subgroup, generation: at.generation, search, expand,
+            in_group: at.in_group, in_subgroup: at.in_subgroup, generation: at.generation, task: at.task,
+            search, expand, tasks: 1,
         } });
         if (asked !== request) return;
         if (!data.success) {
@@ -297,8 +300,11 @@ async function openTile(index) {
     clearSelection();
     const tile = tiles[index];
     if (!tile) return;
+    // A task opened is named by the task alone: its runs' ids would make a
+    // place noted inside it match the first of its runs, not the one left.
+    const opened = tile.kind === 'task' ? [`task:${tile.task.id}`] : tileIds(tile);
     levels.push({ tiles, state, scope, part, more, at, title, scrollY: currentScroll(), dirty: false,
-                  opened: [...tileIds(tile), sectionId(tile)].filter(Boolean) });
+                  opened: [...opened, sectionId(tile)].filter(Boolean) });
     if (tile.kind === 'group') {
         // Grouped twice, a group of the first grouping opens onto groups of
         // the second, and one of those onto its batches.
@@ -310,8 +316,13 @@ async function openTile(index) {
             at = at.in_group ? { in_group: at.in_group, in_subgroup: tile.group.id } : { in_group: tile.group.id };
             title = groupTitle(tile.group.value, tile.group.by);
         }
+    } else if (tile.kind === 'task') {
+        // Onto its runs (#401), each a batch named by its checkpoint, inside
+        // whatever group or search the task tile was in.
+        at = { in_group: at.in_group, in_subgroup: at.in_subgroup, task: tile.task.id };
+        title = taskTitle(tile.task);
     } else {
-        at = { in_group: at.in_group, in_subgroup: at.in_subgroup, generation: tile.generation.id };
+        at = { in_group: at.in_group, in_subgroup: at.in_subgroup, task: at.task, generation: tile.generation.id };
         title = `${formatWhen(tile.generation.created_at)} · ${tile.matching_count} images`;
     }
     scope = null;
@@ -359,7 +370,32 @@ function tileIds(tile) {
     if (!tile) return [];
     if (tile.kind === 'group') return [`group:${tile.group.by}:${tile.group.id}`];
     if (tile.kind === 'generation') return [`generation:${tile.generation.id}`];
+    // A task's tile is each of its runs too: a Send from a run's batch, made
+    // before the next run turned the batches into one tile, is found in it.
+    if (tile.kind === 'task') {
+        return [`task:${tile.task.id}`, ...(tile.task.generations || []).map((id) => `generation:${id}`)];
+    }
     return tile.images?.[0] ? [`image:${tile.images[0].id}`] : [];
+}
+
+/** "Task #12 · 3 checkpoints": a task's tile and its level, by the checkpoints the task holds. */
+function taskTitle(task) {
+    const n = Number(task.checkpoints) || 0;
+    return `Task #${Number(task.id)} · ${n} checkpoint${n === 1 ? '' : 's'}`;
+}
+
+/**
+ * The generation an image of a tile was made by: the tile's own, or - on a
+ * task's tile, whose images are of several runs (#401) - the image's, with its
+ * date, mode and checkpoint where the server gave them, the tile's where not.
+ */
+function generationOf(tile, image) {
+    const generation = tile?.generation || {};
+    if (!image || image.generation_id === undefined || image.generation_id === generation.id) return generation;
+    // A run's checkpoint is its own, with no path where none was recorded - never the tile's.
+    return { ...generation, id: image.generation_id, created_at: image.created_at ?? generation.created_at,
+             mode: image.mode ?? generation.mode,
+             checkpoint_path: 'checkpoint_path' in image ? image.checkpoint_path : generation.checkpoint_path };
 }
 
 /** The group of the first grouping a tile is in, in a level grouped twice. */
@@ -430,7 +466,9 @@ function renderPath() {
  */
 function tileHtml(tile, index) {
     const generation = tile.generation || {};
-    const folded = tile.kind === 'group' || (tile.kind === 'generation' && tile.matching_count > 1);
+    // A task's tile (#401) is folded as a group's: it always shows two images or more.
+    const task = tile.kind === 'task';
+    const folded = tile.kind === 'group' || task || (tile.kind === 'generation' && tile.matching_count > 1);
     const mode = generation.mode === 'img2img' ? 'img2img' : 'txt2img';
     const image = tileImage(tile);
     // Selecting, a click on a batch or an image ticks it (the listener beside
@@ -441,7 +479,7 @@ function tileHtml(tile, index) {
     let media;
     if (folded) {
         const preview = tile.images.slice(0, 4);
-        const what = tile.kind === 'group' ? 'group' : 'generation';
+        const what = tile.kind === 'group' ? 'group' : task ? 'task' : 'generation';
         media = `
             <div class="mm-generation-preview mm-generation-preview-${preview.length} gen-group-preview ${picks ? 'gen-pickable' : 'gen-openable'}"
                  data-action="generations.open" data-tile="${index}" title="${picks ? 'Select' : 'Open'} this ${what}: all ${tile.matching_count} images">
@@ -456,6 +494,11 @@ function tileHtml(tile, index) {
     } else {
         media = `<div class="${picks ? 'gen-pickable' : 'gen-viewable'}" data-action="generations.view" data-tile="${index}" title="${picks ? 'Select' : 'View'}">${generationImageHtml(image)}</div>`;
     }
+    // Named as a group's tile is: a task by its number and checkpoints, and
+    // on a task's level each run by its checkpoint - what Model grouping gave;
+    // not inside a run, whose images are all of one.
+    const name = task ? taskTitle(tile.task) : at.task && !at.generation ? runName(tile) : '';
+    if (name) media += `<span class="gen-group-name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>`;
 
     // Select's tick: a batch or an image, never a group - open it, and pick inside.
     // Its click has to reach the page's listener, which counts it: nothing
@@ -478,23 +521,30 @@ function tileHtml(tile, index) {
     if (label) media += `<span class="gen-date">${escapeHtml(label)}</span>`;
 
     // A group is not rated whole: its images are of any prompt and settings.
-    const rateRow = rating && tile.kind !== 'group'
+    // Nor yet a task (#401): its rating comes with the server's.
+    const rateRow = rating && tile.kind !== 'group' && !task
         ? ratingRowHtml(folded ? tile : image, 'generations.rate', { tile: index }) : '';
 
     const classes = ['gen-tile', wide(image) && 'gen-wide', folded && 'gen-group',
-                     tile.kind === 'group' && 'gen-grouping'].filter(Boolean).join(' ');
+                     tile.kind === 'group' && 'gen-grouping', task && 'gen-task'].filter(Boolean).join(' ');
     // A group is a way in, not something to act on: its images are of any
     // prompt and settings - Send would send one image as if it stood for them
     // all, and Delete would take many at once. Its row says what it holds.
+    // A task's tile says what it holds the same way, and has no Send: which
+    // checkpoint would it send? Each run has its own, once the task is open.
+    const counted = (n) => `${n} image${n === 1 ? '' : 's'}`;
     const actions = tile.kind === 'group'
-        ? `<div class="gen-actions gen-group-facts">${tile.matching_count} image${tile.matching_count === 1 ? '' : 's'}`
+        ? `<div class="gen-actions gen-group-facts">${counted(tile.matching_count)}`
           + ` · ${tile.group.generations} generation${tile.group.generations === 1 ? '' : 's'}</div>`
+        : task
+        ? `<div class="gen-actions gen-group-facts">${counted(tile.matching_count)}`
+          + ` · ${tile.task.generations.length} generation${tile.task.generations.length === 1 ? '' : 's'}</div>`
         : `<div class="gen-actions">
                 ${sendHtml(image, mode, `data-action="generations.send" data-tile="${index}"`)}${mode}</button>
                 <button type="button" class="mm-btn danger mm-btn-small" data-action="generations.delete" data-tile="${index}">Delete</button>
             </div>`;
     return `
-        <div class="${classes}" data-generation="${Number(generation.id)}" data-aspect="${aspect(image)}">
+        <div class="${classes}" data-generation="${Number(generation.id)}"${task ? ` data-task="${Number(tile.task.id)}"` : ''} data-aspect="${aspect(image)}">
             <div class="gen-media">${media}</div>
             ${rateRow}
             ${actions}
@@ -521,6 +571,14 @@ function layout() {
 /** The image a tile shows first, which its width goes by. */
 function tileImage(tile) {
     return tile?.images?.[0] || {};
+}
+
+/**
+ * Inside a task (#401), a run's tile by its checkpoint: its file's name, or -
+ * a checkpoint the library lacks - the name the server read for it.
+ */
+function runName(tile) {
+    return tile?.checkpoint?.name || tile?.checkpoint_name || tileImage(tile).checkpoint?.name || '';
 }
 
 /** Whether a tile starts its section, grouped twice: its header comes before it. */
@@ -622,15 +680,16 @@ function sendHtml(image, mode, attributes) {
 /** Send a tile's image - a batch's first - back to the tab it was made in. Not a group's. */
 async function sendTile(index) {
     const tile = tiles[index];
-    if (!tile?.images?.[0] || tile.kind === 'group') return;
+    if (!tile?.images?.[0] || tile.kind === 'group' || tile.kind === 'task') return;
     previousPlace.remember(placeOf(tile, tile.images[0]));
     await sendImage(tile, tile.images[0]);
 }
 
 /** Send an image back to the tab it was made in - or, with `mode`, into that img2img mode (#299). */
 async function sendImage(tile, image, mode = null) {
-    if (!await sendInfotext({ infotext: image.infotext, mode: tile.generation.mode, meta: image.meta,
-                              generationId: tile.generation.id, imageId: image.id,
+    const generation = generationOf(tile, image);
+    if (!await sendInfotext({ infotext: image.infotext, mode: generation.mode, meta: image.meta,
+                              generationId: generation.id, imageId: image.id,
                               into: mode === null ? null : { mode, width: image.width, height: image.height },
                               choose: chooseCheckpoint }) && !chooseCheckpoint) {
         console.error('[ModelManager] Could not send generated image', image.id);
@@ -639,8 +698,9 @@ async function sendImage(tile, image, mode = null) {
 
 /** The Resources dialog's Send line for an image of a tile (#377): Send's, with the list a box away. */
 function sendLineOf(tile, image) {
-    return generationResourcesLine({ infotext: image.infotext, mode: tile.generation?.mode, meta: image.meta,
-                                     generationId: tile.generation?.id, imageId: image.id });
+    const generation = generationOf(tile, image);
+    return generationResourcesLine({ infotext: image.infotext, mode: generation.mode, meta: image.meta,
+                                     generationId: generation.id, imageId: image.id });
 }
 
 /** The toolbar's box, set: as pressed, or as the setting starts or changes it. */
@@ -659,7 +719,8 @@ function showChooseCheckpoint(value) {
  */
 async function rateTile(index, value) {
     const tile = tiles[index];
-    if (!tile || tile.kind === 'group') return;
+    // A task's tile has no rating row yet (#401).
+    if (!tile || tile.kind === 'group' || tile.kind === 'task') return;
     const single = tile.kind === 'image' || (tile.kind === 'generation' && tile.matching_count <= 1);
     if (single) {
         await rateImage(index, tile.images[0], value);
@@ -777,7 +838,8 @@ function switchRating(checked) {
  * - and an image, or a batch of one shown, that image - i:. A group nothing.
  */
 function tileKey(tile) {
-    if (!tile || tile.kind === 'group') return null;
+    // A task's tile has no tick yet (#401): today's key would pick its newest run alone.
+    if (!tile || tile.kind === 'group' || tile.kind === 'task') return null;
     if (tile.kind === 'image' || (tile.matching_count || 0) <= 1) {
         return tile.images?.[0] ? `i:${tile.images[0].id}` : null;
     }
@@ -1065,7 +1127,7 @@ const viewerSource = {
     buttons: (index) => {
         const { tile, image } = viewerAt(index);
         if (!image) return '';
-        const mode = tile.generation.mode === 'img2img' ? 'img2img' : 'txt2img';
+        const mode = generationOf(tile, image).mode === 'img2img' ? 'img2img' : 'txt2img';
         return `${ratingRowHtml(image, 'generations.rateInViewer')}
             ${sendHtml(image, mode, 'data-gen-send')}Send to ${mode}</button>
             <button type="button" class="mm-btn danger mm-btn-small" data-gen-delete>Delete</button>
@@ -1081,7 +1143,7 @@ const viewerSource = {
         if (!tile) return '';
         const shown = tile.images.length;
         const count = tile.matching_count || shown;
-        const what = tile.kind === 'group' ? 'this group' : 'this generation';
+        const what = tile.kind === 'group' ? 'this group' : tile.kind === 'task' ? 'this task' : 'this generation';
         if (count <= 1) return '';
         return shown < count ? `${i + 1} of the ${shown} shown · ${count} in ${what}` : `${i + 1} of ${count} in ${what}`;
     },
@@ -1176,7 +1238,7 @@ function onKey(event) {
  * in a table, a long value had a sliver of it.
  */
 function infoHtml(tile, image, url) {
-    const generation = tile.generation || {};
+    const generation = generationOf(tile, image);
     const meta = image.meta || {};
     const checkpoint = (generation.checkpoint_path || '').split(/[\\/]/).pop();
     const rows = [
@@ -1237,7 +1299,8 @@ async function deleteFromViewer() {
  */
 async function deleteTile(index) {
     const tile = tiles[index];
-    if (!tile || tile.kind === 'group') return;
+    // A task's tile has no Delete yet (#401): its runs are deleted once it is open.
+    if (!tile || tile.kind === 'group' || tile.kind === 'task') return;
     if (tile.matching_count <= 1 || tile.kind === 'image') {
         await deleteImage(index, tile.images[0]);
         return;
@@ -1296,7 +1359,7 @@ async function refreshTotals() {
     try {
         const data = await apiCall({ endpoint: '/model-manager/generations/browse', params: {
             page: 1, nsfw_images: nsfwMode, group: groupBy, in_group: at.in_group,
-            in_subgroup: at.in_subgroup, generation: at.generation, search, expand,
+            in_subgroup: at.in_subgroup, generation: at.generation, task: at.task, search, expand,
         } });
         if (data.success) {
             state = data.state;
