@@ -21,7 +21,10 @@ Then each name's row:
     Load to UI loaded, a name the task held - or the file it named, renamed
     by Forge since - keeps what it ran with there. A
     task deleted since holds nothing: each name takes its usual settings,
-    and the press says so (gone_task).
+    and the press says so (gone_task). With neither - a list ticked in
+    txt2img with Several checkpoints… - the checkpoint Forge has selected
+    runs with your settings, as an image's own runs as made, and each other
+    takes its usual settings.
 
 A refusal names what is wrong and saves nothing: Refused.
 """
@@ -43,7 +46,7 @@ def checkpoint_rows(db, names: List[str], source: Optional[Dict[str, Any]],
     Args:
         names: the checkpoints by Forge's name, in the order they run.
         source: where the list came from - {"image": <Send's usual source>}
-            or {"task": <task id>} - or none.
+            or {"task": <task id>} - or none: a list ticked in txt2img.
         selected: what Forge has selected now (forge_host.selected_models).
     """
     from ..send import family_pick
@@ -76,6 +79,10 @@ def checkpoint_rows(db, names: List[str], source: Optional[Dict[str, Any]],
             raise Refused(f"Could not read {os.path.basename(paths[name])}, so its family is not known.")
     selected_path = forge_host.checkpoint_file(selected.get("checkpoint") or "")
     selected_family = _family(db, picked_model, selected_path) if selected_path else None
+    # No image and no task behind the list: the selected checkpoint is the one
+    # your settings were set up for, and keeps them.
+    yours = (os.path.normcase(selected_path) if selected_path and not image and source.get("task") is None
+             else None)
 
     rows = []
     for name in names:
@@ -91,7 +98,9 @@ def checkpoint_rows(db, names: List[str], source: Optional[Dict[str, Any]],
             installed = forge_host.installed_modules()
             modules = [installed[label] for label in labels if label in installed]
         file_key = os.path.normcase(path) if path else None
-        if name in held:
+        if yours is not None and file_key == yours:
+            usual = None
+        elif name in held:
             usual = (held[name] or {}).get("usual")
         elif file_key in held_files:
             usual = (held_files[file_key] or {}).get("usual")

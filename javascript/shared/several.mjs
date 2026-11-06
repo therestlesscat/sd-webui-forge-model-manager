@@ -14,7 +14,9 @@
  *
  * Entered by `several.enter` - Load to UI of a task of several checkpoints,
  * or a Send with several ticked in the Resources dialog - with two names or
- * more, while the button was made at this start. The setting Queue a
+ * more, while the button was made at this start; or by Several
+ * checkpoints…, under Generate's box while the mode is off, which opens
+ * Change's window with Forge's loaded checkpoint ticked. The setting Queue a
  * generation with several checkpoints only starts the dialog's box. The strip's
  * Change opens your checkpoint list in a window of its own, ticked as the
  * mode holds it - the Resources dialog's list, its search and family tabs
@@ -50,6 +52,8 @@ export const STARTS = ['calls.mjs', 'ui_options.mjs', 'resources.mjs'];
 const BUTTON = 'txt2img_queue_several';
 const GO = 'txt2img_generate_several';
 const STRIP = 'mm_several_strip';
+// Several checkpoints…, under Generate's box while the mode is off.
+const ENTRY = 'mm_several_entry';
 // On the page's body while the mode holds a list: the stylesheet hides
 // Generate and shows the button by it.
 const MODE_CLASS = 'mm-several';
@@ -61,6 +65,7 @@ let list = null;            // { names, source, labels, listParams } while in th
 // Change's window while open: its element, how to close it, and the list it draws from.
 let changing = null;
 let keys = null;            // the last Ctrl+Enter: { at, queues }
+let running = false;        // started, and not stopped: the entry is drawn only then
 
 const byId = (id) => document.getElementById(id);
 
@@ -101,6 +106,28 @@ async function enter({ names, source = null, labels = null, listParams = null } 
     return true;
 }
 
+/**
+ * Several checkpoints…, under Generate's box while the mode is off and the
+ * button was made at this start: Change's window, outside the mode.
+ */
+function drawEntry(button, shown) {
+    let entry = byId(ENTRY);
+    if (!shown || !running || !button) {
+        entry?.remove();
+        return;
+    }
+    if (!entry) {
+        entry = document.createElement('div');
+        entry.id = ENTRY;
+        entry.className = 'mm-several-strip';
+        entry.innerHTML = '<button type="button" class="mm-btn mm-btn-small" data-action="several.change"'
+            + ' title="Tick several of your checkpoints, to queue one generation with each in turn.">'
+            + 'Several checkpoints…</button>';
+    }
+    const box = button.closest('#txt2img_generate_box') || button.parentElement;
+    if (box && entry.previousElementSibling !== box) box.after(entry);
+}
+
 /** Generate back, the strip gone, Change's window closed. */
 function leave() {
     list = null;
@@ -121,6 +148,7 @@ function draw() {
     const on = Boolean(list && button);
     if (document.body.classList.contains(MODE_CLASS) !== on) document.body.classList.toggle(MODE_CLASS, on);
     let strip = byId(STRIP);
+    drawEntry(button, !on);
     if (!on) {
         strip?.remove();
         return;
@@ -160,8 +188,10 @@ function draw() {
  * order they were ticked, and sends nothing.
  */
 async function openChange() {
-    if (!list || changing) return;
-    const holder = { pickList: { loading: true, search: '', tab: null }, ticked: [...list.names] };
+    if (changing) return;
+    // Outside the mode, Forge's loaded checkpoint ticked once the list says which.
+    const outside = !list;
+    const holder = { pickList: { loading: true, search: '', tab: null }, ticked: outside ? [] : [...list.names] };
     const element = document.createElement('dialog');
     element.className = 'mm-question mm-several-change';
     element.setAttribute('aria-labelledby', 'mm_several_change_title');
@@ -190,15 +220,17 @@ async function openChange() {
     let data = null;
     let error = '';
     try {
-        data = await apiCall({ endpoint: '/model-manager/send/checkpoints', params: list.listParams || {} });
+        data = await apiCall({ endpoint: '/model-manager/send/checkpoints', params: list?.listParams || {} });
         if (!data?.success) throw new Error(data?.error || 'the server did not answer');
     } catch (failure) {
         error = `Could not read your checkpoints: ${failure.message || failure}`;
     }
     if (changing?.holder !== holder) return;
+    if (outside && data?.loaded && !holder.ticked.length) holder.ticked = [data.loaded];
     holder.pickList = error ? { loading: false, error, search: '', tab: null }
         : { loading: false, error: '', data: withUnlisted(data, holder.ticked), search: '', tab: 'all' };
     element.querySelector('[data-pick-list="several"]')?.replaceWith(listElement(holder));
+    drawTicked();
 }
 
 /** The list drawn afresh, as an element. */
@@ -216,7 +248,10 @@ function drawTicked() {
     const use = changing.element.querySelector('[data-several-use]');
     if (!use) return;
     use.disabled = count < 2;
-    if (count < 2) use.title = 'Tick two checkpoints or more. To generate with one, press Leave and use Generate.';
+    if (count < 2) {
+        use.title = list ? 'Tick two checkpoints or more. To generate with one, press Leave and use Generate.'
+            : 'Tick two checkpoints or more. To generate with one, use Generate.';
+    }
     else use.removeAttribute('title');
 }
 
@@ -231,15 +266,18 @@ function tickInChange(name, input) {
     drawTicked();
 }
 
-/** Use these: the mode holds the ticks, named as the list names them; nothing is sent. */
+/** Use these: the mode holds the ticks, named as the list names them - entered, outside it; nothing is sent. */
 function useTicked() {
-    if (!changing || !list || changing.holder.ticked.length < 2) return;
+    if (!changing || changing.holder.ticked.length < 2) return;
     const rows = new Map(pickRows(changing.holder).map((row) => [row.name, row]));
-    const labels = { ...list.labels };
+    const labels = { ...list?.labels };
     for (const name of changing.holder.ticked) {
         if (rows.has(name) && !rows.get(name).unlisted) labels[name] = pickRowName(rows.get(name));
     }
-    list = { ...list, names: [...changing.holder.ticked], labels };
+    // Outside the mode, it is entered: no image or task behind the list, so
+    // the loaded checkpoint runs with your settings (scheduler/several.py).
+    list = list ? { ...list, names: [...changing.holder.ticked], labels }
+        : { names: [...changing.holder.ticked], source: null, labels, listParams: {} };
     changing.handle.close('use');
     draw();
 }
@@ -286,6 +324,7 @@ export function severalList() {
 }
 
 export function start(scope) {
+    running = true;
     scope.provide('several.enter', (args) => enter(args));
     scope.provide('several.leave', () => leave());
     scope.provide('several.change', () => openChange());
@@ -296,6 +335,7 @@ export function start(scope) {
     scope.afterUpdate(draw);
     // The Queue switched off: Generate back at once, Change's window closed.
     scope.onStop(() => {
+        running = false;
         list = null;
         changing?.handle.close('code');
         draw();

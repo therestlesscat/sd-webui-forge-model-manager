@@ -232,6 +232,39 @@ tick(QWEN, false);
 tick(DREAM, true);
 use()?.click();
 check('both let go, the list is what is ticked', severalList()?.names, [ANIME, DREAM]);
+
+// ------------------------------------- Several checkpoints…, outside the mode
+const entry = () => byId('mm_several_entry');
+check('in the mode: no Several checkpoints…, the strip in its place', [entry(), Boolean(strip())], [null, true]);
+if (strip()) act('several.leave');
+check('out of the mode: Several checkpoints… right under Generate\'s box, the strip gone',
+      [strip(), entry()?.previousElementSibling?.id, entry()?.querySelector('button')?.textContent],
+      [null, 'txt2img_generate_box', 'Several checkpoints…']);
+const entryAsks = listAsks();
+const entryLoads = loaderAsks.length;
+const entryPlans = asked.filter((h) => h.includes('/send/plan')).length;
+// Pressed only where drawn: a break that never draws it fails the checks after, not the suite.
+if (entry()) act('several.change');
+await waitFor('the list in the window', () => inputs().length);
+check('it opens Change\'s window, the list asked once, Forge\'s loaded checkpoint ticked, Use these waiting for a second',
+      [Boolean(win()?.open), listAsks() - entryAsks, ticked(), tickedText(), use()?.disabled, use()?.title],
+      [true, 1, [PHOTO], '1 ticked', true, 'Tick two checkpoints or more. To generate with one, use Generate.']);
+tick(ANIME, true);
+use()?.click();
+check('Use these enters the mode with them, in the order ticked, no image or task behind them',
+      [severalList(), JSON.parse(strip()?.dataset.checkpoints || 'null'), entry()],
+      [{ names: [PHOTO, ANIME], source: null }, { names: [PHOTO, ANIME], source: null }, null]);
+check('and sends nothing: no plan asked, no loader pressed, the prompt as it was',
+      [asked.filter((h) => h.includes('/send/plan')).length - entryPlans, loaderAsks.length - entryLoads,
+       document.querySelector('#txt2img_prompt textarea').value], [0, 0, 'a red apple']);
+if (strip()) act('several.leave');
+if (entry()) act('several.change');
+await waitFor('the list in the window', () => inputs().length);
+tick(DREAM, true);
+win()?.querySelector('[data-several-cancel]')?.click();
+check('Cancel outside the mode changes nothing: no mode, Several checkpoints… still there',
+      [Boolean(win()), severalList(), Boolean(entry())], [false, null, true]);
+
 await loadTask(30);
 if (strip()) act('several.change');
 await waitFor('the list in the window', () => inputs().length);
@@ -240,5 +273,6 @@ window.dispatchEvent(new window.CustomEvent('mm-settings-saved', {
 await waitFor('the window to close', () => !win());
 check('the Queue switched off with the window open: the window closed, the mode ended', [win(), severalList()],
       [null, null]);
+check('and Several checkpoints… is not drawn again: the mode\'s service has stopped', entry(), null);
 
 done();

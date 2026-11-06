@@ -119,6 +119,25 @@ check('a name picked twice is one row',
       [r['checkpoint'] for r in several.checkpoint_rows(db, ['photo.safetensors', 'photo.safetensors'], None, SELECTED)],
       ['photo.safetensors'])
 
+# ------------------------------- a list ticked in txt2img: no image, no task
+# Several checkpoints…: the checkpoint Forge has selected is the one your
+# settings were set up for, and keeps them; each other takes its usual settings.
+for source in (None, {}):
+    asked.clear()
+    rows = several.checkpoint_rows(db, ['photo.safetensors', 'anime.safetensors', 'flux.safetensors'], source, SELECTED)
+    check(f'source {source!r}: the checkpoint Forge has selected keeps your settings, wherever it is in the list',
+          rows[1]['settings'], None)
+    check(f'source {source!r}: each other takes its usual settings, asked with no image',
+          ([r['settings'].get('usual') for r in (rows[0], rows[2])],
+           [(a.get('image_id'), a.get('use_checkpoint')) for a in asked]),
+          ([USUAL['photo.safetensors'], USUAL['flux.safetensors']],
+           [(None, 'photo.safetensors'), (None, 'flux.safetensors')]))
+# From an image, the selected one is like any other: only the image's own runs as made.
+OTHER_IMAGE = {'kind': 'image', 'image_id': 8, 'image_model': 'photo.safetensors'}
+rows = several.checkpoint_rows(db, ['anime.safetensors', 'photo.safetensors'], {'image': OTHER_IMAGE}, SELECTED)
+check('from an image, the checkpoint Forge has selected takes its usual settings; the image\'s own runs as made',
+      [rows[0]['settings'], rows[1]['settings']], [{'usual': USUAL['anime.safetensors']}, None])
+
 # ------------------------------------------------------------ refusals
 check('no name is refused', refused([]), 'No checkpoint to queue for.')
 check('a name Forge does not list is refused, naming it', refused(['photo.safetensors', 'gone.safetensors']),
