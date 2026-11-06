@@ -6263,10 +6263,23 @@ body.mm-several #txt2img_queue {
     overflow-wrap: anywhere;
 }
 
-/* Change's window: the Resources dialog's list of your checkpoints, ticked,
-   as wide as the review windows, and how many are ticked left of its buttons. */
+/* Change's window: the Resources dialog's list of your checkpoints, ticked, as wide as the
+   Resources dialog - 80% of the window less its 20 px margins, at most 1,200 px - and how many
+   are ticked left of its buttons. At 720 px the same list was a narrower one. */
 .mm-question.mm-several-change {
-    width: min(calc(100% - 40px), 720px);
+    width: min(calc((100% - 40px) * 0.8), 1200px);
+}
+
+/* Its box that wide with its padding and border, as the Resources dialog's is: a question's box
+   is its window's width and its 42 px of padding and border more. */
+.mm-several-change .mm-question-box {
+    box-sizing: border-box;
+}
+
+/* Its rows half the screen's height, where the Resources dialog's are 300 px: the window holds
+   the list alone, so it takes the room - 540 px at a 1,080 px screen. */
+.mm-several-change .mm-pick-rows {
+    height: 50vh;
 }
 
 .mm-several-ticked {
