@@ -536,11 +536,9 @@ function setSeveral(line, on) {
         line.ticked = line.chosen ? [line.chosen] : [];
         // The first tick is Send's, the rest a queued run's.
         line.loads = 'Send or a queued run';
-        line.rowNote = (row) => runsNote(line, row);
     } else {
         delete line.ticked;
         delete line.loads;
-        delete line.rowNote;
     }
 }
 
@@ -930,10 +928,10 @@ function pickRowHtml(holder, name, row, family) {
                                         : 'Forge could not tell what model this is'] : []),
                  ...(row.model ? [`<span class="mm-pick-file">${escapeHtml(row.file)}</span>`] : [])]
         .join(' · ');
-    // Several picks (#400): a tick box each, and what could not load it is a queued run, not Send;
-    // the holder may say how each ticked one runs.
+    // Several picks (#400): a tick box each, and what could not load it is a queued run, not Send.
+    // How each ticked one runs is the usual-settings block's to say: a third line on its row
+    // moved the rows under the pointer at every tick.
     const ticks = Array.isArray(holder.ticked);
-    const runs = holder.rowNote?.(row) || '';
     const on = ticks ? holder.ticked.includes(row.name) : holder.chosen === row.name;
     const loads = holder.loads || (ticks ? 'a queued run' : 'Send');
     const title = can ? row.name
@@ -949,7 +947,7 @@ function pickRowHtml(holder, name, row, family) {
         + `<span class="mm-pick-name">${escapeHtml(row.model || row.file)}${
             row.model && row.version ? ` <span class="mm-pick-ver">${escapeHtml(row.version)}</span>` : ''}</span>`
         + `<span class="mm-pick-base">${escapeHtml(row.base_model || '')}</span>`
-        + `<span class="mm-pick-sub">${sub}</span>${runs ? `<span class="mm-pick-runs">${escapeHtml(runs)}</span>` : ''}</label>`;
+        + `<span class="mm-pick-sub">${sub}</span></label>`;
 }
 
 /** The model the image's checkpoint is of, as the dialog has learnt it - its row's, or Civitai's answer. */
@@ -1107,6 +1105,8 @@ function severalUsualHtml(line) {
                 .filter((r) => r.value !== null && r.value !== undefined && !r.thin && !r.missing)
                 .map((r) => `${USUAL_NAMES[r.key] || r.key} ${shownValue(r.value)}`).join(' · ');
         }
+        // A file no sync has read: its family, which decides its VAE and text encoders, is read then.
+        if (row && !row.read) what += ' Its family is read when you queue.';
         return `<div class="mm-usual-each"><span class="mm-usual-each-name">${escapeHtml(row ? pickRowName(row) : name)}</span>`
             + `<span class="mm-usual-each-what">${escapeHtml(what)}</span></div>`;
     }).join('');
@@ -1247,24 +1247,6 @@ function listNames(names) {
 }
 
 /**
- * How a ticked checkpoint runs, said on its row once two or more are ticked
- * (#400): as made - the image's own, or the same file - with its usual
- * settings, or with yours where it has none; and, for a file no sync has
- * read, that its family is read when the task is queued.
- */
-function runsNote(line, row) {
-    if (!(line.ticked?.length > 1) || !line.ticked.includes(row.name)) return '';
-    const unread = row.read ? '' : ' Its family is read when you queue.';
-    if ((row.why || []).some((why) => AS_MADE.includes(why))) return `Runs as made, with the image's settings.${unread}`;
-    const answer = line.usualAnswers.get(row.name);
-    if (!answer || answer.loading) return `Reading its usual settings…${unread}`;
-    if (answer.error) return `Runs with your settings: its usual settings could not be read.${unread}`;
-    if (!answer.applies) return `Runs as made, with the image's settings.${unread}`;
-    if (usualApplies(answer)) return `Runs with its usual settings.${unread}`;
-    return `Runs with your settings: too few uses record its own.${unread}`;
-}
-
-/**
  * The line under the list: with ticks of more than one family, what stays as you set it for those of
  * another family than the first, which Send loads - usual settings record
  * none of it.
@@ -1286,27 +1268,11 @@ function pickNoteHtml(line) {
     return text ? `<div class="mm-pick-note" data-pick-note>${escapeHtml(text)}</div>` : '';
 }
 
-/** What each ticked row says, and the line under the list, drawn again in place: the rows keep their scroll. */
+/** The line under the list, drawn again in place: the rows keep their scroll. */
 function redrawSeveral() {
     const line = resourcesSend;
     const modal = document.querySelector('.mm-resources-modal');
     if (!line || !modal) return;
-    const rows = new Map(pickRows(line).map((row) => [row.name, row]));
-    modal.querySelectorAll('[data-pick-list="dialog"] .mm-pick-row').forEach((element) => {
-        const row = rows.get(element.querySelector('input')?.value);
-        const text = row ? runsNote(line, row) : '';
-        let note = element.querySelector('.mm-pick-runs');
-        if (!text) {
-            note?.remove();
-            return;
-        }
-        if (!note) {
-            note = document.createElement('span');
-            note.className = 'mm-pick-runs';
-            element.append(note);
-        }
-        if (note.textContent !== text) note.textContent = text;
-    });
     const under = modal.querySelector('[data-pick-note]');
     const text = pickNote(line);
     if (!text) under?.remove();

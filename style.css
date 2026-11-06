@@ -2750,15 +2750,7 @@ body.mm-modal-open {
     color: var(--body-text-color-subdued, #9ca3af);
 }
 
-/* How a ticked row runs, a third line under its file; and the line under the
-   list - what to do where several cannot be ticked, or what stays yours for
-   another family - in the list's column. */
-.mm-pick-runs {
-    grid-column: 2 / -1;
-    font-size: 0.8em;
-    font-weight: 600;
-}
-
+/* The line under the list - what stays yours for another family - in the list's column. */
 .mm-pick-note {
     margin-top: 6px;
     font-size: 0.85em;

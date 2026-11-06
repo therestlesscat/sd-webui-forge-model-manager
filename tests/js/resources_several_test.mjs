@@ -92,7 +92,16 @@ const status = () => modal()?.querySelector('.mm-res-send-status')?.textContent 
 const sendButton = () => modal()?.querySelector('[data-action="resources.sendAgain"]');
 const usualTick = () => block()?.querySelector('[data-action="resources.usualTick"]');
 const rowOf = (name) => [...(modal()?.querySelectorAll('.mm-pick-row') || [])].find((r) => r.querySelector('input')?.value === name);
-const runs = (name) => rowOf(name)?.querySelector('.mm-pick-runs')?.textContent || '';
+// What the usual-settings block says a ticked checkpoint runs with, found by the name its row shows.
+const runs = (name) => {
+    const label = rowOf(name)?.querySelector('.mm-pick-name')?.textContent.replace(/\s+/g, ' ').trim();
+    const entry = [...(block()?.querySelectorAll('.mm-usual-each') || [])]
+        .find((e) => e.querySelector('.mm-usual-each-name')?.textContent === label);
+    return entry?.querySelector('.mm-usual-each-what')?.textContent || '';
+};
+const answered = (name) => Boolean(runs(name)) && !runs(name).startsWith('Reading');
+// A row's lines: its box, its name, its base model, its second line - none added at a tick.
+const rowParts = (name) => rowOf(name)?.children.length;
 const note = () => modal()?.querySelector('.mm-pick-note')?.textContent || '';
 // Select several, beside Choose the checkpoint to send with: its box, and what it says.
 const several = () => modal()?.querySelector('[data-action="resources.severalTick"]');
@@ -151,23 +160,23 @@ check('none ticked: Send off, saying to tick one', [status(), sendButton()?.disa
 tick(MIX.name);
 await waitFor('its usual settings', () => usualTick());
 check('one ticked works as one pick: its usual settings, their tick, its Send line, no note on its row',
-      [usualTick()?.checked, status(), runs(MIX.name), sendButton()?.disabled],
-      [true, 'Sends with Anime Mix v12. It will not come out exactly as made. With its usual settings.', '', false]);
+      [usualTick()?.checked, status(), runs(MIX.name), rowParts(MIX.name), sendButton()?.disabled],
+      [true, 'Sends with Anime Mix v12. It will not come out exactly as made. With its usual settings.', '', 4, false]);
 usualTick().checked = false;
 press(usualTick());
 tick(REAL.name);
-await waitFor('its answer', () => runs(REAL.name).startsWith('Runs'));
+await waitFor('its answer', () => answered(REAL.name));
 tick(REAL.name, false);
 check('its usual tick, unticked, stays so while other rows are ticked and unticked',
       [usualTick()?.checked, status()], [false, 'Sends with Anime Mix v12. It will not come out exactly as made.']);
 
 // ------------------------------------------------------- two and more
 tick(REAL.name);
-await waitFor('the notes', () => runs(REAL.name).startsWith('Runs'));
+await waitFor('the block\'s entries', () => answered(REAL.name));
 check('two ticked: the Send line sends with the first, then says Generate or Queue for 2 checkpoints queues them all',
       status(), 'Sends with Anime Mix v12, then Generate or Queue for 2 checkpoints in txt2img queues them all.');
-check('each ticked row says it runs with its usual settings',
-      [runs(MIX.name), runs(REAL.name)], ['Runs with its usual settings.', 'Runs with its usual settings.']);
+check('no ticked row takes a line more: how each runs is the block\'s to say', [rowParts(MIX.name), rowParts(REAL.name)],
+      [4, 4]);
 check('the block lists what each runs with, with no tick; Hires fix following each run',
       [Boolean(usualTick()), block()?.querySelector('.mm-usual-head')?.textContent,
        [...block().querySelectorAll('.mm-usual-each')].map((e) => [e.querySelector('.mm-usual-each-name')?.textContent,
@@ -178,7 +187,7 @@ check('the block lists what each runs with, with no tick; Hires fix following ea
        'A setting too few uses record, or one this WebUI lacks, stays as you set it. Hires fix follows each run\'s '
        + 'sampler, schedule type, CFG, and Distilled CFG or Shift.']);
 for (const name of [OWN.name, LEAN.name, UNREAD.name]) tick(name);
-await waitFor('their answers', () => runs(LEAN.name).startsWith('Runs') && runs(UNREAD.name).startsWith('Runs'));
+await waitFor('their answers', () => answered(LEAN.name) && answered(UNREAD.name));
 check('the image\'s own runs as made; one with too few uses, with yours; a file no sync read says its family is read then',
       [runs(OWN.name), runs(LEAN.name), runs(UNREAD.name)],
       ['Runs as made, with the image\'s settings.', 'Runs with your settings: too few uses record its own.',
@@ -186,10 +195,11 @@ check('the image\'s own runs as made; one with too few uses, with yours; a file 
 check('and the block says each the same way, in whole sentences',
       [...block().querySelectorAll('.mm-usual-each-what')].slice(2).map((e) => e.textContent),
       ['Runs as made, with the image\'s settings.', 'Runs with your settings: too few uses record its own.',
-       'Runs with your settings: too few uses record its own.']);
+       'Runs with your settings: too few uses record its own. Its family is read when you queue.']);
+check('and still no ticked row takes a line more', [OWN.name, LEAN.name, UNREAD.name].map(rowParts), [4, 4, 4]);
 check('all of one family, or not known: nothing under the list', note(), '');
 tick(FLUX.name);
-await waitFor('its answer', () => runs(FLUX.name).startsWith('Runs'));
+await waitFor('its answer', () => answered(FLUX.name));
 check('a checkpoint of another family than the first: the line under the list says what stays yours for it',
       note(), 'The size, the prompt and its LoRAs, ADetailer, ControlNet and Diffusion in Low Bits stay as you set them '
               + 'for Flux Dev fp8, of another family than Anime Mix v12.');
@@ -301,9 +311,9 @@ check('ticked: tick boxes, the one picked ticked, the Send line saying to tick',
       [kinds(), ticked(), severalSays()?.slice(0, 2), status()],
       [['checkbox'], [REAL.name], [true, false], 'Sends with Real v2. It will not come out exactly as made.']);
 tick(MIX.name);
-await waitFor('their notes', () => runs(MIX.name).startsWith('Runs'));
-check('two ticked: each says how it runs, the Send line queues both', [runs(REAL.name), status()],
-      ['Runs with its usual settings.', 'Sends with Real v2, then Generate or Queue for 2 checkpoints in txt2img queues them all.']);
+await waitFor('the block\'s entries', () => answered(MIX.name));
+check('two ticked: the block says how each runs, the Send line queues both', [runs(REAL.name), status()],
+      ['Steps 25 · CFG scale 4', 'Sends with Real v2, then Generate or Queue for 2 checkpoints in txt2img queues them all.']);
 pressSeveral(false);
 check('unticked: round buttons, the first ticked the one picked, no row notes, one sent',
       [kinds(), modal()?.querySelector('.mm-pick-row input:checked')?.value, runs(REAL.name), runs(MIX.name), status()],
