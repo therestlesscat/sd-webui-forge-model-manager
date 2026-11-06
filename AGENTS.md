@@ -277,7 +277,12 @@ the code (2026-10-16).
 - **A log line is not a version.** "4534 of 4496" was read as 7870 still
   running the code before a fix; the new code printed it too - a second
   bug - and the owner had restarted (#229). Before saying what code a WebUI
-  runs, check that the new code cannot print what it shows.
+  runs, check that the new code cannot print what it shows. Nor is memory a
+  version: the rc test plan said 7870's Python was last restarted at 0.76.4,
+  and its listening process had started at 12:06:58, after 0.76.14 - no
+  restart needed. Read it: PowerShell's `Get-NetTCPConnection -LocalPort
+  <port> -State Listen` and that process's `StartTime`, against the commits'
+  times.
 - **Never guess at an import or a function name.** Read the module. A name
   that looks obvious is how `get_max_nsfw_level` returned `UNKNOWN` without
   importing it. The console's trace helper was first named `failed` - the
@@ -628,7 +633,14 @@ And a change inside Forge's own markup is measured on the running test WebUI,
 not on copied markup: #400's Queue for N checkpoints passed every suite and a
 review, and live on 7880 stood below Queue (y 228 against 140 after the fix) -
 it is made after Queue in Forge's flex box, and only Generate was hidden.
-`order: -1` fixed it (0.76.2).
+`order: -1` fixed it (0.76.2). And a control that switches a layout while it
+is open is measured switching, both ways, not each state on its own: 0.76.5
+kept two lines of room under the Resources dialog's list while its rows were
+tick boxes, measured with the dialog opened in each mode; 0.76.7's Select
+several then switched them in an open dialog, each tick added 44 px to the
+foot (494 against 450), the dialog grew and shrank, and on a window it had
+just fitted the foot took a scrollbar. The owner saw it; 0.76.13 moved the
+note into the usual settings block.
 
 ## Conventions
 

@@ -476,7 +476,12 @@ LoRAs from); anything that shows one says whose it is (a whole path).
   Forge's name for the file now, and the press finds the task's row by its
   file (`scheduler/several.py`); handed the new name alone, the press looked
   the task up by the old one and gave the checkpoint its usual settings - a
-  side agent caught it before the commit.
+  side agent caught it before the commit. And Neo fills
+  `sd_models.checkpoints_list` from a set of the files it found
+  (`list_models`, its `modules/sd_models.py` line 133), so the order changes
+  at every start; the original Forge keeps its loader's order. A list the
+  extension shows sorts itself: the Resources dialog's checkpoint list showed
+  Forge's order until 0.76.12.
 - **"Leave as is" is not nothing in Gradio 4.** For each output an event
   answers with `gr.update()`, Gradio swaps into the session a copy of that
   component, rebuilt from its constructor arguments. In Neo a ForgeCanvas
