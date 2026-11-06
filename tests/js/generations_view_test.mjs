@@ -708,12 +708,42 @@ const runTile = (r) => ({ kind: 'generation', generation: r.generation, matching
                           ...(r.checkpoint ? {} : { checkpoint_name: 'lacking_ck' }),
                           loras: [], level: 1, user_level: null });
 const taskState = { total: 5, filtered: 5, hidden_nsfw: 0, nsfw_count: 0, nsfw_images: 'safe', stored_generations: 4 };
+// The top level as the server answers it: the task's runs one tile while they
+// are of two checkpoints or more, else each run a batch of its own.
+const topTiles = () => {
+    const left = runs.filter((r) => r.images.length);
+    const named = new Set(left.map((r) => r.checkpoint?.name || 'lacking_ck'));
+    if (named.size < 2) return [...left.map(runTile), batchTile];
+    const images = left.flatMap((r) => r.images);
+    return [{ ...taskTile, task: { ...taskTile.task, generations: left.map((r) => r.generation.id), images: images.length },
+              generation: left[0].generation, matching_count: images.length, images: images.slice(0, 4) }, batchTile];
+};
+// As JSON comes off the wire: a copy, never the stand-in's own objects.
+const answer = (body) => ({ ok: true, json: async () => structuredClone(body) });
 const planAsked = [];
 const answerBefore = globalThis.fetch;
 globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
     const params = new URL(href, 'http://webui').searchParams;
     if (href.includes('/model-manager/send/plan')) planAsked.push(params);
+    if (href.includes('/generations/rate')) {
+        const form = Object.fromEntries(new URLSearchParams(String(init.body)));
+        rated.push(form);
+        if (form.image_id) {
+            // Rated X with NSFW hidden: the server's level no longer shows it.
+            const id = Number(form.image_id);
+            const image = runs.flatMap((r) => r.images).find((i) => i.id === id);
+            runs.forEach((r) => { r.images = r.images.filter((i) => i.id !== id); });
+            return answer({ success: true, rated: 1, image: { ...image, mm_level: 8, user_level: 8 }, visible: false });
+        }
+        // A run inside the task, as rated_batch answers: its tile, the level's totals, the task's header.
+        const ran = runs.find((r) => r.generation.id === Number(form.generation));
+        const inTask = form.task === '9';
+        return answer({ success: true, rated: ran.images.length, tile: { ...runTile(ran), user_level: 4 }, state: taskState,
+                        scope: inTask ? { count: 4, task: { id: 9, checkpoints: 3 } } : { count: 5 } });
+    }
+    const deleted = href.match(/\/generations\/images\/(\d+)\/delete/);
+    if (deleted) runs.forEach((r) => { r.images = r.images.filter((i) => i.id !== Number(deleted[1])); });
     if (!href.includes('/generations/browse')) return answerBefore(url, init);
     asked.push(params);
     const inTask = params.get('task') === '9';
@@ -722,10 +752,10 @@ globalThis.fetch = async (url, init = {}) => {
     const tiles = run51 ? run51.images.map((i) => ({ kind: 'image', generation: run51.generation, matching_count: 1,
                                                      images: [i], checkpoint: run51.checkpoint, loras: [], level: 1,
                                                      user_level: null }))
-        : inTask ? runs.map(runTile) : [taskTile, batchTile];
-    return { ok: true, json: async () => ({
-        success: true, tiles, more: false, state: taskState,
-        scope: { count: inTask ? 4 : 5, first: '2026-09-28T20:00:00', last: '2026-09-30T12:00:30' } }) };
+        : inTask ? runs.map(runTile) : topTiles();
+    return answer({ success: true, tiles, more: false, state: taskState,
+                    scope: { count: inTask ? 4 : 5, first: '2026-09-28T20:00:00', last: '2026-09-30T12:00:30',
+                             ...(inTask ? { task: { id: 9, checkpoints: 3 } } : {}) } });
 };
 await act('generations.refresh');
 await waitFor('the task tile', () => tileEls().length === 2);
@@ -783,6 +813,51 @@ check('a run opened from the task: its images, unnamed, asked for inside the tas
 await call('generations.back');
 await call('generations.back');
 check('Back: the task tile again', [tileEls()[0]?.dataset.task, lastAsked().get('task')], ['9', '9']);
+
+// A run rated inside the task's level names the task, and is drawn from the
+// server's answer: its tile, still named, and the task's header.
+await call('generations.open', { tile: 0 });
+await waitFor('the runs again', () => tileEls().length === 3 && lastAsked().get('task') === '9');
+tick('generations.rating', true);
+await act('generations.rate', { tile: 1, level: 4 });
+check('a run\'s rating inside the task names the run and the task; its tile drawn again, named; the header the task\'s',
+      [rated.at(-1)?.generation, rated.at(-1)?.task, tileEls()[1]?.querySelector('.gen-group-name')?.textContent,
+       pathText().includes('4 images')], ['51', '9', 'ck_b', true]);
+tick('generations.rating', false);
+await call('generations.back');
+
+// The viewer on a task tile: an image taken off it - rated X with NSFW
+// hidden, or deleted - and the level is asked again (tasks=1, which the
+// totals' request never sends), where it was; the viewer then shows the image
+// now in the taken one's place.
+const reloadsSince = (from) => asked.slice(from).filter((p) => p.get('tasks') === '1').length;
+// The reload brings the totals: no request for them alone, which kept the
+// viewer on the image taken off until it came.
+const totalsSince = (from) => asked.slice(from).filter((p) => p.get('tasks') !== '1').length;
+await waitFor('the task tile at the top', () => tileEls()[0]?.dataset.task === '9');
+await call('generations.view', { tile: 0, image: 0 });
+let askedBefore = asked.length;
+await call('generations.rateInViewer', { level: 8 });
+await waitFor('the image after it', () => shownId() === '511');
+check('a rating that hides a task tile\'s image: the level asked again, the viewer on the image now in its place',
+      [rated.at(-1)?.image_id, reloadsSince(askedBefore) > 0, totalsSince(askedBefore), shownId(),
+       viewer()?.querySelector('.mm-viewer-where')?.textContent], ['521', true, 0, '511', '1 of 3 in this task']);
+key('Escape');
+// Deleting the one run of the checkpoint the library lacks leaves one
+// checkpoint's runs: the task tile is that run's batch now, and the viewer
+// goes on to the image in the deleted one's place - the next tile's.
+await call('generations.view', { tile: 0, image: 2 });
+askedBefore = asked.length;
+const taskDelete = (async () => { click(viewer().querySelector('[data-gen-delete]')); })();
+await waitFor('the question', () => dialog());
+click(dialog().querySelector('[data-value="true"]'));
+await taskDelete;
+await waitFor('the image after it', () => shownId() === String(batchTile.images[0].id));
+check('a viewer Delete leaving one checkpoint\'s runs: the level asked again, the task tile now its batch, the viewer on',
+      [posted.at(-1)?.[0], reloadsSince(askedBefore) > 0, totalsSince(askedBefore),
+       tileEls()[0]?.classList.contains('gen-task'), tileEls()[0]?.dataset.generation, shownId()],
+      ['/generations/images/501/delete', true, 0, false, '51', String(batchTile.images[0].id)]);
+key('Escape');
 globalThis.fetch = answerBefore;
 
 done();

@@ -19,6 +19,8 @@ const tile = (generation, kind = 'generation') => ({
     images: [image(generation * 10, generation), image(generation * 10 + 1, generation)], matching_count: 2,
     ...(kind === 'group' ? { group: { id: `g${generation}`, value: `group ${generation}`, by: 'prompt', generations: 1 } } : {}),
 });
+const taskTile = (id) => ({ ...tile(201), kind: 'task', task: { id, checkpoints: 2, generations: [202, 201], images: 4 },
+                             images: [image(2021, 202), image(2011, 201)] });
 const browsed = [];
 const rated = [];
 globalThis.fetch = async (url, init = {}) => {
@@ -35,7 +37,14 @@ globalThis.fetch = async (url, init = {}) => {
         const params = Object.fromEntries(new URL(href).searchParams);
         browsed.push(params);
         const search = params.search || '';
-        const tiles = search === 'nothing here' ? [] : params.in_group ? [tile(3)]
+        // task:20 is a task of several checkpoints (#401): one tile at its top,
+        // its runs when opened - with Expand on, images; task:21's images all hidden.
+        const tiles = search === 'nothing here' || search === 'task:21' ? []
+            : search === 'task:20' && params.task === '20' ? [tile(201), tile(202)]
+            : search === 'task:20' && params.expand === 'true'
+                ? [{ ...tile(201), kind: 'image', matching_count: 1, images: [image(2011, 201)] }]
+            : search === 'task:20' ? [taskTile(20)]
+            : params.in_group ? [tile(3)]
             : search ? [tile(2)] : params.group ? [tile(1, 'group')] : [tile(1), tile(2)];
         return reply({ success: true, tiles, more: false, scope: { count: tiles.length * 2 },
                        state: { total: tiles.length * 2, filtered: tiles.length * 2, hidden_nsfw: 0, nsfw_count: 0 } });
@@ -107,19 +116,29 @@ await openTab('generations', 'showTask', 19);
 await waitFor('asked again', () => browsed.length);
 check('asked again for the same task, it is drawn again', browsed[0]?.search, 'task:19');
 
-// A task of several checkpoints (#400): grouped by Model, a group per
-// checkpoint, for this visit - the grouping remembered stays.
+// A task of several checkpoints (#401): searched by the task, ungrouped, and
+// its tile - where the search shows one - opened onto its runs; Back shows it.
 browsed.length = 0;
-await openTab('generations', 'showTask', 20, 'model');
-await waitFor('the task asked, grouped', () => browsed.length);
-check('Show images on a task of several searches by the task, grouped by Model',
-      [box.value, browsed[0]?.search, browsed[0]?.group, document.getElementById('gen_group_by').textContent],
-      ['task:20', 'task:20', 'model', 'Model']);
+await openTab('generations', 'showTask', 20);
+await waitFor('the task opened', () => browsed.some((b) => b.task === '20'));
+check('Show images on a task of several: searched by the task, ungrouped, then its tile opened onto its runs',
+      [box.value, browsed[0]?.search, browsed[0]?.group ?? '', browsed.at(-1)?.task,
+       document.querySelectorAll('#gen_grid .gen-tile').length], ['task:20', 'task:20', '', '20', 2]);
 check('the grouping chosen before is still the one remembered, here too',
       window.localStorage.getItem('mm_generations_group_by'), 'prompt');
+await call('generations.back');
+check('Back: the task\'s one tile', [...document.querySelectorAll('#gen_grid .gen-tile')].map((t) => t.dataset.task),
+      ['20']);
+// No task tile to open: every image hidden, or Expand on - the tab stays on what it found.
 browsed.length = 0;
-await openTab('generations', 'showTask', 20, 'anything else');
-await waitFor('asked once more', () => browsed.length);
-check('a grouping it does not know is no grouping', browsed[0]?.group ?? '', '');
+await openTab('generations', 'showTask', 21);
+await waitFor('the hidden task asked', () => browsed.length);
+check('every image hidden: the search alone, nothing opened', browsed.map((b) => b.task ?? ''), ['']);
+tick('generations.expand', true);
+browsed.length = 0;
+await openTab('generations', 'showTask', 20);
+await waitFor('the task asked, expanded', () => browsed.length);
+check('Expand on: its images, nothing opened', [browsed.map((b) => b.task ?? ''), browsed[0]?.expand], [[''], 'true']);
+tick('generations.expand', false);
 
 done();

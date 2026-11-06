@@ -727,7 +727,8 @@ async function rateTile(index, value) {
         return;
     }
     const level = tile.user_level === value ? '' : value;
-    const batch = { group: groupBy, in_group: at.in_group, in_subgroup: at.in_subgroup,
+    // Inside a task (#401), its level: the header's totals are the task's.
+    const batch = { group: groupBy, in_group: at.in_group, in_subgroup: at.in_subgroup, task: at.task,
                     generation: tile.generation.id, search };
     const answer = await postRating({ ...batch, level });
     if (!answer) return;
@@ -762,8 +763,11 @@ async function rateImage(index, image, value) {
     Object.assign(image, answer.image);
     markAboveChanged();
     if (!answer.visible) {
-        hideImage(index, image.id);
-        await refreshTotals();
+        // A task's tile is asked again whole (#401), its totals with it: the
+        // viewer shows the image now in its place as soon as it has come.
+        const reloading = hideImage(index, image.id);
+        if (reloading) await reloading;
+        else await refreshTotals();
         return false;
     }
     const tile = tiles[index];
@@ -775,10 +779,22 @@ async function rateImage(index, image, value) {
     return true;
 }
 
+/**
+ * An image taken off a task's tile (#401): the page cannot tell from four
+ * previews what the tile still holds - one checkpoint's runs are a batch - so
+ * the level is asked again, where it was; the viewer, open on it, waits for
+ * that and shows the image now in its place, as after a batch's Delete.
+ */
+function leftTask(tile) {
+    return tile?.kind === 'task' ? reloadKeepingPlace() : null;
+}
+
 /** An image the NSFW switch now hides: off its tile, and the tile with its last. */
 function hideImage(index, imageId) {
     const tile = tiles[index];
-    if (!tile) return;
+    if (!tile) return undefined;
+    const reloading = leftTask(tile);
+    if (reloading) return reloading;
     tile.images = tile.images.filter((img) => img.id !== imageId);
     tile.matching_count = Math.max(0, (tile.matching_count || 1) - 1);
     if (tile.matching_count > 0 && tile.images.length) redrawTile(index);
@@ -1321,16 +1337,20 @@ async function deleteImage(index, image) {
     const answer = await askToDelete('Delete this image?', 1);
     if (!answer) return false;
     if (!await postDelete(requestImageDelete(image.id, answer.withFiles, setStatus))) return false;
-    forgetImage(index, image.id);
+    const reloading = forgetImage(index, image.id);
     markAboveChanged();
-    await refreshTotals();
+    // A task's tile is asked again whole (#401), its totals with it.
+    if (reloading) await reloading;
+    else await refreshTotals();
     return true;
 }
 
 /** Take a deleted image off the grid: off its tile, and the tile with its last. */
 function forgetImage(index, imageId) {
     const tile = tiles[index];
-    if (!tile) return;
+    if (!tile) return undefined;
+    const reloading = leftTask(tile);
+    if (reloading) return reloading;
     tile.images = tile.images.filter((img) => img.id !== imageId);
     tile.matching_count = Math.max(0, (tile.matching_count || 1) - 1);
     if (tile.generation?.image_count) tile.generation.image_count -= 1;
@@ -1420,12 +1440,17 @@ function setSearch(value) {
 
 /**
  * A task's images, asked for by the Queue's Show images: this tab, searched
- * by the task, with Group by at Nothing for this visit - at Model for a task
- * of several checkpoints, a group per checkpoint (#400) - the grouping chosen
- * before is still the one remembered.
+ * by the task, with Group by at Nothing for this visit - the grouping chosen
+ * before is still the one remembered. A task of several checkpoints whose
+ * search shows its tile (#401) is opened onto its runs, each named by its
+ * checkpoint; with no such tile - a task of one checkpoint, its runs but one
+ * failed, every image hidden, Expand on - the tab stays on what it found.
  */
-async function showTask(taskId, group = '') {
-    return showSearch(`task:${Number(taskId)}`, group === 'model' ? 'model' : '');
+async function showTask(taskId) {
+    const id = Number(taskId);
+    await showSearch(`task:${id}`);
+    const index = tiles.findIndex((tile) => tile.kind === 'task' && Number(tile.task?.id) === id);
+    if (index >= 0) await openTile(index);
 }
 
 /**

@@ -404,8 +404,7 @@ function runNextHtml(task, classes) {
 function showImagesHtml(task, classes = 'mm-btn secondary mm-btn-small') {
     const n = Number(task.image_count) || 0;
     const title = `Open the Generations tab on the ${n} image${n === 1 ? '' : 's'} this task made`;
-    const byModel = hasSeveral(task) ? ' data-several="1"' : '';
-    return `<button type="button" class="${classes}" data-action="queue.showImages" data-task="${Number(task.id)}"${byModel}`
+    return `<button type="button" class="${classes}" data-action="queue.showImages" data-task="${Number(task.id)}"`
         + `${linkTo('generations', title, { disabled: !n })}>Show images (${n})</button>`;
 }
 
@@ -915,11 +914,12 @@ function rowClicked({ task, list }) {
 
 /**
  * The Generations tab, on a task's images, through the loading module (#184):
- * a task of several checkpoints grouped by Model, a group per checkpoint (#400).
+ * a task of several checkpoints opened onto its runs, each named by its
+ * checkpoint (#401), where it shows as one tile.
  */
-async function showImages(taskId, byModel = false) {
+async function showImages(taskId) {
     closeMetaModal();
-    await open('generations', 'showTask', Number(taskId), byModel ? 'model' : '');
+    await open('generations', 'showTask', Number(taskId));
 }
 
 async function load(taskId) {
@@ -1052,7 +1052,7 @@ work.provide('queue.resume', () => control('resume'));
 work.provide('queue.stop', () => control('stop'));
 work.provide('queue.refresh', () => refresh());
 work.provide('queue.details', (data) => rowClicked(data));
-work.provide('queue.showImages', ({ task, several: byModel }) => showImages(task, Boolean(byModel)));
+work.provide('queue.showImages', ({ task }) => showImages(task));
 work.provide('queue.load', ({ task }) => load(task));
 work.provide('queue.runNext', ({ task }) => { closeMetaModal(); return runNext([Number(task)]); });
 work.provide('queue.cancel', ({ task }) => { closeMetaModal(); return cancelTasks([Number(task)]); });

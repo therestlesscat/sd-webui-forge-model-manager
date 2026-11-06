@@ -104,8 +104,8 @@ browsed.length = 0;
 document.querySelector('#queue_history [data-action="queue.showImages"][data-task="15"]')
     ?.dispatchEvent(new window.Event('click', { bubbles: true }));
 await waitFor('the Generations tab, on the task of several', () => browsed.some((b) => b.search === 'task:15'));
-check("a task of several checkpoints' Show images opens it grouped by Model (#400)",
-      browsed.find((b) => b.search === 'task:15')?.group, 'model');
+check("a task of several checkpoints' Show images searches it ungrouped too (#401)",
+      browsed.find((b) => b.search === 'task:15')?.group, '');
 
 // ------------------------------------------- the showing tab hides
 // Generations' own fallback is the Model Manager, which is not available.

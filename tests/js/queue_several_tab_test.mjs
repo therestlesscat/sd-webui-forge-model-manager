@@ -83,9 +83,12 @@ check('a task of one has no run label, running or not, nor a task of several tha
       [row(22)?.querySelector('.queue-run'), row(19).querySelector('.queue-run'), row(20).querySelector('.queue-run')],
       [null, null, null]);
 
-check('Show images on a task of several asks for it grouped by Model; on a task of one, as ever',
-      [row(20).querySelector('[data-action="queue.showImages"]')?.dataset.several,
-       row(19).querySelector('[data-action="queue.showImages"]')?.dataset.several], ['1', undefined]);
+// Show images asks for no grouping (#401): the Generations tab opens a task's
+// tile where its search shows one.
+check('Show images on a task of several names its task alone, as on a task of one',
+      [row(20).querySelector('[data-action="queue.showImages"]')?.dataset,
+       row(19).querySelector('[data-action="queue.showImages"]')?.dataset]
+          .map((d) => d && [d.task, 'several' in d]), [['20', false], ['19', false]]);
 
 act('queue.details', { task: 20 });
 await waitFor('the details', () => document.querySelector('#mm_meta_modal .queue-details'));
