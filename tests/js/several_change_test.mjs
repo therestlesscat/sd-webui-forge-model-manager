@@ -131,7 +131,7 @@ check('its tabs open on All, every ticked row in it, though one is suggested; th
        win()?.querySelector('.mm-pick-tab.active')?.textContent.trim(),
        inputOf(PHOTO)?.closest('.mm-pick-row')?.querySelector('.mm-pick-loaded')?.textContent,
        [...win().querySelectorAll('.mm-pick-row.picked')].map((r) => r.querySelector('input')?.value)],
-      [['Suggested 1', 'SDXL 2', 'Flux 1', 'SD 1.x 1', 'Qwen-Image 1', 'All 5'], 'All 5', 'Loaded in Forge now',
+      [['Suggested 1', 'Flux 1', 'Qwen-Image 1', 'SD 1.x 1', 'SDXL 2', 'All 5'], 'All 5', 'Loaded in Forge now',
        [ANIME, PHOTO, FLUX]]);
 check('focus starts on Cancel, the safe button, as every window\'s does',
       document.activeElement === win()?.querySelector('[data-several-cancel]'), true);

@@ -875,7 +875,9 @@ function pickBodyHtml(holder, name) {
     const rows = pickRows(holder);
     const words = String(list.search || '').toLowerCase().split(/\s+/).filter(Boolean);
     const shown = rows.filter((r) => matches(r, words));
-    const families = [...new Set(rows.map((r) => r.family).filter(Boolean))];
+    // By the name each tab shows: in the order Forge listed them, the tabs moved as files were added or read.
+    const families = [...new Set(rows.map((r) => r.family).filter(Boolean))]
+        .sort((a, b) => familyName(a).localeCompare(familyName(b), undefined, { sensitivity: 'base' }) || (a < b ? -1 : 1));
     const suggested = (data.suggested || []).map((s) => shown.find((r) => r.name === s.name)).filter(Boolean);
     const hasSuggested = Boolean(data.suggested?.length);
     const tab = families.includes(list.tab) || list.tab === 'all' || (list.tab === 'suggested' && hasSuggested)

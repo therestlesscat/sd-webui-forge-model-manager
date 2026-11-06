@@ -118,7 +118,7 @@ letListGo();
 listHeld = null;
 await waitFor('the list', () => rows().length);
 check('    tabs: Suggested first and open, a family each by name, All - each with its count',
-      [tabs(), active()], [['Suggested 1', 'SDXL 3', 'SD 1.x 1', 'Qwen-Image 1', 'All 6'], 'Suggested 1']);
+      [tabs(), active()], [['Suggested 1', 'Qwen-Image 1', 'SD 1.x 1', 'SDXL 3', 'All 6'], 'Suggested 1']);
 check('    the preset key in a family tab\'s tooltip',
       modal()?.querySelector('[data-family="xl"]')?.getAttribute('title'), 'Forge\'s UI preset: xl');
 check('    Suggested: the suggestions alone, under no heading, each saying why, its family and its file',
@@ -132,7 +132,7 @@ check('    a row: the model and its version, the base model at the right, then i
 check('    a suggested row in its family\'s tab still says why', sub(XL1.name), 'Same model, other version · animeMix_v12.safetensors');
 search('toon');
 check('    the search narrows every tab at once, the counts following',
-      [tabs(), shownNames()], [['Suggested 0', 'SDXL 1', 'SD 1.x 0', 'Qwen-Image 0', 'All 1'], [XL3.name]]);
+      [tabs(), shownNames()], [['Suggested 0', 'Qwen-Image 0', 'SD 1.x 0', 'SDXL 1', 'All 1'], [XL3.name]]);
 check('    and the box keeps what is typed', modal()?.querySelector('.mm-pick-search')?.value, 'toon');
 search('');
 pickTab('all');
@@ -159,7 +159,8 @@ close();
 list = { ...list, suggested: [] };
 await showImageResources(image(8003), null, { send: stopped() });
 await waitFor('the list', () => rows().length);
-check('    an image with no suggestions: no Suggested tab, its family open first', [tabs()[0], active()], ['SDXL 3', 'SDXL 3']);
+check('    an image with no suggestions: no Suggested tab, its family open, the families by name',
+      [tabs(), active()], [['Qwen-Image 1', 'SD 1.x 1', 'SDXL 3', 'All 6'], 'SDXL 3']);
 close();
 list = { ...list, family: null };
 await showImageResources(image(8003), null, { send: stopped() });
