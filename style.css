@@ -2315,6 +2315,14 @@ body.mm-modal-open {
     text-align: right;
 }
 
+/* With the list of your checkpoints, the resources and the foot are two rows of one height - the
+   taller one's, shared out while the dialog is held to its 80% - each scrolling inside. The
+   foot's own share was what it held, and the resources took what was left. */
+.mm-resources-modal:has(.mm-pick-area) {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr);
+}
+
 /* Room for the scrollbar from the start: the columns stay put when the rows
    outgrow the box. */
 .mm-resources-modal .mm-modal-body {
@@ -2731,6 +2739,27 @@ body.mm-modal-open {
     grid-column: 1;
 }
 
+/* With several to tick, the note's room is kept while it says nothing - a block as tall as two of
+   its lines, scrolling past them - so a tick that brings it, or takes it away, moves nothing:
+   it came at the tick of another family, 38 px, and the centred dialog moved with it. */
+.mm-pick-area > .mm-pick-note,
+.mm-pick-area:has(.mm-pick-row > input[type="checkbox"]):not(:has(> .mm-pick-note))::after {
+    box-sizing: border-box;
+    height: calc(2 * 1.4em);
+    margin-top: 6px;
+    font-size: 0.85em;
+    line-height: 1.4;
+}
+
+.mm-pick-area > .mm-pick-note {
+    overflow-y: auto;
+}
+
+.mm-pick-area:has(.mm-pick-row > input[type="checkbox"]):not(:has(> .mm-pick-note))::after {
+    content: '';
+    grid-column: 1;
+}
+
 .mm-usual-tick {
     display: inline-flex;
     align-items: center;
@@ -2792,6 +2821,10 @@ body.mm-modal-open {
     margin-top: 0;
     padding: 5px 0 0 20px;
     border-left: 1px solid var(--border-color-primary, #d1d5db);
+    /* No taller than the rows beside it, scrolling past that: with five or six ticked the block
+       outgrew them, and the centred dialog moved its top at each tick. */
+    max-height: 300px;
+    overflow-y: auto;
 }
 
 .dark .mm-pick-area > .mm-usual {
@@ -2815,7 +2848,9 @@ body.mm-modal-open {
 }
 
 /* Under 900 px of room - 480 for the rows, the gap, 400 for the block - the block goes back
-   under the rows, laid out as before, and the hint is not drawn. */
+   under the rows, laid out as before, at one height whatever it holds - the hint, "Reading...",
+   five settings - and scrolling past that: sized to its content, every pick moved the centred
+   dialog, 693 px tall before a pick, 718 while it read, up to 861 once answered. */
 @container mm-send (max-width: 900px) {
     .mm-pick-area {
         grid-template-columns: minmax(0, 1fr);
@@ -2827,6 +2862,8 @@ body.mm-modal-open {
         margin-top: 8px;
         padding: 0;
         border-left: 0;
+        max-height: none;
+        height: 13.5em;
     }
 
     .mm-pick-area .mm-usual-head:not(.mm-usual-own) {
@@ -2838,8 +2875,7 @@ body.mm-modal-open {
         grid-column: 4;
     }
 
-    .mm-pick-area .mm-usual-colhead,
-    .mm-pick-area > .mm-usual:has(> .mm-usual-hint) {
+    .mm-pick-area .mm-usual-colhead {
         display: none;
     }
 }

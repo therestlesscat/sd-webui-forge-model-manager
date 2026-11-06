@@ -1006,7 +1006,7 @@ function usualApplies(answer) {
 const shownValue = (value) => (value === null || value === undefined || value === '' ? '–' : String(value));
 
 // The block's column before a pick, and for an as-made one; on a dialog too
-// narrow for the column, the block under the rows is not drawn for it (style.css).
+// narrow for the column, the block under the rows, which keeps its height (style.css).
 const USUAL_HINT = {
     none: 'Pick a checkpoint to see what it is usually run with.',
     asMade: 'Sends as made: the image\'s own settings go with it.',
