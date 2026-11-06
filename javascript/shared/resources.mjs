@@ -500,30 +500,48 @@ function startSendLine(send) {
     return line;
 }
 
+// The Send line's Select several, as last pressed in this page: null until
+// pressed, then it lasts until the page is reloaded, the setting starting it
+// again after.
+let severalPressed = null;
+
 /**
- * Whether the line ticks several checkpoints (#400): the setting Queue a
- * generation with several checkpoints on - nested under Choose the checkpoint
- * at every Send, it does nothing while that is off - the Queue on and built at this
- * start - its button is made only as the WebUI starts - and the send going
- * into txt2img. With the setting on and the Queue off, or turned on since,
- * the list keeps its round buttons and says what to do. Decided as the
- * dialog opens: a dialog open keeps what it started with.
+ * The Send line's Select several (#400): drawn beside Choose the checkpoint to
+ * send with for a send into txt2img alone, and greyed, saying why, while the
+ * Queue is off or was turned on since the WebUI started - its button is made
+ * only as the WebUI starts. Ticked, the list ticks several checkpoints. It
+ * starts as last pressed in this page; else as the setting Queue a generation
+ * with several checkpoints says - nested under Choose the checkpoint at every
+ * Send, which does nothing while that is off.
  */
 function startSeveral(line, data) {
-    const wanted = data?.queue_several === true && data?.choose_checkpoint === true && line.tab === 'txt2img';
     const queue = data?.tabs?.queue;
     const queueOn = data?.queue_enabled !== false && queue?.on !== false;
-    line.several = wanted && queueOn && queue?.built === true;
-    line.severalWhy = !wanted || line.several ? ''
+    line.severalBox = line.tab === 'txt2img';
+    line.severalWhy = !line.severalBox || (queueOn && queue?.built === true) ? ''
         : !queueOn ? 'Turn the Queue on to tick several checkpoints here and queue them.'
             : 'Restart the WebUI to tick several checkpoints here: the Queue was turned on since it started.';
-    if (line.several) {
+    const setting = data?.queue_several === true && data?.choose_checkpoint === true;
+    setSeveral(line, line.severalBox && !line.severalWhy && (severalPressed ?? setting));
+    if (resourcesSend === line && line.severalBox) redrawSendBar();
+}
+
+/**
+ * The list as Select several says: tick boxes, the one picked ticked; or round
+ * buttons again, the first ticked the one picked.
+ */
+function setSeveral(line, on) {
+    line.several = on;
+    if (on) {
         line.ticked = line.chosen ? [line.chosen] : [];
         // The first tick is Send's, the rest a queued run's.
         line.loads = 'Send or a queued run';
         line.rowNote = (row) => runsNote(line, row);
+    } else {
+        delete line.ticked;
+        delete line.loads;
+        delete line.rowNote;
     }
-    if (resourcesSend === line && (line.several || line.severalWhy)) redrawSendBar();
 }
 
 /**
@@ -648,7 +666,7 @@ function sendAgainButton() {
     if (!resourcesSend) return '';
     const line = resourcesSend;
     const box = `<label class="mm-res-choose"><input type="checkbox" data-action="resources.chooseTick"${
-        line.choosing ? ' checked' : ''}> Choose the checkpoint to send with</label>`;
+        line.choosing ? ' checked' : ''}> Choose the checkpoint to send with</label>${severalBoxHtml(line)}`;
     const own = !line.choosing && (line.ready || line.goesOn);
     const enabled = line.choosing ? Boolean(line.chosen) : own;
     const status = sendLineStatus();
@@ -664,6 +682,15 @@ function sendAgainButton() {
                     escapeHtml(line.button || 'Send to txt2img')}</button>
             </div>
         </div>`;
+}
+
+/** Select several, beside the box while the list is shown; greyed, saying why, where it cannot tick. */
+function severalBoxHtml(line) {
+    if (!line.choosing || !line.severalBox) return '';
+    const title = line.severalWhy || 'Tick several of your checkpoints, to queue one generation with each in turn.';
+    return `<label class="mm-res-choose mm-res-several" title="${escapeHtml(title)}"><input type="checkbox" `
+           + `data-action="resources.severalTick"${line.several ? ' checked' : ''}${line.severalWhy ? ' disabled' : ''}>`
+           + ' Select several</label>';
 }
 
 /** What Send will do, said left of it; with `again`, Check again beside it. */
@@ -1236,13 +1263,11 @@ function runsNote(line, row) {
 }
 
 /**
- * The line under the list: what to do where several cannot be ticked; else,
- * with ticks of more than one family, what stays as you set it for those of
+ * The line under the list: with ticks of more than one family, what stays as you set it for those of
  * another family than the first, which Send loads - usual settings record
  * none of it.
  */
 function pickNote(line) {
-    if (line.severalWhy) return line.severalWhy;
     if (!(line.ticked?.length > 1)) return '';
     const rows = new Map(pickRows(line).map((row) => [row.name, row]));
     const first = rows.get(line.ticked[0]);
@@ -1758,6 +1783,18 @@ export function start(scope) {
         Object.assign(resourcesSend, { choosing: Boolean(box?.checked), touched: true });
         if (resourcesSend.choosing) askPickList();
         redrawSendBar();
+    });
+    // Select several: the list's rows drawn again as tick boxes or round buttons, their scroll kept.
+    scope.provide('resources.severalTick', (data, box) => {
+        const line = resourcesSend;
+        if (!line?.severalBox || line.severalWhy) return;
+        severalPressed = Boolean(box?.checked);
+        setSeveral(line, severalPressed);
+        const rows = document.querySelector('.mm-resources-modal [data-pick-list="dialog"] .mm-pick-rows');
+        const top = rows?.scrollTop || 0;
+        redrawSendBar();
+        const again = document.querySelector('.mm-resources-modal [data-pick-list="dialog"] .mm-pick-rows');
+        if (again) again.scrollTop = top;
     });
     // A family's tab, a pick and the search act on the list they are drawn in.
     scope.provide('resources.pickTab', ({ family }, button) => {

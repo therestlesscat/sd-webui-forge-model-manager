@@ -94,6 +94,14 @@ const usualTick = () => block()?.querySelector('[data-action="resources.usualTic
 const rowOf = (name) => [...(modal()?.querySelectorAll('.mm-pick-row') || [])].find((r) => r.querySelector('input')?.value === name);
 const runs = (name) => rowOf(name)?.querySelector('.mm-pick-runs')?.textContent || '';
 const note = () => modal()?.querySelector('.mm-pick-note')?.textContent || '';
+// Select several, beside Choose the checkpoint to send with: its box, and what it says.
+const several = () => modal()?.querySelector('[data-action="resources.severalTick"]');
+const severalSays = () => (several() ? [several().checked, several().disabled, several().closest('label')?.title] : null);
+const pressSeveral = (on) => {
+    if (!several()) return;
+    several().checked = on;
+    press(several());
+};
 const kinds = () => [...new Set([...(modal()?.querySelectorAll('.mm-pick-row input') || [])].map((i) => i.type))];
 const ticked = () => [...(modal()?.querySelectorAll('.mm-pick-row input') || [])].filter((i) => i.checked).map((i) => i.value);
 const close = () => document.querySelectorAll('#mm_meta_modal').forEach((n) => n.close());
@@ -253,19 +261,22 @@ close();
 // --------------------------------------------------- where it cannot tick
 options.built = false;
 await open();
-check('the Queue turned on since the WebUI started: round buttons, and the line says to restart',
-      [kinds(), note()], [['radio'], 'Restart the WebUI to tick several checkpoints here: the Queue was turned on since it started.']);
+check('the Queue turned on since the WebUI started: round buttons, Select several greyed, its tooltip saying to restart',
+      [kinds(), severalSays(), note()],
+      [['radio'], [false, true, 'Restart the WebUI to tick several checkpoints here: the Queue was turned on since it started.'], '']);
 close();
 options.queueOn = false;
 await open();
-check('the Queue off: round buttons, and the line says to turn it on',
-      [kinds(), note()], [['radio'], 'Turn the Queue on to tick several checkpoints here and queue them.']);
+check('the Queue off: round buttons, Select several greyed, its tooltip saying to turn it on',
+      [kinds(), severalSays(), note()],
+      [['radio'], [false, true, 'Turn the Queue on to tick several checkpoints here and queue them.'], '']);
 close();
 options.queueOn = true;
 options.built = true;
 options.several = false;
 await open();
-check('the setting off, its default: round buttons, nothing under the list, as before', [kinds(), note()], [['radio'], '']);
+check('the setting off, its default: round buttons, Select several unticked, nothing under the list',
+      [kinds(), severalSays()?.slice(0, 2), note()], [['radio'], [false, false], '']);
 close();
 options.several = true;
 options.choose = false;
@@ -275,8 +286,50 @@ check('the setting on, Choose the checkpoint at every Send off - nested under it
 close();
 options.choose = true;
 await open('img2img');
-check('a send into img2img: round buttons, nothing under the list - it goes with the loaded checkpoint',
-      [kinds(), note()], [['radio'], '']);
+check('a send into img2img: round buttons, no Select several, nothing under the list - it goes with the loaded checkpoint',
+      [kinds(), Boolean(several()), note()], [['radio'], false, '']);
+close();
+
+// ------------------------------------------------------- Select several, pressed
+// Last in the suite: a press lasts until the page is reloaded, over the setting.
+options.several = false;
+await open();
+tick(OWN.name, false);
+tick(REAL.name);
+pressSeveral(true);
+check('ticked: tick boxes, the one picked ticked, the Send line saying to tick',
+      [kinds(), ticked(), severalSays()?.slice(0, 2), status()],
+      [['checkbox'], [REAL.name], [true, false], 'Sends with Real v2. It will not come out exactly as made.']);
+tick(MIX.name);
+await waitFor('their notes', () => runs(MIX.name).startsWith('Runs'));
+check('two ticked: each says how it runs, the Send line queues both', [runs(REAL.name), status()],
+      ['Runs with its usual settings.', 'Sends with Real v2, then Queue for 2 checkpoints in txt2img queues them all.']);
+pressSeveral(false);
+check('unticked: round buttons, the first ticked the one picked, no row notes, one sent',
+      [kinds(), modal()?.querySelector('.mm-pick-row input:checked')?.value, runs(REAL.name), runs(MIX.name), status()],
+      [['radio'], REAL.name, '', '', 'Sends with Real v2. It will not come out exactly as made. With its usual settings.']);
+const severalBefore = sentSeveral.length;
+press(sendButton());
+await settle();
+check('and Send sends that one alone, no several send', [sent.at(-1)?.[0], sentSeveral.length], [REAL.name, severalBefore]);
+await open();
+check('the next dialog starts as last pressed - unticked - though the setting is off too',
+      [kinds(), severalSays()?.slice(0, 2)], [['radio'], [false, false]]);
+pressSeveral(true);
+close();
+await open();
+check('ticked last, the next dialog starts ticked though the setting is off', [kinds(), severalSays()?.slice(0, 2)],
+      [['checkbox'], [true, false]]);
+pressSeveral(false);
+close();
+options.several = true;
+await open();
+check('unticked last, the next starts unticked though the setting is on', [kinds(), severalSays()?.slice(0, 2)],
+      [['radio'], [false, false]]);
+const choose = modal()?.querySelector('[data-action="resources.chooseTick"]');
+choose.checked = false;
+press(choose);
+check('Choose the checkpoint to send with unticked: no list, no Select several', Boolean(several()), false);
 close();
 
 done();

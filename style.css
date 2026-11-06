@@ -2426,6 +2426,40 @@ body.mm-modal-open {
     white-space: nowrap;
 }
 
+/* Select several (#400), beside it: the space after the two boxes is the second's. Greyed while
+   the Queue cannot take several, its tooltip saying why - as a filter that does nothing is. */
+.mm-res-choose:has(+ .mm-res-several) {
+    margin-right: 6px;
+}
+
+.mm-res-several:has(> input:disabled) {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.mm-res-several > input:disabled {
+    cursor: not-allowed;
+}
+
+/* Under 900 px of room the boxes take a row of their own, and what Send will do and Send the one
+   under it: beside both boxes the status had 214 px at a 1,024 px window, wrapped to three lines
+   at a pick or a second tick, and the Send line grew from 63 px to 78. On its own row it has 451. */
+@container mm-send (max-width: 900px) {
+    .mm-resources-send {
+        flex-wrap: wrap;
+    }
+
+    .mm-resources-send::after {
+        content: '';
+        flex-basis: 100%;
+        order: 1;
+    }
+
+    .mm-resources-send > :not(.mm-res-choose) {
+        order: 2;
+    }
+}
+
 /* The list of your checkpoints, above the Send line once the box is ticked (#377):
    a search, the tabs - Suggested, a family each, All - and the rows, 300 px
    tall, scrolling. */
