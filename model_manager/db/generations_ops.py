@@ -248,10 +248,17 @@ class Scope:
     # generation: in a search (#241), apart from `generations`: one JSON
     # value, as a list a person names can pass the older SQLite's 999.
     named_generations: List[int] = field(default_factory=list)
+    # A task opened (#401): its generations, each the lowest-numbered task's
+    # it is linked to - apart from a search's `task`, so both can narrow.
+    in_task: Optional[int] = None
+    # Whether the level's images are keyed by task where a task's runs of
+    # two or more checkpoints are shown (#401): the unit "run" reads it.
+    task_key: bool = False
 
 
 def _unit_columns(unit: str, section: Optional[str]) -> List[str]:
-    """The columns of `shown` naming a unit: its section's key, then its own."""
+    """The columns of `shown` naming a unit: its section's key, then its own -
+    for "run" (#401), a task's number negated, else its generation's id."""
     own = {"image": "id", "generation": "generation_id"}.get(unit, f"k_{unit}")
     return ([f"k_{section}"] if section else []) + [own]
 
@@ -343,6 +350,9 @@ class _ClassicLevel:
     def unit_loras(self, part: Sequence[Tuple[Any, ...]]) -> Dict[Tuple[Any, ...], List[str]]:
         return self._ops.scope_unit_loras(*self._level, part)
 
+    def unit_generations(self, part: Sequence[Tuple[Any, ...]]) -> Dict[Tuple[Any, ...], List[int]]:
+        return self._ops.scope_unit_generations(*self._level, part)
+
 
 class _TableLevel:
     """
@@ -401,6 +411,20 @@ class _TableLevel:
         found: Dict[Tuple[Any, ...], List[str]] = {tuple(key): [] for key in part}
         self._cursor.execute(f"{with_part} {_unit_loras_sql(_LEVEL_TABLE, self._on(_LEVEL_TABLE), self._cols)}",
                              args)
+        for row in self._cursor.fetchall():
+            found.setdefault(tuple(row[:len(self._cols)]), []).append(row[len(self._cols)])
+        return found
+
+    def unit_generations(self, part: Sequence[Tuple[Any, ...]]) -> Dict[Tuple[Any, ...], List[int]]:
+        """Each unit's generations, newest first, as Classic's scope_unit_generations()."""
+        if not part:
+            return {}
+        with_part, args = self._part(part)
+        found: Dict[Tuple[Any, ...], List[int]] = {tuple(key): [] for key in part}
+        cols = ", ".join(f"part.{c}" for c in self._cols)
+        self._cursor.execute(f"""{with_part} SELECT {cols}, lv.generation_id
+            FROM part JOIN {_LEVEL_TABLE} lv ON {self._on('lv')}
+            GROUP BY {cols}, lv.generation_id ORDER BY {cols}, MAX(lv.sk) DESC""", args)
         for row in self._cursor.fetchall():
             found.setdefault(tuple(row[:len(self._cols)]), []).append(row[len(self._cols)])
         return found
@@ -701,6 +725,29 @@ class GenerationsOps:
         with self._cursor() as cursor:
             return self._images(cursor, list(image_ids))
 
+    def image_counts(self, generation_ids: List[int]) -> Dict[int, int]:
+        """How many images each generation holds, hidden ones too: a task tile's
+        total (#401), read from the narrow row alone."""
+        ids = [int(i) for i in generation_ids]
+        if not ids:
+            return {}
+        with self._cursor() as cursor:
+            cursor.execute("SELECT id, image_count FROM generations WHERE id IN (SELECT value FROM json_each(?))",
+                           (json.dumps(ids),))
+            return {row[0]: int(row[1] or 0) for row in cursor.fetchall()}
+
+    def checkpoint_names(self, generation_ids: List[int]) -> Dict[int, str]:
+        """Each generation's checkpoint by the name Model grouping uses (#401):
+        a run inside a task is named by it where no file was recorded."""
+        ids = [int(i) for i in generation_ids]
+        if not ids:
+            return {}
+        with self._cursor() as cursor:
+            cursor.execute("SELECT generation_id, MIN(name) FROM generation_resources WHERE role = 'checkpoint' "
+                           "AND generation_id IN (SELECT value FROM json_each(?)) GROUP BY generation_id",
+                           (json.dumps(ids),))
+            return {row[0]: row[1] for row in cursor.fetchall() if row[1]}
+
     def image_loras(self, image_ids: List[int]) -> Dict[int, List[str]]:
         """Each image's LoRA files, where they are now, in the order loaded, once each."""
         found: Dict[int, List[str]] = {i: [] for i in image_ids}
@@ -815,6 +862,12 @@ class GenerationsOps:
         if scope.task is not None:
             where.append("gi.generation_id IN (SELECT generation_id FROM task_generations WHERE task_id = ?)")
             args_where.append(scope.task)
+        if scope.in_task is not None:
+            # A generation linked to two tasks is the lower-numbered's (#401).
+            where.append("gi.generation_id IN (SELECT generation_id FROM task_generations "
+                         "GROUP BY generation_id HAVING MIN(task_id) = ?)")
+            args_where.append(scope.in_task)
+
         # A list is one JSON value: the older SQLite takes 999 values a statement (#336).
         if scope.images:
             where.append("gi.id IN (SELECT value FROM json_each(?))")
@@ -861,10 +914,33 @@ class GenerationsOps:
         if "checkpoint" in needs:
             columns.append("ck.path AS checkpoint_path")
         columns += [f"{GROUP_KEYS[k]} AS k_{k}" for k in sorted(keys)]
+        keyed = scope.task_key and nsfw is not None
+        if keyed:
+            # Each generation under the lowest-numbered of its tasks, kept
+            # where that task holds two or more checkpoints; with its
+            # checkpoint by the name Model grouping uses, for those alone.
+            ctes.append("task_runs AS (SELECT generation_id, task_id FROM ("
+                        "SELECT generation_id, MIN(task_id) AS task_id FROM task_generations GROUP BY generation_id) "
+                        "WHERE task_id IN (SELECT task_id FROM task_checkpoints GROUP BY task_id HAVING COUNT(*) > 1))")
+            joins.append("LEFT JOIN task_runs ON task_runs.generation_id = gi.generation_id")
+            columns += ["task_runs.task_id AS t",
+                        "CASE WHEN task_runs.task_id IS NOT NULL THEN COALESCE((SELECT MIN(r.name) "
+                        "FROM generation_resources r WHERE r.role = 'checkpoint' "
+                        "AND r.generation_id = gi.generation_id), '') END AS tck"]
         ctes.append(f"rows AS (SELECT {', '.join(columns)} FROM generation_images gi {' '.join(joins)}"
                     + (f" WHERE {' AND '.join(where)}" if where else "") + ")")
         args += args_where
-        if nsfw is not None:
+        if keyed:
+            # Counted among what the NSFW switch lets through, then keyed:
+            # SQLite has no COUNT(DISTINCT) over a window, so the tasks with
+            # two or more checkpoints shown are grouped, and joined back. The
+            # step every read takes its images from keeps its name, `shown`.
+            ctes.append(f"shown_all AS (SELECT * FROM rows WHERE {nsfw_kept_sql(nsfw)})")
+            ctes.append("task_here AS (SELECT t FROM shown_all WHERE t IS NOT NULL GROUP BY t "
+                        "HAVING COUNT(DISTINCT tck) > 1)")
+            ctes.append("shown AS (SELECT shown_all.*, CASE WHEN t IN (SELECT t FROM task_here) THEN -t "
+                        "ELSE generation_id END AS k_run FROM shown_all)")
+        elif nsfw is not None:
             ctes.append(f"shown AS (SELECT * FROM rows WHERE {nsfw_kept_sql(nsfw)})")
         return "WITH " + ", ".join(ctes), args
 
@@ -1032,19 +1108,39 @@ class GenerationsOps:
                 found.setdefault(tuple(row[:len(cols)]), []).append(row[len(cols)])
         return found
 
+    def scope_unit_generations(self, scope: Scope, unit: str, section: Optional[str], nsfw: Any,
+                               part: Sequence[Tuple[Any, ...]]) -> Dict[Tuple[Any, ...], List[int]]:
+        """The generations each unit of a part holds, newest first: a task's
+        tile's (#401), for its Delete, its tick and Back to image."""
+        if not part:
+            return {}
+        sql, args, names = self._part_sql(scope, unit, section, nsfw, part)
+        cols = ["s", "u"][-len(names):]
+        on = " AND ".join(f"part.{p} = shown.{n}" for p, n in zip(cols, names))
+        found: Dict[Tuple[Any, ...], List[int]] = {tuple(key): [] for key in part}
+        with self._cursor() as cursor:
+            cursor.execute(f"""{sql} SELECT {', '.join('part.' + c for c in cols)}, shown.generation_id
+                FROM shown JOIN part ON {on}
+                GROUP BY {', '.join('part.' + c for c in cols)}, shown.generation_id
+                ORDER BY {', '.join('part.' + c for c in cols)}, MAX(shown.sk) DESC""", args)
+            for row in cursor.fetchall():
+                found.setdefault(tuple(row[:len(cols)]), []).append(row[len(cols)])
+        return found
+
     @contextmanager
     def scope_level(self, scope: Scope, unit: str, section: Optional[str], nsfw: Any,
                     single_pass: bool = True) -> Iterator[Any]:
         """
         A level of the Generations tab, to pick a part of and read its tiles
         from: `units(offset, limit)`, then for the part `previews(part,
-        count)`, `unit_checkpoints(part)` and `unit_loras(part)`, each
-        answering as scope_units() and the three part reads do.
+        count)`, `unit_checkpoints(part)`, `unit_loras(part)` and - a task's
+        tiles (#401) - `unit_generations(part)`, each answering as
+        scope_units() and the four part reads do.
 
         Single pass (#238, #259) reads the level's images once, into a
         temporary table in memory indexed by unit and the tab's order, and
         reads every tile through it. Classic finds them again for each read -
-        four passes over the level - and grouped by base model SQLite joined
+        four passes over the level, five with a task's tiles - and grouped by base model SQLite joined
         them to the part in an order that looked each image's checkpoint and
         base model up once per group: 1.46 s at 75,682 images in 14 groups,
         0.27 s in one pass. The table is this connection's alone, so two

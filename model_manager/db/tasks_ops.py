@@ -334,6 +334,29 @@ class TasksOps:
                 found.setdefault(image.pop("task_id"), []).append(image)
         return found
 
+    def several_runs(self) -> bool:
+        """
+        Whether any task holds two or more checkpoints and made two or more
+        generations: whether a level of the Generations tab can hold a task's
+        tile at all (#401). Asked once a request before the level is read, so
+        a library with no such task reads its levels as it always has.
+        """
+        with self._cursor() as cursor:
+            cursor.execute("""SELECT EXISTS (
+                SELECT 1 FROM (SELECT task_id FROM task_checkpoints GROUP BY task_id HAVING COUNT(*) > 1) c
+                JOIN (SELECT task_id FROM task_generations GROUP BY task_id HAVING COUNT(*) > 1) g
+                     ON g.task_id = c.task_id)""")
+            return bool(cursor.fetchone()[0])
+
+    def checkpoint_counts(self, task_ids: List[int]) -> Dict[int, int]:
+        """How many checkpoints each task holds, run or not: a task tile's name (#401)."""
+        if not task_ids:
+            return {}
+        with self._cursor() as cursor:
+            cursor.execute(f"SELECT task_id, COUNT(*) FROM task_checkpoints WHERE task_id IN ({_marks(task_ids)}) "
+                           f"GROUP BY task_id", list(task_ids))
+            return {row[0]: row[1] for row in cursor.fetchall()}
+
     def files_in_use(self, paths: List[str]) -> List[str]:
         """
         Which of these files a task still names in its inputs. A retry's copy

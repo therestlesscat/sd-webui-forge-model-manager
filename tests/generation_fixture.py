@@ -150,6 +150,67 @@ def varied(connection, root):
     return {"paths": p, "task": 7, "linked": linked}
 
 
+# Tasks of the Queue over varied()'s generations, by the generation's place
+# (g, its `checkpoints` entry g % 5: a, b, a2, x, none): each the
+# checkpoints it holds, the generations its runs made, whether Clear history
+# hid it. None of these generations is task 7's (g % 6 == 1).
+SEVERAL = {
+    100: (3, [0, 6, 9], 0),            # a, b, and a synced checkpoint the library lacks: one tile
+    101: (3, [5], 0),                  # three checkpoints, one run made images: a batch
+    102: (1, [10, 15, 20, 30], 0),     # one checkpoint, an X/Y/Z plot of four cells: four batches
+    103: (2, [11, 16, 8, 18], 0),      # b and x, two cells each: one tile; by Model, a batch each
+    104: (1, [21], 0),                 # the lower of two tasks that link g21: it is 104's
+    105: (2, [21, 23], 0),             # so 105 shows g23 alone: a batch
+    106: (2, [26, 28], 1),             # b and x, hidden by Clear history: one tile still
+    107: (3, [2, 12, 35], 0),           # a2, a2, a: two files of one name, one checkpoint: batches
+    108: (1, [17, 38], 0),             # one checkpoint, its X/Y/Z plot over checkpoints (a2, x): batches
+    109: (2, [32, 36], 0),             # a2 rated X, b rated PG: a tile, and with NSFW hidden a batch
+    110: (2, [3, 14], 0),              # x and none, one prompt as written: a tile in that Prompt group
+    111: (2, [4, 22], 0),              # a synced name the library lacks, no path, and a2: a tile by name
+}
+
+
+def several_library(root, extension_dir):
+    """varied()'s library in `root`, migrated, with SEVERAL's tasks (#401): (the database, ids by g)."""
+    from model_manager.db.database import ModelsDatabase
+    path, connection = v36_database(root)
+    varied(connection, root)
+    connection.close()
+    db = ModelsDatabase(extension_dir=extension_dir, custom_db_path=path)
+    return db, several_checkpoints(db)
+
+
+def several_checkpoints(db):
+    """
+    The Queue's tasks of SEVERAL written into a database varied() filled,
+    once ModelsDatabase has migrated it (#401). g9 names a checkpoint the
+    library lacks, as a synced image does: a name, no path. Returns each
+    generation's id, by its place g.
+    """
+    with db._cursor() as cursor:
+        cursor.execute("SELECT id FROM generations ORDER BY id")
+        ids = [row[0] for row in cursor.fetchall()]
+        for task_id, (held, runs, hidden) in SEVERAL.items():
+            cursor.execute("INSERT INTO tasks (id, install, mode, status, inputs, hidden, created_at) "
+                           "VALUES (?, 'test', 'txt2img', 'completed', '{}', ?, '2026-01-02T00:00:00')",
+                           (task_id, hidden))
+            for place in range(held):
+                cursor.execute("INSERT INTO task_checkpoints (task_id, place, checkpoint, status) "
+                               "VALUES (?, ?, ?, 'completed')", (task_id, place, f"ck{place}.safetensors"))
+            for g in runs:
+                cursor.execute("INSERT INTO task_generations (task_id, generation_id) VALUES (?, ?)",
+                               (task_id, ids[g]))
+        cursor.execute("INSERT INTO generation_resources (image_id, generation_id, role, position, name, file_path) "
+                       "SELECT id, generation_id, 'checkpoint', 0, 'synced_ck', NULL FROM generation_images "
+                       "WHERE generation_id = ?", (ids[9],))
+        cursor.execute("INSERT INTO generation_resources (image_id, generation_id, role, position, name, file_path) "
+                       "SELECT id, generation_id, 'checkpoint', 0, 'lost_ck', NULL FROM generation_images "
+                       "WHERE generation_id = ?", (ids[4],))
+        for g, level in ((32, 8), (36, 1)):
+            cursor.execute("UPDATE generation_images SET user_nsfw_level = ? WHERE generation_id = ?", (level, ids[g]))
+    return ids
+
+
 def bulk(connection, count, root):
     """`count` plain images, a third as many generations, fast: for counting
     what a read hands to Python."""

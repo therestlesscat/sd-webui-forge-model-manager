@@ -152,6 +152,19 @@ check('in parts of TILE_PART, more until the last',
 seen = [i for p in parts for _, imgs in shape(p) for i in imgs]
 check('every image once across the parts', (sorted(seen), len(seen)), (sorted(everything + ids(explicit)), 7))
 
+# A queued task of several checkpoints (#401): Expand lists images where a
+# level would list generations, a task's as a batch's - and inside the task.
+import generation_fixture                                # noqa: E402
+tdb, gid = generation_fixture.several_library(os.path.join(WORK, 'several'), ROOT)
+gallery_module.TILE_PART = 100     # the tab's part: the level whole
+expanded = api.browse_page(tdb, 'all', tasks=True, expand=True)['tiles']
+check('Expand on: images, a tile each, no task tile', {t['kind'] for t in expanded}, {'image'})
+inside = api.browse_page(tdb, 'all', task=103, tasks=True, expand=True)['tiles']
+check('and inside a task: its images, each named by its run\'s checkpoint',
+      [{t['kind'] for t in inside}, sorted({t['checkpoint_name'] for t in inside}), len(inside)],
+      [{'image'}, ['b', 'x'], 9])
+tdb.close()
+
 db.close()
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

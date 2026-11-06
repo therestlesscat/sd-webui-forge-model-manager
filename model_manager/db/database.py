@@ -558,6 +558,14 @@ class ModelsDatabase:
         """A level to read a part and its tiles from; see GenerationsOps.scope_level()."""
         return self._generations.scope_level(scope, unit, section, nsfw, single_pass)
 
+    def generation_image_counts(self, generation_ids: List[int]) -> Dict[int, int]:
+        """How many images each generation holds (#401); see GenerationsOps.image_counts()."""
+        return self._generations.image_counts(generation_ids)
+
+    def generation_checkpoint_names(self, generation_ids: List[int]) -> Dict[int, str]:
+        """Each generation's checkpoint by name (#401); see GenerationsOps.checkpoint_names()."""
+        return self._generations.checkpoint_names(generation_ids)
+
     def generation_image_loras(self, image_ids: List[int]) -> Dict[int, List[str]]:
         """Each generated image's LoRA files; see GenerationsOps.image_loras()."""
         return self._generations.image_loras(image_ids)
@@ -751,6 +759,14 @@ class ModelsDatabase:
     def task_images(self, task_ids: List[int]) -> Dict[int, List[Dict[str, Any]]]:
         """The images each task's run made, briefly. See TasksOps.images_of()."""
         return self._tasks.images_of(task_ids)
+
+    def generation_several_runs(self) -> bool:
+        """Whether a task of several checkpoints made several generations (#401). See TasksOps.several_runs()."""
+        return self._tasks.several_runs()
+
+    def task_checkpoint_counts(self, task_ids: List[int]) -> Dict[int, int]:
+        """How many checkpoints each task holds (#401)."""
+        return self._tasks.checkpoint_counts(task_ids)
 
     def task_files_in_use(self, paths: List[str]) -> List[str]:
         """Which of these files a task's inputs still name (#161)."""

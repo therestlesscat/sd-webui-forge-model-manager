@@ -188,6 +188,26 @@ check('a key narrows a grouped level: only the groups holding a match, each coun
       sorted((t['group']['value'], t['matching_count']) for t in by_id['tiles']),
       [('a red barn', 2), ('an old mill', 1)])
 
+# A queued task of several checkpoints (#401): a search narrows its tile to
+# the runs it finds, and narrows the task's own level with the task opened.
+import generation_fixture                                # noqa: E402
+tdb, gid = generation_fixture.several_library(os.path.join(WORK, 'several'), ROOT)
+place = {g: i for i, g in enumerate(gid)}
+two = api.browse_page(tdb, 'all', tasks=True, search=f'generation:{gid[0]},{gid[6]}')['tiles']
+check('a search finding runs of two of task 100\'s three checkpoints: one tile of those two',
+      [(t['kind'], t.get('task', {}).get('id'), sorted(place[g] for g in t.get('task', {}).get('generations', [])))
+       for t in two], [('task', 100, [0, 6])])
+one = api.browse_page(tdb, 'all', tasks=True, search=f'generation:{gid[0]}')['tiles']
+check('finding one: a batch', [t['kind'] for t in one], ['generation'])
+by_task = api.browse_page(tdb, 'all', tasks=True, search='task:103')['tiles']
+check('task:103: its one tile', [(t['kind'], t.get('task', {}).get('id')) for t in by_task], [('task', 103)])
+opened = api.browse_page(tdb, 'all', tasks=True, search='task:103', task=103)['tiles']
+narrowed = api.browse_page(tdb, 'all', tasks=True, search='task:103 cat', task=103)['tiles']
+check('task:103 with the task opened: its runs; and a word too: those its prompt holds',
+      [sorted(place[t['generation']['id']] for t in opened), sorted(place[t['generation']['id']] for t in narrowed)],
+      [[8, 11, 16, 18], [11]])
+tdb.close()
+
 db.close()
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

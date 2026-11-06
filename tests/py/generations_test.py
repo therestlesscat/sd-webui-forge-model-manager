@@ -1236,5 +1236,31 @@ for folder, _, names in os.walk(os.path.join(ROOT, 'model_manager')):
                     unmatched.append('%s %s' % (name, node.name))
 check('each method that deletes a generation\'s row deletes its settings row', unmatched, [])
 
+# ---------------------------------------------------------------- a run rated inside a task (#401)
+# Opened, a task of several checkpoints lists its runs; rating one names the
+# task, so the tile comes back named by its checkpoint, and the header counts
+# the task's images - not the level above it.
+if has_fastapi:
+    import generation_fixture                            # noqa: E402
+    tdb, gid = generation_fixture.several_library(os.path.join(WORK, 'several'), ROOT)
+    held_db = dbmod._db_instance
+    dbmod._db_instance = tdb
+    try:
+        # g21 is linked to tasks 104 and 105, and is 104's: inside 105 it is not there to rate.
+        not_its = rate(generation=gid[21], task=105, level=4, nsfw_images='all').json()
+        inside = rate(generation=gid[6], task=100, level=4, nsfw_images='all').json()
+        outside = rate(generation=gid[6], level=1, nsfw_images='all').json()
+    finally:
+        dbmod._db_instance = held_db
+        tdb.close()
+    check('a run rated inside its task: every image of it, its tile named by its checkpoint, the header the task\'s',
+          [inside.get('rated'), (inside.get('tile') or {}).get('checkpoint_name'),
+           (inside.get('scope') or {}).get('count'), (inside.get('scope') or {}).get('task')],
+          [3, 'b', 6, {'id': 100, 'checkpoints': 3}])
+    check('a generation two tasks link, rated inside the higher: nothing rated, no tile',
+          [not_its.get('rated'), not_its.get('tile')], [0, None])
+    check('the same run rated outside the task: the header counts the whole level',
+          [(outside.get('scope') or {}).get('count', 0) > 6, 'task' in (outside.get('scope') or {})], [True, False])
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

@@ -341,17 +341,17 @@ def search_terms(text: str) -> levels.Search:
 
 
 def _scope(group: str = "", in_group: str = "", generation: Optional[int] = None,
-           in_subgroup: str = "", search: str = "") -> Scope:
+           in_subgroup: str = "", search: str = "", task: Optional[int] = None) -> Scope:
     """
     The images a level of the Generations tab holds - inside a group, one of
-    its groups when grouped twice, a generation, or these together - that the
-    search finds.
+    its groups when grouped twice, a task (#401), a generation, or these
+    together - that the search finds.
     """
     chain = grouping_chain(group)
     terms = search_terms(search)
     return Scope(generation=generation, words=terms.words, task=terms.task, images=terms.images,
                  versions=terms.versions, models=terms.models, named_generations=terms.generations,
-                 opened=[(k, g) for k, g in zip(chain, (in_group, in_subgroup)) if g])
+                 opened=[(k, g) for k, g in zip(chain, (in_group, in_subgroup)) if g], in_task=task)
 
 
 def _group_values(db, grouping: str, keys) -> Dict[Any, str]:
@@ -364,14 +364,22 @@ def _group_values(db, grouping: str, keys) -> Dict[Any, str]:
 
 
 def _tiles(db, level, kind: str, by: Optional[str], section: Optional[str],
-           units: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+           units: List[Dict[str, Any]], in_task: bool = False) -> List[Dict[str, Any]]:
     """
     The tiles of `units` - a part's, or one batch's after its rating (#239) -
     as the tab draws them: each its first images, its level and rating, how
     many images it holds, and the checkpoint and LoRAs its menu names. The
     part's own reads come from `level` (db.generation_scope_level).
+
+    On a level of generations keyed by task (#401), a unit below 0 is a
+    task's runs: a tile of kind "task", with the task, its generations on
+    the level, and each of its images' own generation's date and mode.
+    Inside a task (`in_task`), each tile carries its checkpoint's name.
     """
     part = [((u["s"],) if section else ()) + (u["u"],) for u in units]
+    tasks = [key for key in part if kind == "generation" and key[-1] < 0]
+    runs = level.unit_generations(tasks) if tasks else {}
+    held = db.task_checkpoint_counts([-key[-1] for key in tasks]) if tasks else {}
     previews: Dict[Tuple[Any, ...], List[Dict[str, Any]]] = {key: [] for key in part}
     for row in level.previews(part, PREVIEW_IMAGES):
         previews[((row["s"],) if section else ()) + (row["u"],)].append(row)
@@ -385,8 +393,14 @@ def _tiles(db, level, kind: str, by: Optional[str], section: Optional[str],
     known = db.generation_library_files(
         set(unit_checkpoints.values()) | {r["checkpoint_path"] for rows in previews.values() for r in rows}
         | {p for paths in unit_loras.values() for p in paths})
-    generations = db.get_generations(list(dict.fromkeys(rows[0]["generation_id"]
-                                                        for rows in previews.values() if rows)))
+    # A task tile's images carry their own generation's date and mode: its
+    # previews' generations are read, and its runs' image counts alone.
+    generations = db.get_generations(list(dict.fromkeys(
+        [rows[0]["generation_id"] for rows in previews.values() if rows]
+        + [r["generation_id"] for key in tasks for r in previews.get(key, [])])))
+    counts = db.generation_image_counts([g for key in tasks for g in runs.get(key, [])]) if tasks else {}
+    names = db.generation_checkpoint_names([rows[0]["generation_id"] for rows in previews.values() if rows]) \
+        if in_task else {}
     values = _group_values(db, by, [u["u"] for u in units]) if by else {}
     sections = _group_values(db, section, [u["s"] for u in units]) if section else {}
 
@@ -414,6 +428,18 @@ def _tiles(db, level, kind: str, by: Optional[str], section: Optional[str],
             "level": entry["level"],
             "user_level": entry["user_level"],
         }
+        if key in runs:
+            # A task's runs, each image with its own generation's date and mode.
+            made = runs[key]
+            tile["kind"] = "task"
+            tile["task"] = {"id": -key[-1], "checkpoints": held.get(-key[-1], 0), "generations": made,
+                            "images": sum(counts.get(g, 0) for g in made)}
+            for image in tile["images"]:
+                own = generations.get(image["generation_id"]) or {}
+                image.update({"created_at": own.get("created_at"), "mode": own.get("mode")})
+        if in_task:
+            # A run's checkpoint by name, where no file was recorded for it.
+            tile["checkpoint_name"] = names.get(first["generation_id"])
         if kind == "group":
             tile["group"] = {"id": group_id(by, entry["u"]), "value": values.get(entry["u"], ""), "by": by,
                              "latest": entry["latest"], "generations": entry["generations"]}
@@ -444,6 +470,10 @@ def _level_info(db, scope: Scope, chain: List[str], generation: Optional[int],
     if generation is not None:
         generation_row = db.get_generations([generation]).get(generation) or {}
         scope_info["generation"] = {k: generation_row.get(k) for k in TILE_FIELDS}
+    # A task opened (#401) is named in the header, as a batch is.
+    if scope.in_task is not None:
+        scope_info["task"] = {"id": scope.in_task,
+                              "checkpoints": db.task_checkpoint_counts([scope.in_task]).get(scope.in_task, 0)}
 
     state = {
         "generation_count": counts["generation_count"],
@@ -455,7 +485,7 @@ def _level_info(db, scope: Scope, chain: List[str], generation: Optional[int],
 
 
 def rated_batch(db, nsfw: Any, generation: int, group: str = "", in_group: str = "",
-                in_subgroup: str = "", search: str = "") -> Dict[str, Any]:
+                in_subgroup: str = "", search: str = "", task: Optional[int] = None) -> Dict[str, Any]:
     """
     After a batch's rating in the Generations tab (#239): its tile as the level
     it is on now draws it - none, if the NSFW switch now hides every image of
@@ -464,19 +494,21 @@ def rated_batch(db, nsfw: Any, generation: int, group: str = "", in_group: str =
     a part's own code. A batch tile is never in a section: sections hold groups.
     """
     chain = grouping_chain(group)
-    level = _scope(group, in_group, None, in_subgroup, search)
+    # Inside a task (#401), the level is the task's: its header counts it.
+    level = _scope(group, in_group, None, in_subgroup, search, task)
     one = dataclasses.replace(level, generations=[generation])
     # Classic, whatever the setting: one batch is found by index in about a
     # millisecond, and a table of it would cost more than it saves.
     with db.generation_scope_level(one, "generation", None, nsfw, single_pass=False) as batch:
-        tiles = _tiles(db, batch, "generation", None, None, batch.units(0, 1))
+        tiles = _tiles(db, batch, "generation", None, None, batch.units(0, 1), in_task=task is not None)
     state, scope_info = _level_info(db, level, chain, None, nsfw)
     return {"tile": tiles[0] if tiles else None, "state": state, "scope": scope_info}
 
 
 def browse_page(db, nsfw: Any, page: int = 1, group: str = "",
                 in_group: str = "", generation: Optional[int] = None,
-                in_subgroup: str = "", search: str = "", expand: bool = False) -> Dict[str, Any]:
+                in_subgroup: str = "", search: str = "", expand: bool = False,
+                task: Optional[int] = None, tasks: bool = False) -> Dict[str, Any]:
     """
     Part `page` of a level of the Generations tab, newest first. The top level
     is a tile per generation - its first images and how many it has - or, with
@@ -491,7 +523,9 @@ def browse_page(db, nsfw: Any, page: int = 1, group: str = "",
     `in_subgroup` the group. `in_group` alone is a section's groups.
     With `expand` (#252), a level that would list generations lists their
     images instead, a tile each; a level of groups, and a batch, are as they
-    were.
+    were. With `tasks`, asked by a page that draws a task's tile (#401), a
+    level of generations shows a task's runs of two or more of its
+    checkpoints as one tile; `task` is the level of a task opened, its runs.
 
     The tab scrolls rather than pages, so there is no page note to count what
     the NSFW switch hid on each: images are filtered first and the parts cut
@@ -509,7 +543,7 @@ def browse_page(db, nsfw: Any, page: int = 1, group: str = "",
     size = gallery_page_size()
     page = max(1, int(page or 1))
     chain = grouping_chain(group)
-    scope = _scope(group, in_group, generation, in_subgroup, search)
+    scope = _scope(group, in_group, generation, in_subgroup, search, task)
 
     # The grouping this level's groups are by, if it is a level of groups:
     # the first at the top - or, grouped twice, the second, in sections of the
@@ -529,13 +563,18 @@ def browse_page(db, nsfw: Any, page: int = 1, group: str = "",
         kind, unit = "group", by
     else:
         kind, unit = "generation", "generation"
+        # Keyed by task only where a task's tile can be (#401): asked once,
+        # and a library with no such task reads as it always has.
+        if tasks and task is None and db.generation_several_runs():
+            unit = "run"
+            scope = dataclasses.replace(scope, task_key=True)
     section = chain[0] if sectioned else None
 
     with db.generation_scope_level(scope, unit, section, nsfw, reading() == SINGLE_PASS) as level:
         units = level.units((page - 1) * size, size + 1)
         more = len(units) > size
         units = units[:size]
-        tiles = _tiles(db, level, kind, by, section, units)
+        tiles = _tiles(db, level, kind, by, section, units, in_task=task is not None)
     state, scope_info = _level_info(db, scope, chain, generation, nsfw)
     return {"tiles": tiles, "more": more, "state": state, "scope": scope_info}
 
@@ -696,7 +735,8 @@ def _register(app: FastAPI):
     def get_browse_page(page: int = 1, nsfw_images: Optional[str] = None,
                               group: str = "", in_group: str = "",
                               generation: Optional[int] = None, in_subgroup: str = "",
-                              search: str = "", expand: bool = False):
+                              search: str = "", expand: bool = False, task: Optional[int] = None,
+                              tasks: bool = False):
         """
         Part `page` of a level of the Generations tab, through the NSFW switch's
         mode (gallery.NSFW_MODES) - the tab's own setting decides it when not
@@ -710,11 +750,15 @@ def _register(app: FastAPI):
             generation: the generation opened.
             search: what the images must match (search_terms()).
             expand: a tile per image where the level lists generations (#252).
+            task: the task opened (#401), its runs a tile each.
+            tasks: the page draws a task's tile (#401): a page that does not
+                say so gets none, as it would draw one as a batch.
         """
         try:
             nsfw = generations_nsfw() if nsfw_images is None else nsfw_mode(nsfw_images)
             return JSONResponse({"success": True, **browse_page(
-                get_models_db(), nsfw, page, group, in_group, generation, in_subgroup, search, expand)})
+                get_models_db(), nsfw, page, group, in_group, generation, in_subgroup, search, expand,
+                task, tasks)})
         except Exception as e:
             return failed(e, "Generations page error")
 
@@ -840,7 +884,7 @@ def _register(app: FastAPI):
                               generation: Optional[int] = Form(default=None), path: str = Form(default=""),
                               nsfw_images: str = Form(default=SAFE),
                               hide_promptless_images: bool = Form(default=False),
-                              search: str = Form(default="")):
+                              search: str = Form(default=""), task: Optional[int] = Form(default=None)):
         """
         Rate your own images' NSFW level - `level` one of nsfw.USER_LEVELS, or
         empty to clear the rating, back to what the prompt gives. Which images:
@@ -849,7 +893,8 @@ def _register(app: FastAPI):
         - `path` and `generation`: a model's "Your generations" card - its
           images that gallery shows, through both its switches;
         - `generation`: a batch of the Generations tab - within the group
-          `in_group` (and `in_subgroup`), if opened from one - its images the tab shows, through
+          `in_group` (and `in_subgroup`), if opened from one, and the task
+          `task` (#401), if inside one - its images the tab shows, through
           its search and the NSFW switch.
 
         Only what the page showed is rated: an image a switch hid, nobody saw.
@@ -874,7 +919,7 @@ def _register(app: FastAPI):
                                                       generation=generation))
                 ids = [r["id"] for r in _filtered(rows, nsfw, hide_promptless_images)[0]]
             elif generation is not None:
-                rows = db.generation_scope_rows(_scope(group, in_group, generation, in_subgroup, search))
+                rows = db.generation_scope_rows(_scope(group, in_group, generation, in_subgroup, search, task))
                 ids = [r["id"] for r in _filtered(rows, nsfw, False)[0]]
             else:
                 return JSONResponse({"success": False, "error": "Nothing to rate"}, status_code=400)
@@ -882,7 +927,7 @@ def _register(app: FastAPI):
             answer = {"success": True, "rated": rated}
             if image_id is None and not path:
                 # A Generations batch: its tile, as the level now draws it (#239).
-                answer.update(rated_batch(db, nsfw, generation, group, in_group, in_subgroup, search))
+                answer.update(rated_batch(db, nsfw, generation, group, in_group, in_subgroup, search, task))
             if image_id is not None:
                 row = db.get_generation_images([image_id]).get(image_id)
                 if row:
