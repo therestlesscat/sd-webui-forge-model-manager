@@ -2750,10 +2750,20 @@ body.mm-modal-open {
     color: var(--body-text-color-subdued, #9ca3af);
 }
 
-/* What stays yours for a checkpoint of another family (#400), first under the block's heading, in
-   its quieter grey (.mm-usual-note): the block keeps its height, so the note moves nothing. */
+/* What stays yours for a checkpoint of another family (#400), once, above the block's last line, in
+   its quieter grey (.mm-usual-note), and each such entry marked after its name: the block keeps its
+   height, so neither moves anything. */
 .mm-usual-family {
-    margin: 2px 0 6px;
+    margin-top: 6px;
+}
+
+.mm-usual-each-family {
+    font-weight: 400;
+    color: #4b5563;
+}
+
+.dark .mm-usual-each-family {
+    color: var(--body-text-color-subdued, #9ca3af);
 }
 
 .mm-usual-tick {

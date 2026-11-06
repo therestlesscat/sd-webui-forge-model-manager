@@ -1031,6 +1031,9 @@ function dialogListRedrawn() {
 // The block as last drawn, so an answer that changes nothing writes nothing.
 let drawnUsual = { block: null, html: '' };
 
+// The settings the several view gives by value alone: "Euler a", "Karras" say what they are.
+const UNNAMED_IN_SEVERAL = new Set(['sampler', 'schedule_type']);
+
 // Each setting's name, as the block and Forge's controls name it.
 const USUAL_NAMES = { sampler: 'Sampler', schedule_type: 'Schedule type', steps: 'Steps', cfg: 'CFG scale',
                       distilled_cfg: 'Distilled CFG Scale', shift: 'Shift' };
@@ -1102,6 +1105,7 @@ function usualHtml() {
  */
 function severalUsualHtml(line) {
     const rows = new Map(pickRows(line).map((row) => [row.name, row]));
+    const family = otherFamily(line);
     const each = line.ticked.map((name) => {
         const row = rows.get(name);
         const answer = line.usualAnswers.get(name);
@@ -1114,16 +1118,20 @@ function severalUsualHtml(line) {
         else {
             what = (answer.settings || [])
                 .filter((r) => r.value !== null && r.value !== undefined && !r.thin && !r.missing)
-                .map((r) => `${USUAL_NAMES[r.key] || r.key} ${shownValue(r.value)}`).join(' · ');
+                // A sampler and a schedule type read as themselves; a number needs its name.
+                .map((r) => `${UNNAMED_IN_SEVERAL.has(r.key) ? '' : `${USUAL_NAMES[r.key] || r.key} `}${shownValue(r.value)}`)
+                .join(' · ');
         }
         // A file no sync has read: its family, which decides its VAE and text encoders, is read then.
         if (row && !row.read) what += ' Its family is read when you queue.';
-        return `<div class="mm-usual-each"><span class="mm-usual-each-name">${escapeHtml(row ? pickRowName(row) : name)}</span>`
+        const mark = family?.names.has(name) ? '<span class="mm-usual-each-family"> · another family</span>' : '';
+        return `<div class="mm-usual-each"><span class="mm-usual-each-name">${escapeHtml(row ? pickRowName(row) : name)}${mark}</span>`
             + `<span class="mm-usual-each-what">${escapeHtml(what)}</span></div>`;
     }).join('');
-    const family = pickNote(line);
-    return `<div class="mm-usual-head">What each runs with</div>${
-        family ? `<div class="mm-usual-note mm-usual-family" data-family-note>${escapeHtml(family)}</div>` : ''}${each}`
+    const note = family ? `Of another family than ${pickRowName(family.first)}: the size, the prompt and its LoRAs, `
+                          + 'ADetailer, ControlNet and Diffusion in Low Bits stay as you set them.' : '';
+    return `<div class="mm-usual-head">What each runs with</div>${each}${
+        note ? `<div class="mm-usual-note mm-usual-family" data-family-note>${escapeHtml(note)}</div>` : ''}`
         + '<div class="mm-usual-from">A setting too few uses record, or one this WebUI lacks, stays as you set it. '
         + 'Hires fix follows each run\'s sampler, schedule type, CFG, and Distilled CFG or Shift.</div>';
 }
@@ -1253,27 +1261,20 @@ function tickInDialog(name, input) {
     redrawUsual();
 }
 
-/** Words as a sentence lists them: "a", "a and b", "a, b and c". */
-function listNames(names) {
-    return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0] || '';
-}
-
 /**
- * With ticks of more than one family, what stays as you set it for those of
- * another family than the first, which Send loads - usual settings record
- * none of it: the first line of the block's several view. Under the list,
- * the room kept for it was 38 px of empty space with Select several ticked,
- * and the dialog grew and shrank as the box was ticked and unticked.
+ * With ticks of more than one family: the first ticked, which Send loads, and
+ * the names of those of another family, for which the size, the prompt and the
+ * rest stay as you set them - usual settings record none of it. The block's
+ * several view marks each, and says so once, above its last line: a sentence
+ * naming each grew with every tick. Null for ticks of one family.
  */
-function pickNote(line) {
-    if (!(line.ticked?.length > 1)) return '';
+function otherFamily(line) {
+    if (!(line.ticked?.length > 1)) return null;
     const rows = new Map(pickRows(line).map((row) => [row.name, row]));
     const first = rows.get(line.ticked[0]);
     const others = line.ticked.slice(1).map((name) => rows.get(name))
         .filter((row) => row?.family && first?.family && row.family !== first.family);
-    if (!others.length) return '';
-    return `The size, the prompt and its LoRAs, ADetailer, ControlNet and Diffusion in Low Bits stay as you set them `
-        + `for ${listNames(others.map(pickRowName))}, of another family than ${pickRowName(first)}.`;
+    return others.length ? { first, names: new Set(others.map((row) => row.name)) } : null;
 }
 
 // The dialog's Send: closed, and the image sent - with the checkpoint picked,

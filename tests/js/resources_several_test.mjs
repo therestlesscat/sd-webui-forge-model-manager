@@ -96,7 +96,7 @@ const rowOf = (name) => [...(modal()?.querySelectorAll('.mm-pick-row') || [])].f
 const runs = (name) => {
     const label = rowOf(name)?.querySelector('.mm-pick-name')?.textContent.replace(/\s+/g, ' ').trim();
     const entry = [...(block()?.querySelectorAll('.mm-usual-each') || [])]
-        .find((e) => e.querySelector('.mm-usual-each-name')?.textContent === label);
+        .find((e) => e.querySelector('.mm-usual-each-name')?.firstChild?.textContent === label);
     return entry?.querySelector('.mm-usual-each-what')?.textContent || '';
 };
 const answered = (name) => Boolean(runs(name)) && !runs(name).startsWith('Reading');
@@ -183,7 +183,7 @@ check('the block lists what each runs with, with no tick; Hires fix following ea
        [...block().querySelectorAll('.mm-usual-each')].map((e) => [e.querySelector('.mm-usual-each-name')?.textContent,
                                                                      e.querySelector('.mm-usual-each-what')?.textContent]),
        block().querySelector('.mm-usual-from')?.textContent],
-      [false, 'What each runs with', [['Anime Mix v12', 'Sampler DPM++ 2M · Schedule type Karras · Steps 20 · CFG scale 7'],
+      [false, 'What each runs with', [['Anime Mix v12', 'DPM++ 2M · Karras · Steps 20 · CFG scale 7'],
                                        ['Real v2', 'Steps 25 · CFG scale 4']],
        'A setting too few uses record, or one this WebUI lacks, stays as you set it. Hires fix follows each run\'s '
        + 'sampler, schedule type, CFG, and Distilled CFG or Shift.']);
@@ -201,19 +201,28 @@ check('and still no ticked row takes a line more', [OWN.name, LEAN.name, UNREAD.
 check('all of one family, or not known: nothing under the list', note(), '');
 tick(FLUX.name);
 await waitFor('its answer', () => answered(FLUX.name));
-check('a checkpoint of another family than the first: first under the block\'s heading, a note in its own grey',
-      [block()?.querySelector('.mm-usual-head')?.nextElementSibling?.matches('[data-family-note].mm-usual-note'),
-       Boolean(modal()?.querySelector('.mm-pick-area > [data-family-note]'))], [true, false]);
-check('and it says what stays yours for it',
-      note(), 'The size, the prompt and its LoRAs, ADetailer, ControlNet and Diffusion in Low Bits stay as you set them '
-              + 'for Flux Dev fp8, of another family than Anime Mix v12.');
+const familyNote = () => block()?.querySelector('[data-family-note]');
+check('a checkpoint of another family than the first: a note in its own grey, after the entries, above the last line',
+      [familyNote()?.matches('.mm-usual-note'), familyNote()?.previousElementSibling?.classList.contains('mm-usual-each'),
+       familyNote()?.nextElementSibling?.classList.contains('mm-usual-from'),
+       Boolean(modal()?.querySelector('.mm-pick-area > [data-family-note]'))], [true, true, true, false]);
+check('it names the first ticked alone, whatever else is ticked, and says what stays yours',
+      note(), 'Of another family than Anime Mix v12: the size, the prompt and its LoRAs, ADetailer, ControlNet and '
+              + 'Diffusion in Low Bits stay as you set them.');
+const marks = () => [...(block()?.querySelectorAll('.mm-usual-each') || [])]
+    .map((e) => [e.querySelector('.mm-usual-each-name')?.firstChild?.textContent,
+                 e.querySelector('.mm-usual-each-family')?.textContent || '']);
+check('the entry of another family is marked after its name; the others are not',
+      marks(), [['Anime Mix v12', ''], ['Real v2', ''], ['Own v1', ''], ['Lean v1', ''], ['newMerge.safetensors', ''],
+                ['Flux Dev fp8', ' · another family']]);
 check('every ticked one\'s usual settings asked once', usualAsked.slice().sort(),
       [MIX.name, REAL.name, FLUX.name, OWN.name, LEAN.name, UNREAD.name].sort());
 for (const name of [MIX.name, REAL.name, OWN.name, LEAN.name, UNREAD.name]) tick(name, false);
 tick(MIX.name);
 check('the family judged against the first ticked, not the image\'s: Flux first, Anime Mix is the other family',
-      note(), 'The size, the prompt and its LoRAs, ADetailer, ControlNet and Diffusion in Low Bits stay as you set them '
-              + 'for Anime Mix v12, of another family than Flux Dev fp8.');
+      [note(), marks()], ['Of another family than Flux Dev fp8: the size, the prompt and its LoRAs, ADetailer, ControlNet '
+                          + 'and Diffusion in Low Bits stay as you set them.',
+                          [['Flux Dev fp8', ''], ['Anime Mix v12', ' · another family']]]);
 tick(FLUX.name, false);
 tick(REAL.name);
 check('back to two of one family: their notes and the line as they should be, the Send line counting two',
