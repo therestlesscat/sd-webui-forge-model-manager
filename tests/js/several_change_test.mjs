@@ -207,18 +207,19 @@ check('and its ticks stay as the mode holds them: Use these keeps the list', [wi
 listFails = false;
 act('several.change');
 await waitFor('the list in the window', () => inputs().length);
+settingOn = false;
 window.dispatchEvent(new window.CustomEvent('mm-settings-saved', {
     detail: { changed: ['model_manager_queue_several'], settings: { model_manager_queue_several: { value: false } } } }));
-check('the setting turned off with the window open: the window closed, the mode ended', [win(), severalList()],
-      [null, null]);
-
-// The Queue switched off with the window open: the mode and the window go with it.
-settingOn = true;
-window.dispatchEvent(new window.CustomEvent('mm-settings-saved', {
-    detail: { changed: ['model_manager_queue_several'], settings: { model_manager_queue_several: { value: true } } } }));
+await new Promise((resolve) => setTimeout(resolve, 20));
+check('the setting turned off with the window open - it only starts the Resources dialog\'s box: the window stays, '
+      + 'the mode holds', [Boolean(win()), severalList()?.names], [true, [DREAM, FLUX]]);
+use()?.click();
+// The setting stays off from here: Load to UI enters the mode all the same.
 // ---------------- a name Forge does not list, a family this WebUI cannot run
 await loadTask(32);
-act('several.change');
+check('the setting off: Load to UI of a task of several enters the mode all the same', severalList()?.names.length, 3);
+// Pressed only where the strip offers it: a mode not entered fails the checks after, not the suite.
+if (strip()) act('several.change');
 await waitFor('the list in the window', () => inputs().length);
 const subOf = (name) => inputOf(name)?.closest('.mm-pick-row')?.querySelector('.mm-pick-sub')?.textContent;
 check('a ticked name Forge does not list: a row of its own, first, ticked, saying so, open to untick',
@@ -232,7 +233,7 @@ tick(DREAM, true);
 use()?.click();
 check('both let go, the list is what is ticked', severalList()?.names, [ANIME, DREAM]);
 await loadTask(30);
-act('several.change');
+if (strip()) act('several.change');
 await waitFor('the list in the window', () => inputs().length);
 window.dispatchEvent(new window.CustomEvent('mm-settings-saved', {
     detail: { changed: ['model_manager_queue_enabled'], settings: { model_manager_queue_enabled: { value: false } } } }));

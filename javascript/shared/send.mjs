@@ -34,7 +34,6 @@ const { showImageResources } = await shared('resources.mjs');
 const { refreshWebUiModelList, forgeCalls } = await shared('forge.mjs');
 const { showProgress } = await shared('dialog.mjs');
 const { ready, call } = await shared('calls.mjs');
-const { SEVERAL_SETTING } = await shared('ui_options.mjs');
 
 // The highest Clip skip Send takes from an image (#339), which its notice links to (#320).
 const CLIP_SKIP_MAX_SETTING = 'model_manager_send_clip_skip_max';
@@ -892,23 +891,15 @@ export async function loadTask(taskId) {
     }
     showGenerationTab(tab, answer.mode);
     // A task of several checkpoints (#400): txt2img holds them all, in
-    // several mode, while its setting is on; with it off, the first alone is
-    // set up, and said.
+    // several mode, whatever the setting, which only starts the Resources
+    // dialog's box; where the mode cannot hold, the first alone is set up, and said.
     const names = (plan.checkpoints || []).filter(Boolean);
     if (tab === 'txt2img' && names.length > 1) {
         const held = ready('several.enter') && await call('several.enter',
                                                            { names, source: { task: Number(taskId) } });
-        const first = `Task #${Number(taskId)} holds ${names.length} checkpoints. Load to UI set up the first.`;
-        if (held === 'off') {
-            // Only the setting is named, and only when it is what kept the mode out.
-            const rest = ' to queue them all again.';
-            showNotice(`${first} Turn on Queue a generation with several checkpoints${rest}`, {
-                info: true,
-                html: `${escapeHtml(`${first} Turn on `)}${
-                    settingLink(SEVERAL_SETTING, 'Queue a generation with several checkpoints')}${escapeHtml(rest)}`,
-            });
-        } else if (held !== true) {
-            showNotice(first, { info: true });
+        if (held !== true) {
+            showNotice(`Task #${Number(taskId)} holds ${names.length} checkpoints. Load to UI set up the first.`,
+                       { info: true });
         }
     }
     // Its canvases through the mode's own button (#34, #299).
@@ -1190,15 +1181,7 @@ async function sendThenSeveral(send, names, { source = null, labels = null, list
         return sent;
     }
     const held = ready('several.enter') && await call('several.enter', { names, source, labels, listParams });
-    if (held === 'off') {
-        const said = `Sent with ${first}. Turn on `;
-        const rest = ` to queue all ${names.length}.`;
-        showNotice(`${said}Queue a generation with several checkpoints${rest}`, {
-            info: true,
-            html: `${escapeHtml(said)}${settingLink(SEVERAL_SETTING, 'Queue a generation with several checkpoints')}`
-                  + escapeHtml(rest),
-        });
-    } else if (held !== true) {
+    if (held !== true) {
         showNotice(`Sent with ${first}. Queuing several checkpoints needs a reload of this page: the Queue was `
                    + 'switched off and on in it.', { info: true });
     }

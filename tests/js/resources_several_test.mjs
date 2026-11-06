@@ -51,7 +51,7 @@ const USUAL = {
 };
 const usualAsked = [];
 // ui-options as the server says them: the setting, the Queue's switch, and whether this start built it.
-const options = { several: true, queueOn: true, built: true };
+const options = { several: true, queueOn: true, built: true, choose: true };
 globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
     const reply = (body, status = 200) => ({ ok: status === 200, status, json: async () => structuredClone(body) });
@@ -73,7 +73,7 @@ globalThis.fetch = async (url, init = {}) => {
         return reply({ success: true, versions: Object.fromEntries(wanted.map(({ version_id: id }) => [id, { model_id: 81 }])) });
     }
     if (href.includes('/ui-options')) {
-        return reply({ success: true, samplers: [], schedulers: [], has_api_key: true, choose_checkpoint: false,
+        return reply({ success: true, samplers: [], schedulers: [], has_api_key: true, choose_checkpoint: options.choose,
                        usual_settings: true, family_names: { xl: 'SDXL', flux: 'Flux', qwen: 'Qwen-Image' },
                        queue_several: options.several, queue_enabled: options.queueOn,
                        tabs: { queue: { on: options.queueOn, built: options.built } } });
@@ -268,6 +268,12 @@ await open();
 check('the setting off, its default: round buttons, nothing under the list, as before', [kinds(), note()], [['radio'], '']);
 close();
 options.several = true;
+options.choose = false;
+await open();
+check('the setting on, Choose the checkpoint at every Send off - nested under it, it does nothing: round buttons',
+      [kinds(), note()], [['radio'], '']);
+close();
+options.choose = true;
 await open('img2img');
 check('a send into img2img: round buttons, nothing under the list - it goes with the loaded checkpoint',
       [kinds(), note()], [['radio'], '']);

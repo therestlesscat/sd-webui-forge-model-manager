@@ -11,16 +11,16 @@
  * loaded - and the server works out each checkpoint's settings from them.
  * Pressed, the mode stays, to change something and queue again.
  *
- * Entered by `several.enter` - Load to UI of a task of several checkpoints -
- * with two names or more, while the setting Queue a generation with several
- * checkpoints is on and the button was made at this start. The strip's
+ * Entered by `several.enter` - Load to UI of a task of several checkpoints,
+ * or a Send with several ticked in the Resources dialog - with two names or
+ * more, while the button was made at this start. The setting Queue a
+ * generation with several checkpoints only starts the dialog's box. The strip's
  * Change opens your checkpoint list in a window of its own, ticked as the
  * mode holds it - the Resources dialog's list, its search and family tabs
  * (resources.mjs) - whose Use these changes the list and sends nothing: the
  * prompt and settings stay as they are. Ended by Leave,
- * `several.leave` - every plain Send calls it - the setting turned off,
- * heard from the settings window and from Forge's Settings page, or the
- * Queue switched off: this service stops with the Queue tab, and its scope
+ * `several.leave` - every plain Send calls it - or the Queue switched off:
+ * this service stops with the Queue tab, and its scope
  * takes the mode back. A reload ends it too: nothing is kept.
  *
  * Generate's click is caught on the way down, only while txt2img shows and
@@ -37,7 +37,6 @@
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 const { apiCall, setText, setTitle } = await shared('core.mjs');
 const { tabShowing } = await shared('tabs.mjs');
-const { uiOptions, refreshUiOptions, SEVERAL_SETTING } = await shared('ui_options.mjs');
 const { addPickList, pickListHtml, pickRowName, pickRows, withUnlisted } = await shared('resources.mjs');
 const { openDialog } = await shared('dialog.mjs');
 
@@ -58,8 +57,6 @@ const KEYS_CLICK_MS = 1000;
 let list = null;            // { names, source, labels, listParams } while in the mode
 // Change's window while open: its element, how to close it, and the list it draws from.
 let changing = null;
-let settingOn = false;
-let settingRead = Promise.resolve();
 let keys = null;            // the last Ctrl+Enter: { at, queues }
 
 const byId = (id) => document.getElementById(id);
@@ -85,17 +82,15 @@ function generating() {
  * once; `source` where they came from, as the press hands it to the server -
  * `{task}` or `{image}`; `labels`, how the strip names each, where known;
  * `listParams`, what Change asks the list of your checkpoints with, so it
- * suggests as the Resources dialog did. Answers true once held. Otherwise
- * the mode is left, and it answers why: 'off', the setting is off - the
- * caller says so - or false, fewer than two names or no button made at this
- * start.
+ * suggests as the Resources dialog did. Answers true once held; otherwise
+ * the mode is left, and it answers false: fewer than two names, or no button
+ * made at this start.
  */
 async function enter({ names, source = null, labels = null, listParams = null } = {}) {
     const unique = [...new Set((Array.isArray(names) ? names : []).filter((n) => typeof n === 'string' && n))];
-    await settingRead;
-    if (unique.length < 2 || !settingOn || !byId(BUTTON)) {
+    if (unique.length < 2 || !byId(BUTTON)) {
         leave();
-        return unique.length >= 2 && !settingOn ? 'off' : false;
+        return false;
     }
     const object = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : null);
     list = { names: unique, source: object(source), labels: { ...object(labels) }, listParams: { ...object(listParams) } };
@@ -242,12 +237,6 @@ function useTicked() {
     draw();
 }
 
-/** The setting as now said: turned off, the mode ends. */
-function takeSetting(value) {
-    settingOn = value === true;
-    if (!settingOn) leave();
-}
-
 /**
  * Generate's click, on its way down: in the mode, the person's becomes Queue
  * for N checkpoints. The one Ctrl+Enter makes while Change's window is open
@@ -290,7 +279,6 @@ export function severalList() {
 }
 
 export function start(scope) {
-    settingRead = uiOptions().then((data) => { settingOn = data?.queue_several === true; });
     scope.provide('several.enter', (args) => enter(args));
     scope.provide('several.leave', () => leave());
     scope.provide('several.change', () => openChange());
@@ -298,16 +286,6 @@ export function start(scope) {
     // Caught on the way down, before Forge's own listeners and the Queue tab's.
     scope.listen(document, 'keydown', onKeys, true);
     scope.listen(document, 'click', onGenerate, true);
-    scope.listen(window, 'mm-settings-saved', (event) => {
-        const value = event.detail?.settings?.[SEVERAL_SETTING]?.value;
-        if (value !== undefined) takeSetting(value);
-    });
-    scope.listen(window, 'mm-settings-page-applied', (event) => {
-        if (!(event.detail?.changed || []).includes(SEVERAL_SETTING)) return;
-        refreshUiOptions();
-        // A Load to UI meanwhile waits for this answer, not the one before.
-        settingRead = uiOptions().then((data) => takeSetting(data?.queue_several === true));
-    });
     scope.afterUpdate(draw);
     // The Queue switched off: Generate back at once, Change's window closed.
     scope.onStop(() => {

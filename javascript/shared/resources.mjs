@@ -502,14 +502,15 @@ function startSendLine(send) {
 
 /**
  * Whether the line ticks several checkpoints (#400): the setting Queue a
- * generation with several checkpoints on, the Queue on and built at this
+ * generation with several checkpoints on - nested under Choose the checkpoint
+ * at every Send, it does nothing while that is off - the Queue on and built at this
  * start - its button is made only as the WebUI starts - and the send going
  * into txt2img. With the setting on and the Queue off, or turned on since,
  * the list keeps its round buttons and says what to do. Decided as the
  * dialog opens: a dialog open keeps what it started with.
  */
 function startSeveral(line, data) {
-    const wanted = data?.queue_several === true && line.tab === 'txt2img';
+    const wanted = data?.queue_several === true && data?.choose_checkpoint === true && line.tab === 'txt2img';
     const queue = data?.tabs?.queue;
     const queueOn = data?.queue_enabled !== false && queue?.on !== false;
     line.several = wanted && queueOn && queue?.built === true;

@@ -365,7 +365,9 @@ SETTINGS: Tuple[Setting, ...] = (
             "Queue that makes your generation with each checkpoint in turn. Each checkpoint but the image's own, or "
             "the same file, runs with its usual settings where it has them - sampler, schedule type, steps, CFG and "
             "Distilled CFG or Shift, with Hires fix following them - in place of yours. When off, the list picks "
-            "one checkpoint, as before.", (SEND,), needs=(Q,)),
+            "one checkpoint, as before. It applies while Choose the checkpoint at every Send is on. A task of several "
+            "checkpoints loads back into txt2img whole with Load to UI, whatever this says.",
+            (CI, GEN, SEND), under=("model_manager_send_choose_checkpoint", True), needs=(Q,)),
     Setting("model_manager_send_usual_settings", "send", "checkbox",
             "Send with a picked checkpoint's usual settings by default",
             "Send uses a picked checkpoint's usual settings by default",

@@ -109,13 +109,6 @@ check('it lands in img2img: several mode is not entered, and it says, last, that
 
 // ----------------------------------------------------- several mode refuses
 clearNotices();
-enterAnswer = 'off';
-await generation().pickSeveral(NAMES, 81, ENTERING);
-check('the setting off as several mode knows it: said, the setting\'s name a link to it',
-      [notices(), document.querySelector('.mm-notice [data-action="settings.open"]')?.dataset.focus],
-      [['Sent with Anime Mix v12. Turn on Queue a generation with several checkpoints to queue all 2.'],
-       'model_manager_queue_several']);
-clearNotices();
 calls.withdraw('several.enter', enter);
 await generation().pickSeveral(NAMES, 81, ENTERING);
 check('several mode not started in this page: said, with what to do', notices(),

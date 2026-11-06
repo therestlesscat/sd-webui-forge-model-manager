@@ -534,12 +534,13 @@ check('What\'s new is not a setting: a search leaves it out', whatsNew().hidden,
 check('searching shows only what matches', ORDER.filter(shown), ['model_manager_preview_least_nsfw']);
 // A tab's name finds the settings that act in it, by their tags (#320).
 type($('#mm_settings_search'), 'queue tab');
-// Word by word, two more hold both words apart: How many gallery images load in parallel
-// ("queues the rest", "the Civitai Images tab"), and How many downloads in parallel ("in the
-// queue", and "Tab" in its tags).
+// Word by word, three more hold both words apart: How many gallery images load in parallel
+// ("queues the rest", "the Civitai Images tab"), How many downloads in parallel ("in the
+// queue", and "Tab" in its tags), and Queue a generation with several checkpoints ("in the
+// Queue", and "Tab" in its tags).
 check('a tab\'s name finds what acts in it', ORDER.filter(shown),
       ['model_manager_queue_enabled', 'model_manager_civitai_images_at_once', 'model_manager_downloads_at_once',
-       'model_manager_database_path', 'model_manager_queue_inputs_dir', 'model_manager_queue_ask_above',
+       'model_manager_queue_several', 'model_manager_database_path', 'model_manager_queue_inputs_dir', 'model_manager_queue_ask_above',
        'model_manager_check_updates']);
 // Every word typed, in any order (#320): as one piece, "queue folder" found nothing.
 type($('#mm_settings_search'), 'queue folder');

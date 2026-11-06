@@ -236,28 +236,22 @@ await loadTask(31);
 check('Load to UI of a task of one, a plain Send: the mode ends', [inMode(), strip(), severalList()], [false, null, null]);
 
 // ------------------------------------------------------------- the setting
+// It only starts the Resources dialog's box: turned off, the mode holds, and Load to UI enters it.
 await loadTask(30);
+settingOn = false;
 window.dispatchEvent(new window.CustomEvent('mm-settings-saved', {
     detail: { changed: ['model_manager_queue_several'], settings: { model_manager_queue_several: { value: false } } } }));
-check('the setting turned off in the settings window: the mode ends', [inMode(), strip()], [false, null]);
-clearNotices();
-await loadTask(30);
-check('Load to UI then sets up the first alone, and says the task holds more',
-      [inMode(), severalList(), notices()],
-      [false, null, ['Task #30 holds 3 checkpoints. Load to UI set up the first. Turn on Queue a generation with '
-                     + 'several checkpoints to queue them all again.']]);
-check('the setting\'s name opens it in the settings window',
-      document.querySelector('.mm-notice [data-action="settings.open"]')?.dataset.focus, 'model_manager_queue_several');
-
-settingOn = true;
+await new Promise((resolve) => setTimeout(resolve, 20));
+check('the setting turned off in the settings window: the mode holds', [inMode(), severalList()?.names], [true, NAMES]);
 window.dispatchEvent(new window.CustomEvent('mm-settings-page-applied', { detail: { changed: ['model_manager_queue_several'] } }));
 await new Promise((resolve) => setTimeout(resolve, 20));
+check('and turned off on Forge\'s Settings page: the mode holds', inMode(), true);
+await loadTask(31);
+clearNotices();
 await loadTask(30);
-check('turned on on Forge\'s Settings page, Load to UI enters the mode again', inMode(), true);
-settingOn = false;
-window.dispatchEvent(new window.CustomEvent('mm-settings-page-applied', { detail: { changed: ['model_manager_queue_several'] } }));
-await waitFor('the mode to end', () => !inMode());
-check('turned off there: the mode ends', [inMode(), strip()], [false, null]);
+check('with it off, Load to UI of a task of several enters the mode, and says nothing of the setting',
+      [inMode(), severalList()?.names, notices()], [true, NAMES, []]);
+await loadTask(31);
 
 // With the setting on but no Queue for N checkpoints made at this start, the
 // mode cannot hold: the first is set up, and the notice names no setting.

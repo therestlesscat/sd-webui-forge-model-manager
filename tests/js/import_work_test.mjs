@@ -92,10 +92,9 @@ const STARTED = {
     // Its work wraps the page's fetch, which nothing here counts: forge_refresh_test.mjs.
     'forge.mjs': [],
     // Several mode (#400): Generate's click and Ctrl+Enter caught on their way
-    // down, the setting heard, the strip drawn again after each update.
+    // down, the strip drawn again after each update.
     'several.mjs': ['document listener: click', 'document listener: keydown', 'onAfterUiUpdate',
-                    'provide several.change', 'provide several.enter', 'provide several.leave',
-                    'window listener: mm-settings-page-applied', 'window listener: mm-settings-saved'],
+                    'provide several.change', 'provide several.enter', 'provide several.leave'],
 };
 // Each started as a tab starts it, through the loading module (#186): with a
 // scope of its own, once for the page however many tabs use it.
