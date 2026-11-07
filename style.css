@@ -2315,12 +2315,56 @@ body.mm-modal-open {
     text-align: right;
 }
 
-/* With the list of your checkpoints, the resources and the foot are two rows of one height - the
-   taller one's, shared out while the dialog is held to its 80% - each scrolling inside. The
-   foot's own share was what it held, and the resources took what was left. */
+/* With the list of your checkpoints, the dialog stands at its 80% cap whatever it holds. The
+   resources take their own height up to half of what is left under the 65 px header (40vh less
+   32px), scrolling past it; the foot takes the rest - half at least, more when the resources
+   are few - scrolling inside too (#405). Two rows of one height kept half the dialog for one
+   or two resources while the foot under them scrolled. */
 .mm-resources-modal:has(.mm-pick-area) {
     display: grid;
-    grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr);
+    height: 80vh;
+    grid-template-rows: auto fit-content(calc(40vh - 32px)) minmax(0, 1fr);
+}
+
+/* What the foot has beyond what it holds goes to the list of your checkpoints (#405): the foot
+   and its wrap are columns, the list's box grows into them, and its rows take the growth - 300 px
+   at least, as before. The rows' height is the dialog's to give, not theirs: a tab, a pick or a
+   tick moves nothing. Without it the room stood empty under Send, 428 px at a 1,400 px page.
+   From the top: a modal footer's flex-end, in a column, ran a foot taller than its row up over
+   the resources, out of the scroll's reach. */
+.mm-resources-modal:has(.mm-pick-area) .mm-resources-foot,
+.mm-resources-modal:has(.mm-pick-area) .mm-resources-send-wrap {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+}
+
+.mm-resources-modal:has(.mm-pick-area) .mm-resources-send-wrap,
+.mm-resources-modal:has(.mm-pick-area) .mm-pick-area {
+    flex: 1 0 auto;
+}
+
+.mm-resources-modal:has(.mm-pick-area) .mm-pick-area {
+    grid-template-rows: auto auto minmax(300px, 1fr);
+}
+
+/* The rows, and the block beside them, have no height of their own, only the one the dialog
+   gives: sized by what they held, a tab of 17 checkpoints grew the list to its last row, and
+   the whole foot scrolled while the block kept a scrollbar of its own and its 300 px, its rule
+   short of the rows. Each scrolls inside. */
+.mm-resources-modal:has(.mm-pick-area) .mm-pick-area .mm-pick-rows,
+.mm-resources-modal:has(.mm-pick-area) .mm-pick-area > .mm-usual {
+    contain: size;
+}
+
+.mm-resources-modal:has(.mm-pick-area) .mm-pick-area .mm-pick-rows {
+    height: auto;
+    min-height: 300px;
+    align-self: stretch;
+}
+
+.mm-resources-modal:has(.mm-pick-area) .mm-pick-area > .mm-usual {
+    max-height: none;
 }
 
 /* Room for the scrollbar from the start: the columns stay put when the rows
