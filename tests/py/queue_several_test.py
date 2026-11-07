@@ -31,6 +31,7 @@ webui_stub.install()
 import fixtures                                          # noqa: E402
 import model_manager.db.database as dbmod                # noqa: E402
 from model_manager import forge_host, send, send_plan, usual_settings  # noqa: E402
+from model_manager.architecture import Architecture      # noqa: E402
 from model_manager.install import INSTALL_KEY            # noqa: E402
 from model_manager.scheduler import capture, several  # noqa: E402
 
@@ -75,7 +76,29 @@ def picked_model(db_, path):
 
 
 send_plan.picked_model = picked_model
-send.family_pick = lambda db_, path: PICKS.get(path, ([], []))
+# Files the library holds no row for. Handed nothing, the real family_pick reads
+# a file's family from its row alone, so for one of these it finds none.
+NO_ROW = set()
+FRESH_PRESETS = {}
+
+
+# What each pick was handed, by path, as the real one picks only for the family
+# it is told: handed what another file is, it picks for that one.
+handed = {}
+
+
+def family_pick(db_, path, found=None):
+    handed[path] = found
+    if found is None:
+        family = None if path in NO_ROW else FAMILY.get(path)
+    else:
+        family = found.preset
+    if family != FAMILY.get(path, FRESH_PRESETS.get(path)):
+        return [], []
+    return PICKS.get(path, ([], []))
+
+
+send.family_pick = family_pick
 
 
 def chosen(db_, source):
@@ -181,7 +204,15 @@ open(FRESH, 'wb').close()
 FILES['fresh.safetensors'] = FRESH
 import model_manager.file_identity as file_identity      # noqa: E402
 real_identify = file_identity.identify
-file_identity.identify = lambda path: types.SimpleNamespace(preset='xl' if path == FRESH else None)
+FRESH_FLUX = os.path.join(WORK, 'fresh_flux.safetensors')
+FRESH_CHROMA = os.path.join(WORK, 'fresh_chroma.safetensors')
+for _path in (FRESH_FLUX, FRESH_CHROMA):
+    open(_path, 'wb').close()
+FILES.update({'fresh_flux.safetensors': FRESH_FLUX, 'fresh_chroma.safetensors': FRESH_CHROMA})
+NO_ROW.update({FRESH, FRESH_FLUX, FRESH_CHROMA})
+PICKS.update({FRESH_FLUX: (['ae.safetensors', 't5xxl.safetensors'], []), FRESH_CHROMA: (['ae.safetensors'], ['t5xxl'])})
+FRESH_PRESETS.update({FRESH: 'xl', FRESH_FLUX: 'flux', FRESH_CHROMA: 'chroma'})
+file_identity.identify = lambda path: Architecture(FRESH_PRESETS.get(path), None, False, False)
 try:
     rows = several.checkpoint_rows(db, ['fresh.safetensors'], None, SELECTED)
     fresh = (rows[0]['modules'], rows[0]['settings'])
@@ -189,6 +220,23 @@ except several.Refused as e:
     fresh = str(e)
 check('a file with no library row is read, its family known: here the selected one\'s, the VAE on screen',
       fresh, (SELECTED['modules'], None))
+# Of another family, it gets what Send picks for the family it was read as:
+# picked again from the library's row alone, it got none, and was not refused.
+try:
+    rows = several.checkpoint_rows(db, ['fresh_flux.safetensors'], None, SELECTED)
+    fresh = (rows[0]['modules'], rows[0]['settings'])
+except several.Refused as e:
+    fresh = str(e)
+check('a file with no library row, of another family, gets what Send picks for the family it was read as',
+      fresh, ([r'F:\models\VAE\ae.safetensors', r'F:\models\TE\t5xxl.safetensors'], {'another_family': True}))
+check('the no-row file\'s pick is handed what it was read as, not another file\'s',
+      handed.get(FRESH_FLUX), send_plan.SendModel(preset='flux', source='picked'))
+handed.clear()
+several.checkpoint_rows(db, ['flux.safetensors'], None, SELECTED)
+check('a file with a library row is handed exactly what picked_model read of it, as its pick read for itself before',
+      handed, {FILES['flux.safetensors']: send_plan.SendModel(preset='flux', source='picked')})
+check('a file with no library row, of a family this WebUI lacks a kind for, is refused, naming it',
+      refused(['fresh_chroma.safetensors']), 'fresh_chroma.safetensors needs T5-XXL, which this WebUI does not have.')
 file_identity.identify = real_identify
 
 # The family is judged against the checkpoint Forge has selected, not the

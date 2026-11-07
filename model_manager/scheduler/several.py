@@ -78,17 +78,20 @@ def checkpoint_rows(db, names: List[str], source: Optional[Dict[str, Any]],
         if not forge_host.checkpoint_listed(name):
             raise Refused(f"Forge does not list the checkpoint {name}: refresh its list, or pick another.")
     paths = {name: forge_host.checkpoint_file(name) or "" for name in names}
-    families = {}
+    found = {}
     for name in names:
-        families[name] = _family(db, picked_model, paths[name])
-        if not families[name]:
+        found[name] = _found(db, picked_model, paths[name])
+        if not found[name].preset:
             raise Refused(f"Could not read {os.path.basename(paths[name])}, so its family is not known.")
     plan = plan.selecting(selected)
-    selected_family = _family(db, picked_model, plan.selected_path) if plan.selected_path else None
+    selected_family = _found(db, picked_model, plan.selected_path).preset if plan.selected_path else None
 
     rows = []
     for name in names:
-        run = _decide(db, plan, name, paths[name], families[name], selected_family)
+        # What each file is, as read here, is what its VAE / text encoders are
+        # picked for: read again from the library's row alone, a file no sync
+        # has given a row came out as no family, and was queued with none.
+        run = _decide(db, plan, name, paths[name], found[name].preset, selected_family, found[name])
         settings: Dict[str, Any] = {}
         if run["usual"]:
             settings["usual"] = run["usual"]
@@ -176,17 +179,22 @@ def _decide(db, plan: _Plan, name: str, path: str, family: Optional[str],
     return {"modules": modules, "same": same, "usual": usual}
 
 
-def _family(db, picked_model, path: str) -> Optional[str]:
+def _found(db, picked_model, path: str) -> Any:
     """
-    A checkpoint's family, its UI preset: from the library's row, its file
-    read and stored where no sync has read it; else, for a file the library
-    holds no row for, read without storing - as send.plan_for reads one.
+    What a checkpoint is (a send_plan.SendModel), its family its UI preset:
+    from the library's row, its file read and stored where no sync has read
+    it; else, for a file the library holds no row for, read without storing -
+    as send.plan_for reads one.
     """
-    family = picked_model(db, path).preset
-    if not family and path and os.path.isfile(path):
+    found = picked_model(db, path)
+    if not found.preset and path and os.path.isfile(path):
         from ..file_identity import identify
-        family = identify(path).preset
-    return family
+        from ..send_plan import SendModel
+        read = identify(path)
+        found = SendModel(preset=read.preset, model_class=read.model_class,
+                          bundled_text_encoder=bool(read.bundled_text_encoder),
+                          bundled_vae=bool(read.bundled_vae), source="picked")
+    return found
 
 
 def _kind_name(kind: str) -> str:
