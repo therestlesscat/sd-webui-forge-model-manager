@@ -151,6 +151,32 @@ def picked_model(db, path: str) -> SendModel:
     return SendModel(source="picked")
 
 
+# What the library's row says of a file, without reading it (row_model):
+READ = "read"                  # read at the file's modified time now, its family known
+NOT_READ = "not_read"          # no row, never read, or changed since it was
+UNRECOGNISED = "unrecognised"  # read at its modified time now, and no family found
+
+
+def row_model(db, path: str) -> Tuple[SendModel, str]:
+    """
+    What picked_model would answer for a checkpoint, from the library's row
+    alone (#406): no header read, nothing stored, no Wan header read for t2v
+    or i2v - a pick's VAE and text encoders do not need it. With the row's
+    read time against the file's modified time, a stat, which of READ,
+    NOT_READ and UNRECOGNISED it is; a family only for READ.
+    """
+    from .model_dirs import file_modified
+    row = (db.get_version(path) or {}) if path else {}
+    modified = file_modified(path) if path else None
+    if not row or modified is None or row.get("architecture_checked") != modified:
+        return SendModel(source="picked"), NOT_READ
+    if not row.get("architecture"):
+        return SendModel(source="picked"), UNRECOGNISED
+    return SendModel(preset=row["architecture"], model_class=row.get("architecture_class"),
+                     bundled_text_encoder=bool(row.get("bundled_text_encoder")),
+                     bundled_vae=bool(row.get("bundled_vae")), source="picked"), READ
+
+
 def image_checkpoint(db, file_path: str = "", version_ids: List[int] = (), hashes: List[str] = (),
                      model_name: str = "", lookup: Callable[[str, str], Optional[dict]] = None,
                      here: Callable[[str], bool] = None, local: Callable[[], dict] = None,

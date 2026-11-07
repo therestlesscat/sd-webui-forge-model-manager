@@ -159,8 +159,10 @@ def register(app: FastAPI):
         """
         What a checkpoint picked in the Resources dialog is usually run with
         (#378): usual_settings.usual(). `checkpoint` is Forge's name for the
-        pick; the source as send/plan takes it. Reads the library alone: no
-        file, no Civitai.
+        pick; the source as send/plan takes it. Reads the library, and no
+        Civitai. The files of the image's own checkpoint may be read: each
+        whose header was not read at its modified time now is read and
+        stored, as a scan reads it (send_plan.local_checkpoint).
         """
         from ..db import get_models_db
         from ..tabs import on

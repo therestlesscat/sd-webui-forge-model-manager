@@ -14,7 +14,7 @@ a task's data, they go as the Generations tab deletes them.
 """
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, Form
+from fastapi import Body, FastAPI, Form
 from fastapi.responses import JSONResponse
 
 from .. import generation_inputs, thumbnails
@@ -200,6 +200,31 @@ def register(app: FastAPI):
                                  "inputs": tasks.details(task)})
         except Exception as e:
             return failed(e, "Queue task error")
+
+    @app.post("/model-manager/queue/several/runs")
+    @gate("queue")
+    def post_several_runs(body: Any = Body(None)):
+        """
+        What each checkpoint of several mode's list would run with, were it
+        pressed now (#406): Change's window shows it. The body is what the
+        press hands over, {names, source}, read as the press reads it
+        (several.read_asked); a body that is not JSON is FastAPI's own 422,
+        where the press takes text that is not JSON as no names. Reads the
+        library and Forge's lists, and no checkpoint of the list. From an
+        image, the files of the image's own checkpoint may be read: each whose
+        header was not read at its modified time now is read and stored, as
+        the Resources dialog's usual settings read them (usual_settings.usual
+        -> send_plan.local_checkpoint); nothing else is written. See
+        several.runs_preview().
+        """
+        from ..forge_host import selected_models
+        from ..scheduler import several
+        try:
+            names, source = several.read_asked(body)
+            return JSONResponse({"success": True,
+                                 **several.runs_preview(get_models_db(), names, source, selected_models())})
+        except Exception as e:
+            return failed(e, "Several checkpoints' runs error")
 
     @app.post("/model-manager/queue/run-next")
     @gate("queue")
