@@ -147,6 +147,14 @@ def chosen(db, source: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         from .console import say_failure
         say_failure(f"Send: the usual settings could not be read: {e}")
         return None
+    return applied(answer)
+
+
+def applied(answer: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    What of usual()'s answer a run takes, by key, in its order: each value 5
+    or more uses record that this WebUI lists. None for nothing to apply.
+    """
     # A pick they do not apply to answers no settings.
     found = {row["key"]: row["value"] for row in answer.get("settings") or []
              if row.get("value") is not None and not row.get("thin") and not row.get("missing")}

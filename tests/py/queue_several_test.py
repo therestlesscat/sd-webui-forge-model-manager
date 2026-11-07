@@ -155,8 +155,24 @@ check('a source or names that are not what the page sends are taken as none',
 # ------------------------------------------- read before anything is decided
 order.clear()
 several.checkpoint_rows(db, ['photo.safetensors', 'flux.safetensors'], {'image': IMAGE}, SELECTED)
-check("every checkpoint's file is read before any row's usual settings are asked",
-      [kind for kind, _ in order], ['read', 'read', 'read', 'usual', 'usual'])
+check("every checkpoint's file is read before any row's usual settings are asked: the names', in order, "
+      "then the selected one's",
+      order, [('read', FILES['photo.safetensors']), ('read', FILES['flux.safetensors']),
+              ('read', FILES['anime.safetensors']), ('usual', 'photo.safetensors'), ('usual', 'flux.safetensors')])
+# A refused press reads nothing past its refusal.
+order.clear()
+refused(['photo.safetensors', 'gone.safetensors'])
+check('a name Forge does not list is refused before any file is read', order, [])
+order.clear()
+refused(['photo.safetensors', 'unread.safetensors', 'flux.safetensors'])
+check("a file whose family cannot be read is refused before the next name's file or the selected one's is read",
+      order, [('read', FILES['photo.safetensors']), ('read', FILES['unread.safetensors'])])
+order.clear()
+refused(['photo.safetensors', 'chroma.safetensors', 'flux.safetensors'])
+check("a family lacking a kind is refused before its own usual settings, or the next name's, are asked",
+      order, [('read', FILES['photo.safetensors']), ('read', FILES['chroma.safetensors']),
+              ('read', FILES['flux.safetensors']), ('read', FILES['anime.safetensors']),
+              ('usual', 'photo.safetensors')])
 
 # A file Forge lists that the library holds no row for - put in a folder since
 # the last sync - is read as Send reads one, not refused.

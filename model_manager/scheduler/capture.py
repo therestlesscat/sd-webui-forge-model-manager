@@ -39,7 +39,6 @@ and keeps them under Forge's id for the run until the recorder writes them
 with the generation (generations.py). Its Send sets them back as Load to UI
 sets a task's.
 """
-import json
 import os
 import shutil
 import uuid
@@ -310,18 +309,11 @@ def _several_handler(tab: str, own, others, inputs, run_next: Optional[Callable]
     from . import several
 
     def queue_several(request: gr.Request, *values):
+        names, source = several.read_asked(values[-1])
         try:
-            asked = json.loads(values[-1] or "{}")
-        except (TypeError, ValueError):
-            asked = {}
-        if not isinstance(asked, dict):
-            asked = {}
-        try:
-            names = asked.get("names")
             db = get_models_db()
-            rows = several.checkpoint_rows(db, names if isinstance(names, list) else [],
-                                           asked.get("source"), selected_models())
-            gone = several.gone_task(db, asked.get("source"))
+            rows = several.checkpoint_rows(db, names, source, selected_models())
+            gone = several.gone_task(db, source)
             task_id, prompt = capture(tab, own, others, inputs, values[:-1],
                                       getattr(request, "username", None), checkpoints=rows)
         except several.Refused as e:

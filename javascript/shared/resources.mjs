@@ -1116,21 +1116,46 @@ function severalUsualHtml(line) {
         else if (!answer.applies) what = 'Runs as made, with the image\'s settings.';
         else if (!usualApplies(answer)) what = 'Runs with your settings: too few uses record its own.';
         else {
-            what = (answer.settings || [])
+            what = usualValuesText(Object.fromEntries((answer.settings || [])
                 .filter((r) => r.value !== null && r.value !== undefined && !r.thin && !r.missing)
-                // A sampler and a schedule type read as themselves; a number needs its name.
-                .map((r) => `${UNNAMED_IN_SEVERAL.has(r.key) ? '' : `${USUAL_NAMES[r.key] || r.key} `}${shownValue(r.value)}`)
-                .join(' · ');
+                .map((r) => [r.key, r.value])));
         }
         // A file no sync has read: its family, which decides its VAE and text encoders, is read then.
         if (row && !row.read) what += ' Its family is read when you queue.';
-        const mark = family?.names.has(name) ? '<span class="mm-usual-each-family"> · another family</span>' : '';
-        return `<div class="mm-usual-each"><span class="mm-usual-each-name">${escapeHtml(row ? pickRowName(row) : name)}${mark}</span>`
-            + `<span class="mm-usual-each-what">${escapeHtml(what)}</span></div>`;
-    }).join('');
+        return { name: row ? pickRowName(row) : name, another: Boolean(family?.names.has(name)), what };
+    });
     const note = family ? `Of another family than ${pickRowName(family.first)}: the size, the prompt and its LoRAs, `
                           + 'ADetailer, ControlNet and Diffusion in Low Bits stay as you set them.' : '';
-    return `<div class="mm-usual-head">What each runs with</div>${each}${
+    return severalEachHtml({ entries: each, note });
+}
+
+/**
+ * A pick's usual settings as a line of the several view says them, by key in
+ * their order: "DPM++ 2M · Karras · Steps 30 · CFG scale 5". Change's window
+ * (#406) says them so too.
+ */
+export function usualValuesText(values) {
+    return Object.entries(values || {})
+        // A sampler and a schedule type read as themselves; a number needs its name.
+        .map(([key, value]) => `${UNNAMED_IN_SEVERAL.has(key) ? '' : `${USUAL_NAMES[key] || key} `}${shownValue(value)}`)
+        .join(' · ');
+}
+
+/**
+ * The several view's markup from the lines it is handed: the heading, a line
+ * per ticked checkpoint - `{name, another, what}`, marked when of another
+ * family - then `after`, lines of its own under them, the family note, and
+ * what stays as you set it. The Resources dialog's and Change's window's
+ * (#406) alike.
+ */
+export function severalEachHtml({ entries = [], note = '', after = [] } = {}) {
+    const each = entries.map(({ name, another, what }) => {
+        const mark = another ? '<span class="mm-usual-each-family"> · another family</span>' : '';
+        return `<div class="mm-usual-each"><span class="mm-usual-each-name">${escapeHtml(name)}${mark}</span>`
+            + `<span class="mm-usual-each-what">${escapeHtml(what)}</span></div>`;
+    }).join('');
+    const below = after.map((text) => `<div class="mm-usual-note">${escapeHtml(text)}</div>`).join('');
+    return `<div class="mm-usual-head">What each runs with</div>${each}${below}${
         note ? `<div class="mm-usual-note mm-usual-family" data-family-note>${escapeHtml(note)}</div>` : ''}`
         + '<div class="mm-usual-from">A setting too few uses record, or one this WebUI lacks, stays as you set it. '
         + 'Hires fix follows each run\'s sampler, schedule type, CFG, and Distilled CFG or Shift.</div>';

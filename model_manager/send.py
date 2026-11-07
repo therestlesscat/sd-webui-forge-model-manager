@@ -235,17 +235,20 @@ def family_modules(db, path: str) -> List[str]:
     return family_pick(db, path)[0]
 
 
-def family_pick(db, path: str) -> Tuple[List[str], List[str]]:
+def family_pick(db, path: str, found: Any = None) -> Tuple[List[str], List[str]]:
     """
     family_modules(), with the kinds of module the family needs that Forge
     offers none of: a press of Queue for several checkpoints (#400) refuses
-    to run one without them, where Send names them.
+    to run one without them, where Send names them. `found`: what the file
+    is, read already (a send_plan.SendModel); without it, the file is read
+    as picked_model reads one.
     """
     from .file_identity import classify_file
     from .forge_host import installed_modules, saved_modules
     from .forge_modules import pick, preferred_modules
     from .send_plan import picked_model
-    found = picked_model(db, path)
+    if found is None:
+        found = picked_model(db, path)
     if found.preset in (None, "sd", "xl"):
         return [], []
     installed = installed_modules()

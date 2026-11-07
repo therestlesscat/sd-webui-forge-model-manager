@@ -28,14 +28,32 @@ Then each name's row:
 
 A refusal names what is wrong and saves nothing: Refused.
 """
+import json
 import os
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass, field, replace
+from typing import Any, Dict, List, Optional, Tuple
 
 from .. import forge_host
 
 
 class Refused(Exception):
     """The press cannot be queued as asked: the text says why."""
+
+
+def read_asked(raw: Any) -> Tuple[List[Any], Any]:
+    """
+    The names and the source a press hands over - the strip's data-checkpoints,
+    `{names, source}` as JSON - each taken as none where it is not that shape:
+    text that is not JSON, or not an object, or names that are not a list.
+    """
+    try:
+        asked = json.loads(raw or "{}")
+    except (TypeError, ValueError):
+        asked = {}
+    if not isinstance(asked, dict):
+        asked = {}
+    names = asked.get("names")
+    return (names if isinstance(names, list) else []), asked.get("source")
 
 
 def checkpoint_rows(db, names: List[str], source: Optional[Dict[str, Any]],
@@ -49,24 +67,12 @@ def checkpoint_rows(db, names: List[str], source: Optional[Dict[str, Any]],
             or {"task": <task id>} - or none: a list ticked in txt2img.
         selected: what Forge has selected now (forge_host.selected_models).
     """
-    from ..send import family_pick
     from ..send_plan import picked_model
-    from ..usual_settings import chosen
 
     names = [n for n in dict.fromkeys(names or []) if isinstance(n, str) and n]
     if not names:
         raise Refused("No checkpoint to queue for.")
-    source = source if isinstance(source, dict) else {}
-    held = _task_rows(db, source.get("task"))
-    # And by the file each names: Forge adds a file's hash to its name the
-    # first time it loads it, and Load to UI hands the name it lists the file
-    # under now, so a name the task held may come back renamed.
-    held_files = {}
-    for held_name, held_settings in held.items():
-        held_path = forge_host.checkpoint_file(held_name)
-        if held_path:
-            held_files.setdefault(os.path.normcase(held_path), held_settings)
-    image: Dict[str, Any] = source["image"] if isinstance(source.get("image"), dict) else {}
+    plan = _Plan.of(db, source)
 
     for name in names:
         if not forge_host.checkpoint_listed(name):
@@ -77,42 +83,97 @@ def checkpoint_rows(db, names: List[str], source: Optional[Dict[str, Any]],
         families[name] = _family(db, picked_model, paths[name])
         if not families[name]:
             raise Refused(f"Could not read {os.path.basename(paths[name])}, so its family is not known.")
-    selected_path = forge_host.checkpoint_file(selected.get("checkpoint") or "")
-    selected_family = _family(db, picked_model, selected_path) if selected_path else None
-    # No image and no task behind the list: the selected checkpoint is the one
-    # your settings were set up for, and keeps them.
-    yours = (os.path.normcase(selected_path) if selected_path and not image and source.get("task") is None
-             else None)
+    plan = plan.selecting(selected)
+    selected_family = _family(db, picked_model, plan.selected_path) if plan.selected_path else None
 
     rows = []
     for name in names:
-        path = paths[name]
-        same = families[name] == selected_family
-        if same:
-            modules = list(selected.get("modules") or [])
-        else:
-            labels, missing = family_pick(db, path)
-            if missing:
-                raise Refused(f"{name} needs {_listed([_kind_name(kind) for kind in missing])}, "
-                              f"which this WebUI does not have.")
-            installed = forge_host.installed_modules()
-            modules = [installed[label] for label in labels if label in installed]
-        file_key = os.path.normcase(path) if path else None
-        if yours is not None and file_key == yours:
-            usual = None
-        elif name in held:
-            usual = (held[name] or {}).get("usual")
-        elif file_key in held_files:
-            usual = (held_files[file_key] or {}).get("usual")
-        else:
-            usual = chosen(db, {**image, "usual": True, "use_checkpoint": name})
+        run = _decide(db, plan, name, paths[name], families[name], selected_family)
         settings: Dict[str, Any] = {}
-        if usual:
-            settings["usual"] = usual
-        if not same:
+        if run["usual"]:
+            settings["usual"] = run["usual"]
+        if not run["same"]:
             settings["another_family"] = True
-        rows.append({"checkpoint": name, "modules": modules, "settings": settings or None})
+        rows.append({"checkpoint": name, "modules": run["modules"], "settings": settings or None})
     return rows
+
+
+@dataclass
+class _Plan:
+    """
+    What a list's runs are decided from, worked out without reading any model
+    file: where it came from and what the task held (`of`), then Forge's
+    selection (`selecting`), looked up once every name's file is read.
+    """
+    image: Dict[str, Any]
+    # The task's rows by name, and by the file each names: Forge adds a file's
+    # hash to its name the first time it loads it, and Load to UI hands the name
+    # it lists the file under now, so a name the task held may come back renamed.
+    held: Dict[str, Optional[Dict[str, Any]]]
+    held_files: Dict[str, Optional[Dict[str, Any]]]
+    has_task: bool
+    selected_path: str = ""
+    selected_modules: List[str] = field(default_factory=list)
+    # No image and no task behind the list: the selected checkpoint is the one
+    # your settings were set up for, and keeps them.
+    yours: Optional[str] = None
+
+    @classmethod
+    def of(cls, db, source: Any) -> "_Plan":
+        source = source if isinstance(source, dict) else {}
+        held = _task_rows(db, source.get("task"))
+        held_files: Dict[str, Optional[Dict[str, Any]]] = {}
+        for held_name, held_settings in held.items():
+            held_path = forge_host.checkpoint_file(held_name)
+            if held_path:
+                held_files.setdefault(os.path.normcase(held_path), held_settings)
+        image: Dict[str, Any] = source["image"] if isinstance(source.get("image"), dict) else {}
+        return cls(image=image, held=held, held_files=held_files, has_task=source.get("task") is not None)
+
+    def selecting(self, selected: Dict[str, Any]) -> "_Plan":
+        """This plan with what Forge has selected now (forge_host.selected_models)."""
+        selected_path = forge_host.checkpoint_file(selected.get("checkpoint") or "") or ""
+        yours = os.path.normcase(selected_path) if selected_path and not self.image and not self.has_task else None
+        return replace(self, selected_path=selected_path, selected_modules=list(selected.get("modules") or []),
+                       yours=yours)
+
+
+def _decide(db, plan: _Plan, name: str, path: str, family: Optional[str],
+            selected_family: Optional[str], found: Any = None) -> Dict[str, Any]:
+    """
+    One name's run: its VAE / text encoders - the selection on screen for a
+    checkpoint of the selected one's family, else what Send picks for its own,
+    a family missing a kind refused before anything more is asked - and its
+    usual settings: none for the one your settings were set up for, what the
+    task held for it, or what Send works out for it. {modules, same, usual}.
+    `found`: what the file is, read already (a send_plan.SendModel), for
+    family_pick to take; without it, family_pick reads it as it always has.
+    Imported here, not at the top, so a suite's stand-ins for them are the
+    ones called.
+    """
+    from ..send import family_pick
+    from ..usual_settings import chosen
+
+    same = family == selected_family
+    if same:
+        modules = list(plan.selected_modules)
+    else:
+        labels, missing = family_pick(db, path) if found is None else family_pick(db, path, found)
+        if missing:
+            raise Refused(f"{name} needs {_listed([_kind_name(kind) for kind in missing])}, "
+                          f"which this WebUI does not have.")
+        installed = forge_host.installed_modules()
+        modules = [installed[label] for label in labels if label in installed]
+    file_key = os.path.normcase(path) if path else None
+    if plan.yours is not None and file_key == plan.yours:
+        usual = None
+    elif name in plan.held:
+        usual = (plan.held[name] or {}).get("usual")
+    elif file_key in plan.held_files:
+        usual = (plan.held_files[file_key] or {}).get("usual")
+    else:
+        usual = chosen(db, {**plan.image, "usual": True, "use_checkpoint": name})
+    return {"modules": modules, "same": same, "usual": usual}
 
 
 def _family(db, picked_model, path: str) -> Optional[str]:
