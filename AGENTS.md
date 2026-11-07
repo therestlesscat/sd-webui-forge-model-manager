@@ -640,7 +640,13 @@ tick boxes, measured with the dialog opened in each mode; 0.76.7's Select
 several then switched them in an open dialog, each tick added 44 px to the
 foot (494 against 450), the dialog grew and shrank, and on a window it had
 just fitted the foot took a scrollbar. The owner saw it; 0.76.13 moved the
-note into the usual settings block.
+note into the usual settings block. And a probe of a list's room gives the list
+more rows than the room holds: #405's probe captured the Resources dialog with
+6 checkpoints, which always fit, and passed a build whose rows grew to their
+content - live, a tab of 17 drew them in full, the whole foot scrolled, and the
+settings block kept a scrollbar of its own. The owner's screenshot found it.
+With 46 checkpoints the probe showed it on that build: rows 2,024 px tall, the
+foot scrolling 1,616 to 2,156 px.
 
 ## Conventions
 
