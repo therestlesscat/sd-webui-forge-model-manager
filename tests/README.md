@@ -307,7 +307,8 @@ git-ignored: a probe is local, and written again when needed.
   and dark, at four window sizes. `--dump-dom` prints the page's script too:
   read the result from its element (`id="out">RESULT...`) - grepping for
   `RESULT` alone matched the script's own text in all 48 runs of the first
-  try.
+  try. Markup captured from an open dialog carries `open`: remove it before
+  `showModal()`, which throws on an open dialog and left #406's result empty.
 - **A whole tab module over HTTP.** From `file://`, `queue.mjs` never finished
   loading: `shared/send.mjs` stayed pending, even alone, though each of its
   imports loaded. Served by Windows' `python -m http.server 8765 --bind

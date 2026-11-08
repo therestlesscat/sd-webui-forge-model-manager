@@ -68,16 +68,23 @@ the code (2026-10-16).
   way and approved; 0.54.1 was built from an older read without it, and
   0.54.2 followed (2026-10-08).
 - **A plan round is read by a fresh agent before it goes to the owner.**
-  One agent, handed the doc and pointed at the code and the AGENTS.md
-  files - never the conversation, nor the plan's author's conclusions -
-  looks for what the plan assumes without saying. What it finds is
-  surveyed, and dealt with in the round's one write; the message to the
-  owner names it, and the agent's cost. Side agents caught faults only
-  after building: #259's "unchanged" reads moved into shared helpers,
-  v37's check written as a subset, #269's planned check replaced
-  (2026-11-02, after google/elephant-goldfish-model's "goldfish"
-  reviewers; the plugin, which writes plans to local markdown, was not
-  installed).
+  One agent - or two at once where the plan has two halves, server and
+  page - handed the doc and pointed at the code and the AGENTS.md files -
+  never the conversation, nor the plan's author's conclusions - looks for
+  what the plan assumes without saying. What it finds is surveyed, and
+  dealt with in the round's one write; the message to the owner names it,
+  and the agent's cost. Side agents caught faults only after building:
+  #259's "unchanged" reads moved into shared helpers, v37's check written
+  as a subset, #269's planned check replaced (2026-11-02, after
+  google/elephant-goldfish-model's "goldfish" reviewers; the plugin, which
+  writes plans to local markdown, was not installed). One agent reading the
+  whole plan, every AGENTS.md and the code took 160-235 k tokens, and the
+  owner: "current speed is way too slow" (2026-11-07). Split, each is handed
+  the doc exported to one file, the files and functions to read, about 30
+  tool calls, a numbered list for its report, and the contract between the
+  halves - a route's input and answer - so the seam is read from both sides:
+  #406's two took 4 min 20 s and 5 min 53 s (144,551 and 174,344 tokens),
+  12 findings each.
 - **A build is read against its plan by a fresh agent before the commit.**
   Once `--all` passes, one agent is handed the plan as posted - the Final
   tab, and any later comment on its issue - and the staged diff, never the
@@ -88,6 +95,11 @@ the code (2026-10-16).
   to be read against, and skips it. Every such fault in this file was caught
   by a side agent asked for by chance: #259's moved reads, v37's subset
   check, #269's replaced check, #287's rule changed mid-build (2026-11-02).
+  Two read it at once, split by halves or by question (against the plan;
+  what it reads and writes), where the diff has two halves or passes about
+  400 lines - the owner: "make it the default" (2026-11-07). #406's commit 2,
+  split by question, took 140,414 and 138,027 tokens, under 4 minutes each.
+  Asked first, with the cost, as any two agents are.
 - **A plan doc says what before it says where.** Technical, but not
   overdone: what a part does in plain words first, its code name after - or
   in a closing "Code:" line. More than a few

@@ -24,6 +24,12 @@ Lessons from the routes. What each endpoint module is for is in
   a route needs goes in a POST body, or is not sent at all: the route finds
   it from what was picked. The test client has no such limit, so no suite
   sees it. The original Forge's limit is not measured.
+- **A JSON body is parsed before the gate.** With `Body(...)`, FastAPI
+  answers a body that is not JSON with its own 422 `{"detail": ...}` before
+  `common.gate` runs: with the tab off, 422 where JSON gets 403, and not the
+  failure shape the pages read (`POST /model-manager/queue/several/runs`,
+  run with a test client, #406). `gate`'s wrapper is synchronous, so a route
+  cannot be `async` to read the raw bytes itself.
 
 ## Kept elsewhere, and true here too
 

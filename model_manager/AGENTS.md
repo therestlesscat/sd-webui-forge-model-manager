@@ -451,6 +451,15 @@ LoRAs from); anything that shows one says whose it is (a whole path).
 
 ### The code
 
+- **`picked_model` reads a file and stores what it finds.** #406's first
+  plan said its window's answer "reads no file, writes nothing" while
+  sharing the press's decision, which reads each family through
+  `send_plan.picked_model` -> `_read` -> `record_architecture`: a header
+  read, and an UPDATE of `files`, whenever the file changed since its
+  stored read time. A read-only answer takes the row alone
+  (`send_plan.row_model`). And `usual_settings.usual` from an image reaches
+  `local_checkpoint`, which does the same for the image's own files:
+  `send_usual`'s docstring said "no file" from #378 until #406.
 - **An import inside a function hides a cycle; it does not break it.**
   `architecture` imported `file_identity` that way while `file_identity`
   imported it at the top: one moved line from failing at startup. The cut was

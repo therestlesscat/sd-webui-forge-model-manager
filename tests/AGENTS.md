@@ -154,6 +154,14 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   no wait at all both read 200 tiles of 250, alike, and it passed. Its waits
   now count to the whole level (#272): a wait is for what the check reads,
   never for a time that usually covers it.
+- **An answer held to arrive late says something the newer one does not.**
+  #406's suite held a request and released it after a newer one; its
+  stand-in built the held answer at release, from the same data, and for the
+  names both shared it said what the newer said: a build that kept the older
+  answer passed (a break run). And a wait for "settled" was met by the answer
+  before the one awaited, which still held the names. The held answer is
+  built when asked, with a value of its own, and the wait names a value only
+  the awaited answer has.
 - **A break can be made in memory.** A module hook (`module.registerHooks`,
   or an `--import` preload) rewrites a page module as Node loads it: no file
   is touched, and suites can be proven side by side - #272's five were, at
@@ -182,7 +190,12 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   server's too: `send.your_checkpoints` picks the image's own checkpoint and
   suggests the one Forge has loaded. Two #400 suites answered neither, so
   Change's window opening on Suggested (6a) and the dialog's pre-ticked first
-  tick (6b) went unchecked until each commit's review.
+  tick (6b) went unchecked until each commit's review. And it judges what it
+  is handed: `queue_several_test`'s `family_pick` gave picks by path,
+  whatever family it was handed, and its file with no library row was of
+  the selected one's family, so the press's bug for such a file of another
+  family - no VAE or text encoder, no refusal - never showed from #400 to
+  #406 (0.76.17).
 - **A suite's subject is in its docstring, not its name.** #363's plan put
   NSFW checks in `generations_switch_test` (the Your generations on/off
   switch, #27) and `gallery_count_test` (a refresh's size, #103), going by
