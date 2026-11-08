@@ -6,7 +6,11 @@
 // the order they were ticked, named as the list names them, from where the
 // list came from as before - and sends nothing: no plan asked, no loader
 // pressed, the prompt as it was. Cancel changes nothing. The mode ended -
-// the setting turned off - closes the window.
+// the setting turned off - closes the window. Beside the list, what each
+// ticked one runs with (#406): asked of the server for the whole ticked list
+// at each tick, with the press's own {names, source}, an older answer dropped,
+// a failure shown and asked again at the next tick, each line as the plan says
+// it - and the rows, their scroll and the search box left as they are.
 import { act, bootPage, checker, escape, mountTab, press, sendLoaders, sharedModule, tabsAnswer } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_queue.py');
@@ -55,10 +59,33 @@ const CHECKPOINTS = [row(ANIME, 'xl', 'Anime Mix', 'v12'), row(PHOTO, 'xl', 'Rea
                      row(QWEN, 'qwen', 'Qwen Image', 'v1', { supported: false })];
 let listFails = false;
 const asked = [];
-globalThis.fetch = async (url) => {
+// What each runs with (several.runs_preview), as the server answers it: only
+// the names asked, each from RUN or as a plain usual-settings line, with what
+// ANSWER says beside them. `holdNext` holds the next answer until released.
+const RUN = {};
+let ANSWER = {};
+let runsFail = false;
+let holdNext = null;
+let holdList = null;                    // holds the next answer of your checkpoints' list until released
+const runsAsked = [];
+const plainRun = { how: 'usual', usual: { steps: 20 }, family: 'xl', family_state: 'read', another_family: false,
+                   problem: null };
+globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
     asked.push(href);
     const reply = (body) => ({ ok: true, status: 200, json: async () => structuredClone(body) });
+    if (href.includes('/model-manager/queue/several/runs')) {
+        const body = JSON.parse(init.body || '{}');
+        runsAsked.push(body);
+        // Worked out as asked, then held: a held answer says what was so when it was asked.
+        const answer = runsFail ? { success: false, error: 'the library is busy' }
+            : { success: true, runs: Object.fromEntries(body.names.map((n) => [n, RUN[n] || plainRun])),
+                selected: { name: PHOTO, state: 'read' }, gone_task: null, ...ANSWER };
+        const hold = holdNext;
+        holdNext = null;
+        if (hold) await hold;
+        return reply(answer);
+    }
     if (href.includes('/model-manager/ui-options')) {
         return reply({ success: true, samplers: [], schedulers: [], queue_enabled: true, queue_ask_above: 0,
                        queue_several: settingOn, tabs: tabsAnswer({ queue: true }),
@@ -70,6 +97,9 @@ globalThis.fetch = async (url) => {
                        modules_missing: [], checkpoints: TASKS[task] });
     }
     if (href.includes('/send/checkpoints')) {
+        const hold = holdList;
+        holdList = null;
+        if (hold) await hold;
         if (listFails) return reply({ success: false, error: 'the library is busy' });
         return reply({ success: true, checkpoints: CHECKPOINTS, suggested: [{ name: PHOTO, why: ['loaded now'] }],
                        picked: null, same_base: null, loaded: PHOTO, family: null });
@@ -111,6 +141,27 @@ const search = (text) => {
     box.dispatchEvent(new window.Event('input', { bubbles: true }));
 };
 const listAsks = () => asked.filter((h) => h.includes('/send/checkpoints')).length;
+const column = () => win()?.querySelector('.mm-pick-area > [data-several-runs]');
+/** Each line of the column: the name, whether marked another family, what it runs with. */
+const lines = () => [...(column()?.querySelectorAll('.mm-usual-each') || [])].map((e) => [
+    e.querySelector('.mm-usual-each-name')?.firstChild?.textContent, Boolean(e.querySelector('.mm-usual-each-family')),
+    e.querySelector('.mm-usual-each-what')?.textContent]);
+const under = () => [...(column()?.querySelectorAll('.mm-usual-note:not([data-family-note])') || [])].map((e) => e.textContent);
+const familyNote = () => column()?.querySelector('[data-family-note]')?.textContent ?? null;
+const settled = () => lines().length > 0 && !lines().some(([, , what]) => what.startsWith('Reading'));
+const STAY = 'the size, the prompt and its LoRAs, ADetailer, ControlNet and Diffusion in Low Bits stay as you set them.';
+/** The answer as given, asked afresh by a tick and its untick: the last answer is the one drawn. */
+async function answered(runs, extra = {}) {
+    Object.assign(RUN, runs);
+    ANSWER = extra;
+    tick(DREAM, true);
+    tick(DREAM, false);
+    await waitFor('the column answered afresh', () => settled() && lines().length === 3);
+}
+RUN[ANIME] = { ...plainRun, how: 'held', usual: { steps: 12 } };
+RUN[PHOTO] = { ...plainRun, how: 'held', usual: null };
+RUN[FLUX] = { ...plainRun, how: 'usual', usual: { sampler: 'Euler', schedule_type: 'Simple', steps: 20, distilled_cfg: 3.5 },
+              family: 'flux', another_family: true };
 
 await loadTask(30);
 check('in several mode with the task\'s three', severalList()?.names, [ANIME, PHOTO, FLUX]);
@@ -138,6 +189,131 @@ check('focus starts on Cancel, the safe button, as every window\'s does',
 check('a family this WebUI cannot run: greyed, its box off, saying a queued run could not load it',
       [inputOf(QWEN)?.disabled, inputOf(QWEN)?.closest('.mm-pick-row')?.title],
       [true, 'This WebUI has no UI preset for this checkpoint\'s family, so a queued run could not load it.']);
+
+// ------------------------------------------- what each runs with (#406)
+check('the window\'s message: the prompt stays, what each runs with is shown with the list; Change says so too',
+      [win()?.querySelector('.mm-question-message')?.textContent.replace(/\s+/g, ' ').trim(),
+       strip()?.querySelector('[data-action="several.change"]')?.title],
+      ['Tick each checkpoint to make your generation with; they run in the order you tick them. Your prompt stays as '
+       + 'it is; what each one runs with is shown with the list.',
+       'Tick the checkpoints to queue with, and see what each runs with.']);
+await waitFor('the column\'s answer', settled);
+check('asked once, with the press\'s own names and source, the ticks in the mode\'s order', runsAsked,
+      [{ names: [ANIME, PHOTO, FLUX], source: { task: 30 } }]);
+check('a line per ticked checkpoint, in tick order, named as the list names them, from the answer', lines(),
+      [['Anime Mix v12', false, 'Steps 12 · as in task #30'],
+       ['Real Photo v5', false, 'Runs with your settings, as in task #30.'],
+       ['Flux Dev fp8', true, 'Euler · Simple · Steps 20 · Distilled CFG Scale 3.5']]);
+check('the family note names Forge\'s selected checkpoint', familyNote(),
+      `Of another family than Forge's selected checkpoint, Real Photo v5: ${STAY}`);
+
+// A tick: the whole list asked once; the rows and the search box left as they are.
+const rowsBefore = [...win().querySelectorAll('.mm-pick-row')];
+const searchBox = win().querySelector('.mm-pick-search');
+searchBox.focus();
+runsAsked.length = 0;
+tick(DREAM, true);
+await waitFor('the four lines', () => settled() && lines().length === 4);
+check('a tick asks once, for the whole ticked list, in tick order', runsAsked.map((b) => b.names),
+      [[ANIME, PHOTO, FLUX, DREAM]]);
+const rowsAfter = [...win().querySelectorAll('.mm-pick-row')];
+check('the rows are the same elements, and the search box keeps its focus',
+      [rowsBefore.length > 0, rowsAfter.length === rowsBefore.length, rowsAfter.every((r, i) => r === rowsBefore[i]),
+       document.activeElement === searchBox], [true, true, true, true]);
+// An older answer arriving after a newer one is dropped.
+let release;
+holdNext = new Promise((resolve) => { release = resolve; });
+const heldAnime = RUN[ANIME];
+const heldPhoto = RUN[PHOTO];
+RUN[ANIME] = { ...plainRun, how: 'thin', usual: null };
+tick(DREAM, false);
+RUN[ANIME] = heldAnime;
+// The newer answer says something of its own, so the wait for it cannot be met by an older one.
+RUN[PHOTO] = { ...plainRun, how: 'plain', usual: null };
+tick(FLUX, false);
+await waitFor('the newer answer', () => settled() && lines().length === 2 && lines()[1][2] === 'Runs with your settings.');
+RUN[PHOTO] = heldPhoto;
+// While a newer answer is asked, the lines drawn stay, and the new name reads as being asked.
+let releaseNext;
+holdNext = new Promise((resolve) => { releaseNext = resolve; });
+tick(DREAM, true);
+await waitFor('the new name asked', () => lines().length === 3);
+check('while asked: the lines drawn stay, the new name reads as being asked', lines().map(([name, , what]) => [name, what]),
+      [['Anime Mix v12', 'Steps 12 · as in task #30'], ['Real Photo v5', 'Runs with your settings.'],
+       ['Dream v8', 'Reading its usual settings…']]);
+releaseNext();
+await waitFor('its line', settled);
+tick(DREAM, false);
+await waitFor('two again', () => settled() && lines().length === 2
+                                 && lines()[1][2] === 'Runs with your settings, as in task #30.');
+release();
+await new Promise((resolve) => setTimeout(resolve, 30));
+check('an older answer arriving last is dropped: the newer one stays drawn',
+      lines().map(([name, , what]) => [name, what]),
+      [['Anime Mix v12', 'Steps 12 · as in task #30'], ['Real Photo v5', 'Runs with your settings, as in task #30.']]);
+// A failure is shown, not kept: the next tick asks again.
+runsFail = true;
+tick(FLUX, true);
+await waitFor('the failure', () => lines().some(([, , what]) => what.startsWith('Could not')));
+check('a failure is shown on each line', lines().map(([, , what]) => what),
+      Array(3).fill('Could not read what it runs with: the library is busy.'));
+runsFail = false;
+runsAsked.length = 0;
+await answered({});
+check('and the next tick asks again', [runsAsked.length > 0, lines().map(([, , what]) => what)[0]],
+      [true, 'Steps 12 · as in task #30']);
+// Each line, as the plan says it, and the lines under them.
+await answered({ [ANIME]: { ...plainRun, how: 'yours', usual: null },
+                 [PHOTO]: { ...plainRun, how: 'as_made', usual: null },
+                 [FLUX]: { ...plainRun, how: 'error', usual: null, family: null, family_state: 'not_read',
+                           another_family: null } },
+               { selected: { name: PHOTO, state: 'not_read' }, gone_task: 30 });
+check('yours, as made, unreadable and a family read when you queue; a task gone; the selected one not read',
+      [lines().map(([, mark, what]) => [mark, what]), under(), familyNote()],
+      [[[false, 'Runs with your settings: Forge\'s selected checkpoint.'],
+        [false, 'Runs as made, with the image\'s settings.'],
+        [false, 'Could not read its usual settings: it runs with your settings. Its family is read when you queue.']],
+       ['Task #30 is gone: each takes its usual settings.',
+        'Forge\'s selected checkpoint is not read yet: a checkpoint of another family is told when you queue.'], null]);
+await answered({ [ANIME]: { ...plainRun, how: 'thin', usual: null },
+                 [PHOTO]: { ...plainRun, how: 'plain', usual: null, family: null, family_state: 'unrecognised',
+                            another_family: true },
+                 [FLUX]: { ...plainRun, how: null, usual: null, family: 'flux', another_family: true,
+                           problem: `${FLUX} needs T5-XXL, which this WebUI does not have.` } },
+               { selected: { name: null, state: null } });
+check('too few uses, none applying and a family not recognised, a refusal; none selected',
+      [lines().map(([, mark, what]) => [mark, what]), under(), familyNote()],
+      [[[false, 'Runs with your settings: too few uses record its own.'],
+        [true, 'Runs with your settings. Its family was not recognised when last read: it is read again when you queue.'],
+        [true, `Queuing stops on it: ${FLUX} needs T5-XXL, which this WebUI does not have.`]],
+       [], `Forge has no checkpoint selected that it lists, so each is of another family: ${STAY}`]);
+await answered({}, { selected: { name: PHOTO, state: 'unrecognised' } });
+check('the selected one not recognised when last read: said under the lines', under(),
+      ['Forge\'s selected checkpoint was not recognised when last read: a checkpoint of another family is told when '
+       + 'you queue.']);
+tick(ANIME, false);
+tick(PHOTO, false);
+tick(FLUX, false);
+await waitFor('the hint', () => !lines().length);
+check('nothing ticked: the column says what it is for, with nothing to ask', [under(), lines()],
+      [['Tick a checkpoint to see what it runs with.'], []]);
+for (const name of [ANIME, PHOTO, FLUX]) tick(name, true);
+for (const name of [ANIME, PHOTO, FLUX]) delete RUN[name];
+ANSWER = {};
+await waitFor('the three again', () => settled() && lines().length === 3);
+// The list's answer coming after the column's: each line named by its file, then as the list names it.
+win()?.querySelector('[data-several-cancel]')?.click();
+let releaseList;
+holdList = new Promise((resolve) => { releaseList = resolve; });
+act('several.change');
+await waitFor('the column answered, the list still asked', () => win() && settled());
+check('with the list not come yet, each line is named by its file', lines().map(([name]) => name),
+      ['anime_v12', 'photo_v5', 'flux_dev']);
+releaseList();
+await waitFor('the list in the window', () => inputs().length);
+await waitFor('the lines named again', () => lines()[0]?.[0] === 'Anime Mix v12');
+check('and once it comes, as the list names them', lines().map(([name]) => name),
+      ['Anime Mix v12', 'Real Photo v5', 'Flux Dev fp8']);
 
 // -------------------------------------------------------------- ticking
 tick(PHOTO, false);
@@ -181,7 +357,7 @@ act('several.change');
 act('several.change');
 await waitFor('the list in the window', () => inputs().length);
 check('opened again - pressed twice, one window - ticked as the mode holds it now, the list asked afresh once',
-      [document.querySelectorAll('dialog.mm-several-change').length, ticked(), listAsks()], [1, [DREAM, FLUX], 2]);
+      [document.querySelectorAll('dialog.mm-several-change').length, ticked(), listAsks()], [1, [DREAM, FLUX], 3]);
 tick(FLUX, false);
 tick(ANIME, true);
 win()?.querySelector('[data-several-cancel]')?.click();
@@ -249,6 +425,9 @@ await waitFor('the list in the window', () => inputs().length);
 check('it opens Change\'s window, the list asked once, Forge\'s loaded checkpoint ticked, Use these waiting for a second',
       [Boolean(win()?.open), listAsks() - entryAsks, ticked(), tickedText(), use()?.disabled, use()?.title],
       [true, 1, [PHOTO], '1 ticked', true, 'Tick two checkpoints or more. To generate with one, use Generate.']);
+await waitFor('its line', settled);
+check('outside the mode, what the loaded one runs with is asked once the list has ticked it, with no source',
+      [runsAsked.at(-1), lines().length], [{ names: [PHOTO], source: null }, 1]);
 tick(ANIME, true);
 use()?.click();
 check('Use these enters the mode with them, in the order ticked, no image or task behind them',

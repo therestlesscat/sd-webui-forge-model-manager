@@ -2897,7 +2897,9 @@ body.mm-modal-open {
     font-weight: 600;
 }
 
-/* Under 900 px of room - 480 for the rows, the gap, 400 for the block - the block goes back
+/* Change's window (#406) sizes its rows by the block's height here, 13.5em of its 0.9em text:
+   `calc(50vh - 12.15em - 8px)`, under .mm-several-change - change both together.
+   Under 900 px of room - 480 for the rows, the gap, 400 for the block - the block goes back
    under the rows, laid out as before, at one height whatever it holds - the hint, "Reading...",
    five settings - and scrolling past that: sized to its content, every pick moved the centred
    dialog, 693 px tall before a pick, 718 while it read, up to 861 once answered. */
@@ -6324,6 +6326,25 @@ body.mm-several #txt2img_queue {
    the list alone, so it takes the room - 540 px at a 1,080 px screen. */
 .mm-several-change .mm-pick-rows {
     height: 50vh;
+}
+
+/* What each ticked one runs with, beside the rows (#406): the Resources dialog's column, as tall as the
+   rows here, scrolling past that. Its box is the container the column's 900 px rule asks, as the
+   Resources dialog's Send line is. */
+.mm-several-change .mm-question-box {
+    container: mm-send / inline-size;
+}
+
+.mm-several-change .mm-pick-area > .mm-usual {
+    max-height: 50vh;
+}
+
+/* Under 900 px of room the column goes under the rows, 13.5em of its own 0.9em text tall, and the rows
+   give that up: at a 720 px page the window kept the rows' half and pushed Use these off its foot. */
+@container mm-send (max-width: 900px) {
+    .mm-several-change .mm-pick-rows {
+        height: calc(50vh - 12.15em - 8px);
+    }
 }
 
 .mm-several-ticked {
