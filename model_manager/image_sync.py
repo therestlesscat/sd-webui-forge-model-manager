@@ -10,12 +10,14 @@ A sync, in order:
    "before" copies, masks, PiD copies, Forge's JPEG copies of large PNGs,
    ControlNet's maps - and what is held already or was deleted with its file
    kept (the removed list);
-2. read every new image's generation text (image_text.py);
+2. read every new image's generation text (image_text.py), or where it
+   has none, the prompts another tool wrote into it (#408);
 3. rebuild batches: images of one press become one generation again. With
    text: settings alike, the prompts aside, each seed the one before's plus
    1, each running number the one before's plus 1 - in one library it rebuilt
    all 630 generations the recorder had written. With no text, when the
-   person asks: file names that say the same settings, and either a folder
+   person asks: file names that say the same settings, the same prompts
+   another tool wrote or none, and either a folder
    the library's own images show to be one press, or a gap no longer than
    the one learnt from the images with text;
 4. match the files each names - checkpoint, LoRAs, VAE and text encoders -
@@ -339,8 +341,7 @@ class _Image:
     mtime_ns: int
     number: Optional[int]
     text: Optional[str] = None
-    # Another tool's prompts, where the file has no Forge text (#408): read,
-    # not yet stored.
+    # Another tool's prompts, where the file has no Forge text (#408).
     prompts: Optional[Dict[str, Any]] = None
     width: int = 0
     height: int = 0
@@ -372,6 +373,13 @@ def _joins_text(a: _Image, b: _Image) -> bool:
 
 def _same_name(a: _Image, b: _Image) -> bool:
     return a.name is not None and b.name is not None and a.name["same"] == b.name["same"]
+
+
+def _same_prompts(a: _Image, b: _Image) -> bool:
+    """Two images without Forge's text hold the same prompts another tool
+    wrote - none and none alike (#408)."""
+    return ((a.prompts or {}).get("prompt"), (a.prompts or {}).get("negative")) \
+        == ((b.prompts or {}).get("prompt"), (b.prompts or {}).get("negative"))
 
 
 def _next_number(a: _Image, b: _Image) -> bool:
@@ -433,9 +441,10 @@ def group(images: List[_Image], no_text: bool, gap: Optional[float],
           in_trusted: bool = False) -> List[List[_Image]]:
     """
     One folder's images, in order, as generations. With text, by the batch
-    rule. With none, when `no_text`: names that say the same settings, and
-    a trusted folder or a gap within the learnt one - or, with none learnt,
-    the names alone. Text and no text never join.
+    rule. With none, when `no_text`: names that say the same settings, the
+    same prompts another tool wrote or none, and a trusted folder or a gap
+    within the learnt one - or, with none learnt, the names alone. Text and
+    no text never join.
     """
     out: List[List[_Image]] = []
     for image in images:
@@ -445,7 +454,7 @@ def group(images: List[_Image], no_text: bool, gap: Optional[float],
             if image.text and last.text:
                 joins = _joins_text(last, image)
             elif no_text and not image.text and not last.text and _same_name(last, image) \
-                    and _next_number(last, image):
+                    and _next_number(last, image) and _same_prompts(last, image):
                 joins = in_trusted or gap is None or _gap(last, image) <= gap
         if joins:
             out[-1].append(image)
@@ -728,6 +737,21 @@ class ImageSync(object):
                        "hr_prompt": meta.get("Hires prompt") or None,
                        "hr_negative_prompt": meta.get("Hires negative prompt") or None,
                        "subseed": _seed(image.params.get("Variation seed")), "loras": loras}
+            elif image.prompts:
+                # Another tool's prompts (#408): judged as a text's are; its
+                # infotext stays empty, and a <lora:> tag in it names no file.
+                found = image.prompts
+                meta = {"prompt": found["prompt"]}
+                if found.get("negative"):
+                    meta["negativePrompt"] = found["negative"]
+                if found.get("tool"):
+                    meta["Made with"] = found["tool"]
+                meta.update(fields)
+                if image.width and image.height:
+                    meta.setdefault("Size", f"{image.width}x{image.height}")
+                level = generated_level(meta)
+                loras = []
+                row = {"meta": meta, "prompt": found["prompt"], "negative_prompt": found.get("negative")}
             else:
                 meta = dict(fields)
                 if image.width and image.height:

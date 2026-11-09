@@ -120,11 +120,11 @@ def create_generations_ui():
                         </div>
                         <div class="mm-dialog-section">
                             <div class="mm-dialog-heading">Images without infotext</div>
-                            <label class="mm-dialog-option" title="Images in one folder whose file names say the same settings, saved close together, become one batch, as one press of Generate made them.">
+                            <label class="mm-dialog-option" title="Images in one folder whose file names say the same settings, which hold the same prompts another tool wrote into them, or none, and which were saved close together, become one batch, as one press of Generate made them.">
                                 <input type="checkbox" id="gen_sync_group">
                                 <span>Group images with similar file names into one batch</span>
                             </label>
-                            <label class="mm-dialog-option" title="Given to the images without infotext this sync brings, and kept with them. A rating you give an image wins.">
+                            <label class="mm-dialog-option" title="Given to the images this sync brings without infotext, and without a prompt another tool wrote into the file, and kept with them. A rating you give an image wins.">
                                 <span>Default NSFW level for images without infotext</span>
                                 <select id="gen_sync_level" class="mm-dialog-select"></select>
                             </label>

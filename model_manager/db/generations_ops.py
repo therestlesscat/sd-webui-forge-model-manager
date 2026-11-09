@@ -1400,8 +1400,9 @@ class GenerationsOps:
         files go, and the generations are written anew, in one transaction -
         a cancel or a crash leaves either the old rows or the new. What the
         person added is carried over by path: an image's rating, and the level
-        a sync's dialog gave an image without infotext. A recorded image's
-        rows are never touched.
+        a sync's dialog gave an image without infotext or a prompt another
+        tool wrote (#408) - one that has a prompt now is judged by it. A
+        recorded image's rows are never touched.
         """
         paths = list({image["path"].lower(): image["path"] for _, images, _ in generations for image in images}.values())
         with self._cursor() as cursor:
@@ -1413,7 +1414,8 @@ class GenerationsOps:
             for start in range(0, len(paths), 500):
                 part = paths[start:start + 500]
                 cursor.execute(
-                    "SELECT gi.id, gi.path, gi.user_nsfw_level, gi.prompt_nsfw_level, d.infotext IS NULL "
+                    "SELECT gi.id, gi.path, gi.user_nsfw_level, gi.prompt_nsfw_level, "
+                    "d.infotext IS NULL AND gi.prompt_id IS NULL "
                     "FROM generation_images gi JOIN generations g ON g.id = gi.generation_id "
                     "LEFT JOIN generation_image_details d ON d.image_id = gi.id "
                     f"WHERE g.source_id IS NOT NULL AND gi.path COLLATE NOCASE IN ({', '.join('?' * len(part))})", part)
@@ -1428,7 +1430,8 @@ class GenerationsOps:
             written = []
             for generation, images, files in generations:
                 for image in images:
-                    if image.get("infotext") is None and image["path"].lower() in bare:
+                    if image.get("infotext") is None and not image.get("prompt") \
+                            and image["path"].lower() in bare:
                         image["prompt_nsfw_level"] = bare[image["path"].lower()]
                 if images:
                     generation["prompt_nsfw_level"] = max(image["prompt_nsfw_level"] for image in images)
@@ -1685,12 +1688,14 @@ class GenerationsOps:
             (images changed, images read)
         """
         with self._cursor() as cursor:
-            # An image synced with no text keeps the level its sync's dialog
-            # gave it (#233): there is no prompt to judge.
+            # An image synced with no text and no prompt another tool wrote
+            # keeps the level its sync's dialog gave it (#233, #408): there is
+            # no prompt to judge.
             cursor.execute("SELECT gi.id, d.meta, gi.prompt_nsfw_level FROM generation_images gi "
                            "JOIN generations g ON g.id = gi.generation_id "
                            "LEFT JOIN generation_image_details d ON d.image_id = gi.id "
-                           "WHERE NOT (g.source_id IS NOT NULL AND d.infotext IS NULL)")
+                           "WHERE NOT (g.source_id IS NOT NULL AND d.infotext IS NULL "
+                           "AND gi.prompt_id IS NULL)")
             rows = cursor.fetchall()
         changed = []
         for image_id, meta, stored in rows:

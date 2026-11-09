@@ -29,7 +29,7 @@ import fixtures                                          # noqa: E402
 import model_manager.db.database as dbmod                # noqa: E402
 from model_manager import generations, image_sync        # noqa: E402
 from model_manager.api.generations import remember_kept  # noqa: E402
-from model_manager.nsfw import PG, PROMPT_LEVEL, UNKNOWN, generated_level  # noqa: E402
+from model_manager.nsfw import PG, PROMPT_LEVEL, R, UNKNOWN, X, generated_level  # noqa: E402
 
 from PIL import Image                                    # noqa: E402
 from PIL.PngImagePlugin import PngInfo                   # noqa: E402
@@ -707,6 +707,140 @@ check('and drops the prompt only the old rows named, for the new one',
       [rows("SELECT COUNT(*) FROM generation_prompts WHERE text = ?", (t,))[0][0]
        for t in ('force prompt before', 'force prompt after')], [0, 1])
 check('no prompt is left that nothing names', unused(), [])
+
+# ------------------------------------- other tools' prompts, stored (#408)
+from model_manager import nsfw as nsfw_rules                              # noqa: E402
+from model_manager.image_text import read_text as real_read_text          # noqa: E402
+
+# A word the bundled list rates explicit, found here so none is written down.
+EXPLICIT = next(w.strip() for w in open(nsfw_rules.PROMPT_WORDS_FILE, encoding='utf-8')
+                if w.strip() and not w.startswith('#') and generated_level({'prompt': 'a ' + w.strip()}) > PG)
+pattern_before = getattr(opts, 'samples_filename_pattern', None)
+opts.samples_filename_pattern = '[model_name]-[steps]'
+
+
+def save_prompts(folder, name, prompt, negative=None, at=0.0, tool_chunk=True):
+    """A PNG as Endless-Nodes' Image_saver writes one: plain prompt chunks, no infotext."""
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, name)
+    info = PngInfo()
+    info.add_text('prompt', prompt)
+    if negative is not None:
+        info.add_text('negative_prompt', negative)
+    if tool_chunk:
+        info.add_text('batch_index', '0')
+    Image.new('RGB', (64, 64), (40, 50, 60)).save(path, pnginfo=info)
+    stamp = int((BASE + at) * 1e9)
+    os.utime(path, ns=(stamp, stamp))
+    return path
+
+
+def stored(path):
+    """What a sync stored of an image: its prompt, negative, infotext, level, data, generation."""
+    row = rows("SELECT p.text, q.text, d.infotext, gi.prompt_nsfw_level, gi.user_nsfw_level, d.meta, "
+               "gi.generation_id FROM generation_images gi "
+               "LEFT JOIN generation_prompts p ON p.id = gi.prompt_id "
+               "LEFT JOIN generation_prompts q ON q.id = gi.negative_id "
+               "LEFT JOIN generation_image_details d ON d.image_id = gi.id WHERE gi.path = ?", (path,))[0]
+    return {'prompt': row[0], 'negative': row[1], 'infotext': row[2], 'level': row[3], 'rating': row[4],
+            'meta': json.loads(row[5]) if row[5] else None, 'generation': row[6]}
+
+
+OTHERS = os.path.join(OUT, 'others')
+spicy = save_prompts(OTHERS, '03000-modelx-20.png', 'a portrait, %s, <lora:x:1>' % EXPLICIT, 'blurry')
+plain = save_prompts(OTHERS, '03001-modelx-30.png', 'a quiet lake', '  ', at=500, tool_chunk=False)
+run([OTHERS], level=PG)
+got = stored(spicy)
+check('408. a prompts-only image: its prompt and negative stored, its infotext empty',
+      (got['prompt'], got['negative'], got['infotext']), ('a portrait, %s, <lora:x:1>' % EXPLICIT, 'blurry', None))
+check('408. its level judged from them as an image with text is, above the dialog\'s PG',
+      (got['level'], got['level'] > PG), (generated_level(got['meta']), True))
+check('408. its data: the prompts, Made with, the size and what the file name gives',
+      got['meta'], {'prompt': 'a portrait, %s, <lora:x:1>' % EXPLICIT, 'negativePrompt': 'blurry',
+                    'Made with': 'Endless', 'Model': 'modelx', 'Steps': '20', 'Size': '64x64'})
+check('408. its <lora:> tag names no file',
+      rows("SELECT COUNT(*) FROM generation_resources r JOIN generation_images gi ON gi.id = r.image_id "
+           "WHERE gi.path = ? AND r.role = 'lora'", (spicy,))[0][0], 0)
+check('408. "Prompt, as written" files it under its prompt: its generation\'s own prompt row',
+      rows("SELECT p.text FROM generations g JOIN generation_prompts p ON p.id = g.prompt_id WHERE g.id = ?",
+           (got['generation'],)), [('a portrait, %s, <lora:x:1>' % EXPLICIT,)])
+check('408. its generation\'s settings from the file name, Made with not among them',
+      rows("SELECT steps, sampler FROM generation_params WHERE generation_id = ?", (got['generation'],)),
+      [(20, None)])
+got = stored(plain)
+check('408. a blank negative stores none, and a prompt with no tool\'s mark no Made with',
+      (got['prompt'], got['negative'], 'Made with' in got['meta']), ('a quiet lake', None, False))
+
+JOINS = os.path.join(OUT, 'others-join')
+first = save_prompts(JOINS, '03100-modely-20.png', 'a red barn', at=0)
+other = save_prompts(JOINS, '03101-modely-20.png', 'a blue barn', at=0.2)
+same = save_prompts(JOINS, '03102-modely-20.png', 'a blue barn', at=0.4)
+empty = save(JOINS, '03103-modely-20.png', None, at=0.6)
+run([JOINS], level=PG)
+check('408. images whose names join: other prompts stay apart, the same prompts join, none never joins one',
+      [stored(path)['generation'] for path in (first, other, same, empty)].count(stored(other)['generation']),
+      2)
+check('408. and the four make three generations', len({stored(p)['generation'] for p in (first, other, same, empty)}), 3)
+JOINS_EMPTY = os.path.join(OUT, 'others-join-empty')
+empties = [save(JOINS_EMPTY, '%05d-modely-20.png' % (3200 + n), None, at=n * 0.2) for n in range(2)]
+run([JOINS_EMPTY], level=PG)
+check('408. two images with nothing join by their names, as before',
+      len({stored(p)['generation'] for p in empties}), 1)
+
+# Read every image again, as the prompts a file holds change.
+AGAIN = os.path.join(OUT, 'others-again')
+gains = save(AGAIN, '03300-modelz-20.png', None, at=0)
+loses = save_prompts(AGAIN, '03301-modelz-20.png', 'a %s scene' % EXPLICIT, at=500)
+still = save(AGAIN, '03302-modelz-20.png', None, at=1000)
+run([AGAIN], level=UNKNOWN)
+db.set_generation_image_levels([id_of(gains)], 4)
+judged_before = stored(loses)['level']
+save_prompts(AGAIN, '03300-modelz-20.png', 'a %s view' % EXPLICIT, at=0)
+save(AGAIN, '03301-modelz-20.png', None, at=500)
+image_sync.ImageSync([{'path': AGAIN}], PG, True, force=True).run()
+check('408. read again after a file gained a prompt: judged from it, not left at the first sync\'s Unknown; '
+      'its rating kept', (stored(gains)['level'], stored(gains)['rating']), (generated_level(stored(gains)['meta']), 4))
+check('408. read again after a file lost its prompt: this sync\'s level, not the one its prompt was judged',
+      (stored(loses)['level'], judged_before != PG), (PG, True))
+check('408. read again, an image still with nothing: the level of its first sync',
+      stored(still)['level'], UNKNOWN)
+
+# Rows an earlier version wrote, JSON stored as the infotext and the prompt.
+OLD_JSON = os.path.join(OUT, 'others-json')
+os.makedirs(OLD_JSON, exist_ok=True)
+SWARM_JSON = json.dumps({'sui_image_params': {'prompt': 'a %s tower' % EXPLICIT, 'negativeprompt': 'fog'}})
+UNKNOWN_JSON = json.dumps({'note': 'a tool nobody knows'})
+swarm_old = save(OLD_JSON, '03400-modelw-20.png', SWARM_JSON, at=0)
+unknown_old = save(OLD_JSON, '03401-modelw-20.png', UNKNOWN_JSON, at=500)
+# As an earlier version read them: the JSON taken for text.
+image_sync.read_text = lambda path: ((SWARM_JSON if path == swarm_old else UNKNOWN_JSON), 64, 64, None)
+run([OLD_JSON], level=PG)
+image_sync.read_text = real_read_text
+db.set_generation_image_levels([id_of(swarm_old)], 2)
+# Three levels apart - stored before (PG), this sync's (R), judged (X) - so
+# the check below tells which one the row came out with.
+raw.execute("UPDATE generation_images SET prompt_nsfw_level = ? WHERE path = ?", (PG, swarm_old))
+raw.commit()
+check('as an earlier version stored them: the JSON as infotext and prompt',
+      [stored(p)['infotext'] for p in (swarm_old, unknown_old)], [SWARM_JSON, UNKNOWN_JSON])
+image_sync.ImageSync([{'path': OLD_JSON}], R, True, force=True).run()
+got = stored(swarm_old)
+check('408. SwarmUI\'s JSON read again: prompts-only, judged, its rating kept, the JSON\'s prompt row gone',
+      (got['prompt'], got['negative'], got['infotext'], got['level'], got['rating'],
+       rows("SELECT COUNT(*) FROM generation_prompts WHERE text = ?", (SWARM_JSON,))[0][0]),
+      ('a %s tower' % EXPLICIT, 'fog', None, X, 2, 0))
+got = stored(unknown_old)
+check('408. JSON nobody knows read again: nothing, at this sync\'s level - it had infotext, so no first level',
+      (got['prompt'], got['infotext'], got['level']), (None, None, R))
+
+# A restamp after the words change.
+raw.execute("UPDATE generation_images SET prompt_nsfw_level = ? WHERE path IN (?, ?)", (PG, plain, still))
+raw.commit()
+db.restamp_generation_levels(lambda meta: PROMPT_LEVEL)
+check('408. a restamp judges a prompts-only image again; one with nothing keeps its level',
+      (stored(plain)['level'], stored(still)['level']), (PROMPT_LEVEL, PG))
+check('no prompt is left that nothing names', unused(), [])
+opts.samples_filename_pattern = pattern_before
 
 # ---------------------------------------- folders reached through links (#348)
 # Sync images walked with os.walk(folder): a symbolic link inside a result

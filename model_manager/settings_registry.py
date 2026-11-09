@@ -399,15 +399,17 @@ SETTINGS: Tuple[Setting, ...] = (
     Setting("model_manager_image_sync_level", "your_generations", "dropdown", "NSFW level for images without infotext",
             "NSFW level Sync images gives images without infotext",
             "The level the Sync images dialog has picked when it opens; the dialog saves the level you pick there "
-            "for next time. Sync images gives that level to each image it adds that has no infotext, so the image "
-            "is hidden or shown like any other at that level. A rating you give an image later always wins.",
+            "for next time. Sync images gives that level to each image it adds that has no infotext, and no "
+            "prompt another tool wrote into the file, so the image is hidden or shown like any other at that "
+            "level. A rating you give an image later always wins.",
             (GEN,), args={"choices": ("PG", "PG-13", "R", "X", "XXX", "Unknown")}),
     Setting("model_manager_group_no_text", "your_generations", "checkbox", "Group images without infotext by name",
             "Sync images groups images without infotext by file name",
             "Whether the Sync images dialog starts with this ticked; the dialog saves your choice for next time. "
             "When ticked, images without infotext are put together into batches, as if one press of Generate made "
             "them, when they sit in the same folder, their file names show the same settings with running numbers "
-            "in order, and they were saved close together in time.", (GEN,)),
+            "in order, they hold the same prompts another tool wrote into them, or none, and they were saved close "
+            "together in time.", (GEN,)),
 
     # -------------------------------------------------- Files and folders
     Setting("model_manager_database_path", "files", "textbox", "Database file", "Database file, needs a restart",
