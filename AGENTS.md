@@ -190,11 +190,19 @@ the code (2026-10-16).
   would it be called?", show the code shape before changing anything; R29 was
   narrowed twice that way, to what is actually shared. A behaviour change
   found inside a refactor becomes its own issue unless the owner folds it in.
+- **A sub-task that splits goes to two agents or more, to save time - asked
+  first.** A survey, an analysis or a review that divides cleanly - by area,
+  by half, by question - is proposed as agents in parallel, not run as one;
+  one agent alone is said so, with why. #408's plan review (one agent,
+  168,079 tokens, 7 min 37 s) and its survey of other tools' image formats
+  each ran as one agent, though both split; the owner: "i want to use 2+
+  agents for sub tasks to save time in future. ask me before hand before
+  using 2+ agents, on approval, you can proceed" (2026-11-08).
 - **Two agents or more: ask first, with the reason and the cost.** Before
   starting or resuming two or more agents for one step - side agents, a
   fan-out, a workflow - say what each will do, why it needs an agent of its
   own rather than this session, and each one's projected token cost; start
-  them on the owner's yes. A projection is taken from what agents of the
+  them on the owner's yes, which covers that step alone. A projection is taken from what agents of the
   kind cost before. On #272 (2026-10-14) five agents read one suite each,
   then were resumed to build them, and the owner heard of each round only
   once it had started: the reading cost 131-238 k tokens an agent, 0.98 M
