@@ -1,5 +1,21 @@
 [
     {
+        "id": "other-tools-prompts-0-77-1",
+        "version": "0.77.1",
+        "kind": "action",
+        "audience": "update",
+        "when": "synced_without_prompt",
+        "tabs": [
+            "generations"
+        ],
+        "title": "Prompts from other tools' images",
+        "text": "Sync images now reads the prompts other tools write into their images - SwarmUI, Fooocus, InvokeAI, NovelAI, Easy Diffusion and others - and Send sends them with a checkpoint you pick. To read images synced before, open Sync images and tick Read every image again; it reads every image again, which takes a while on a large library.",
+        "action": {
+            "id": "sync_images",
+            "label": "Sync images"
+        }
+    },
+    {
         "id": "several-checkpoints",
         "version": "0.76.1",
         "kind": "feature",

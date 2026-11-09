@@ -523,6 +523,102 @@ at = loaderAsked.length;
 await act('generations.send', { tile: 0 });
 await waitFor('the send, unticked', () => loaderAsked.length > at);
 check('    and Send sends as before: no dialog', !!dialog(), false);
+
+// --------------------------------------------- a prompts-only image (#408)
+// Sync images read another tool's prompts into an image's data, with no
+// infotext: its Send goes - the server builds its text - and, where the
+// image names no checkpoint, stops on the dialog's list, its own Send
+// waiting for a pick.
+const notices = () => [...document.querySelectorAll('.mm-notice')].map((n) => n.textContent);
+const MADE_WITH = 'Made with SwarmUI: Sync images read its prompts, its size and what its file name says; its other '
+                  + 'settings are the checkpoint\'s usual ones where ticked, else as Forge has them.';
+const UNTOLD = 'Sync images read this image\'s prompts, its size and what its file name says; its other settings are '
+               + 'the checkpoint\'s usual ones where ticked, else as Forge has them.';
+const told = { ...image, id: 51, generation_id: 6, infotext: null, url: '/model-manager/generations/images/51/file',
+               meta: { prompt: 'a red fox', negativePrompt: 'blurry', 'Made with': 'SwarmUI', Size: '832x1216' } };
+const untold = { ...told, id: 52, generation_id: 7, url: '/model-manager/generations/images/52/file',
+                 meta: { prompt: 'a grey wolf <lora:sea_spray:0.8>', Size: '832x1216' } };
+const nothing = { ...image, id: 53, generation_id: 8, infotext: null, url: '/model-manager/generations/images/53/file',
+                  meta: { Size: '832x1216', Seed: 5 } };
+const tilesBefore408 = tiles;
+tiles = [told, untold, nothing].map((img) => ({ kind: 'generation', generation: { ...generation, id: img.generation_id },
+                                                 matching_count: 1, images: [img], loras: [], level: 1, user_level: null }));
+await act('generations.refresh');
+await waitFor('the three tiles', () => document.querySelectorAll('#gen_grid .gen-tile').length === 3);
+check('408. a prompts-only image\'s Send enabled; one with nothing - its data a size and a seed - disabled, as before',
+      [sendOf(0)?.disabled, sendOf(2)?.disabled, sendOf(2)?.title], [false, true, NO_TEXT]);
+await act('generations.view', { tile: 0 });
+await waitFor('the viewer', () => document.querySelector('[data-gen-send]'));
+check('408. and in the viewer', document.querySelector('[data-gen-send]')?.disabled, false);
+(await sharedModule('viewer.mjs')).closeViewer();
+
+planAnswer = { ...NO_PLAN, checkpoint_problem: { reason: 'not_named' } };
+listAnswer = { success: true, checkpoints: [MINE], suggested: [], picked: null, loaded: null,
+               same_base: { base_model: null, names: [] }, family: null };
+document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+at = loaderAsked.length;
+await act('generations.send', { tile: 0 });
+await waitFor('the stop\'s list', () => dialog()?.querySelector('.mm-pick-row'));
+check('408. pressed, naming no checkpoint: Resources on the list, saying so, its own Send waiting, nothing sent',
+      [dialog()?.textContent.includes('This image names no checkpoint: pick one of yours to send it with.'),
+       dialogSend()?.disabled, loaderAsked.length - at], [true, true, 0]);
+// Its list unticked, Send goes by whether the image's own checkpoint can be
+// loaded: asked again, nothing is missing - and still none is named.
+const chooseBox = () => dialog()?.querySelector('[data-action="resources.chooseTick"]');
+const setChoose = (on) => {
+    const box408 = chooseBox();
+    if (!box408) return;
+    box408.checked = on;
+    box408.dispatchEvent(new window.Event('change', { bubbles: true }));
+};
+setChoose(false);
+await call('resources.checkAgain');
+await new Promise((resolve) => setTimeout(resolve, 50));
+check('408. its list unticked and asked again, Send still waits: the image names no checkpoint to send with',
+      [chooseBox()?.checked, dialogSend()?.disabled], [false, true]);
+setChoose(true);
+if (dialog()) await waitFor('the list again', () => dialog()?.querySelector('.mm-pick-row'));
+planAnswer = { ...NO_PLAN, checkpoint: MINE.name, instead: 'mine.safetensors', pick: 'model', other_model: true };
+pickRow(MINE.name);
+check('408. picked: its Send ready', dialogSend()?.disabled, false);
+dialogSend()?.dispatchEvent(new window.Event('click', { bubbles: true }));
+await waitFor('the send with the pick', () => loaderAsked.length > at);
+check('408. sent with the pick, its source the image', [lastSource()?.use_checkpoint, lastSource()?.image], [MINE.name, 51]);
+await waitFor('the notice', () => notices().some((t) => t.includes('Sync images read')));
+check('408. saying what went, its tool named, in place of the another-model notice',
+      [notices().includes(MADE_WITH), notices().some((t) => t.includes('another model'))], [true, false]);
+document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+
+planAnswer = NO_PLAN;
+at = loaderAsked.length;
+await act('generations.send', { tile: 1 });
+await waitFor('the send of an image naming no tool', () => loaderAsked.length > at);
+await waitFor('its notice', () => notices().some((t) => t.includes('Sync images read')));
+check('408. no tool named: the notice says this image\'s prompts and size', notices().includes(UNTOLD), true);
+document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+
+// Its data names no resources, as the server gives it - none is recorded
+// for a prompts-only image - so its Resources stays greyed; the dialog is
+// reached through Send's stop (above) and Send as… (the Model Manager's).
+await act('generations.menu', { tile: 1 });
+check('408. its ⋯ Resources greyed: its data names none',
+      [...document.querySelectorAll('.gen-menu button')].find((b) => /^Resources/.test(b.textContent.trim()))?.disabled, true);
+document.body.dispatchEvent(Object.assign(new window.Event('keydown', { bubbles: true }), { key: 'Escape' }));
+
+planAnswer = { ...NO_PLAN, checkpoint_problem: { reason: 'not_named' } };
+at = loaderAsked.length;
+await press(0, 'Send to Inpaint');
+await waitFor('the send into Inpaint', () => canvasAsked(at).length);
+check('408. into img2img, naming no checkpoint: the picture and its source go, no Resources',
+      [settingsAsked(at).map(({ tab, source }) => [tab, source?.image]), canvasAsked(at), !!dialog()],
+      [[['img2img', 51]], [{ canvas: 2, picture: { generation_image: 51 } }], false]);
+check('408. saying no checkpoint was known',
+      notices().includes('This image names no checkpoint. The picture is sent with the checkpoint loaded.'), true);
+document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+planAnswer = NO_PLAN;
+tiles = tilesBefore408;
+await act('generations.refresh');
+await waitFor('the tiles before', () => document.querySelectorAll('#gen_grid .gen-tile').length === tilesBefore408.length);
 globalThis.fetch = fetchBeforeList;
 
 // ------------------------------------------------- a task of several checkpoints (#401)

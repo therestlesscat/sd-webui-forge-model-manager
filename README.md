@@ -14,6 +14,12 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.77 - Prompts from other tools' images.** Sync images reads the prompts SwarmUI, Fooocus,
+InvokeAI, NovelAI, Easy Diffusion and other tools write into their images, where it read only
+Forge's infotext. They are stored and searched, an image's NSFW level is judged from them, and
+Send sends them with a checkpoint you pick - from the Resources dialog's list where the image
+names none. Read every image again, in the Sync images dialog, reads the images synced before.
+
 **0.76 - One generation with several checkpoints.** Tick Select several in the Resources dialog,
 beside Choose the checkpoint to send with, and tick several of your checkpoints in its list - or
 press Several checkpoints…, under Generate in txt2img, and tick them there. In

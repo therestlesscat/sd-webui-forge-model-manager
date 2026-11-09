@@ -345,8 +345,11 @@ infotext got at its first sync - while what came from the image is
 replaced. A file name is read back by *this* WebUI's naming settings: a
 folder named by another WebUI's joined none of its 12,871 images without
 infotext, where the WebUI that saved them joined them into 639 (#247). An
-image without infotext has nothing for Send to paste: its Send is disabled,
-saying why - it was enabled, and did nothing.
+image without infotext, and without a prompt another tool wrote into the
+file, has nothing for Send to paste: its Send is disabled, saying why - it
+was enabled, and did nothing. One with another tool's prompts (#408) is
+sent: the server builds its text from its data, and where it names no
+checkpoint - any generation that names none - Send stops for a pick.
 
 **A thumbnail belongs to its image's path, never its id** (#5, v39). Force
 sync and the recorder write an image's row anew, with a new id; the path

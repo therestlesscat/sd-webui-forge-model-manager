@@ -1452,6 +1452,16 @@ class GenerationsOps:
             cursor.execute("SELECT id FROM generation_sources WHERE path = ? COLLATE NOCASE", (folder,))
             return cursor.fetchone()[0]
 
+    def has_synced_without_prompt(self) -> bool:
+        """Whether a synced image has no prompt (#408): one that may hold
+        another tool's, which only Read every image again reads now. The
+        narrow tables alone, asked at each tab's load for a release note."""
+        with self._cursor() as cursor:
+            cursor.execute("SELECT EXISTS (SELECT 1 FROM generations g "
+                           "JOIN generation_images gi ON gi.generation_id = g.id "
+                           "WHERE g.source_id IS NOT NULL AND gi.prompt_id IS NULL)")
+            return bool(cursor.fetchone()[0])
+
     def synced_counts(self) -> Dict[str, int]:
         """How many generations each synced folder brought, by its path in
         lower case."""

@@ -234,6 +234,24 @@ SyncService(client=TwinCivitai()).sync_metadata(include_images=False, max_worker
 check('a metadata sync writes each twin its own id', file_ids(), [81, 82])
 check('and the note is no longer for this library', release_notes._holds('twin_files'), False)
 
+# #408's note: for a library holding a synced image with no prompt, which may
+# hold another tool's that Read every image again now reads.
+check('408. no synced image: no note', release_notes._holds('synced_without_prompt'), False)
+synced_from = twin_db.image_source_id(os.path.join(WORK, 'outputs'))
+twin_db.record_generation({'created_at': '2026-11-09T00:00:00', 'mode': 'txt2img', 'image_count': 1,
+                           'prompt': 'a read prompt', 'source_id': synced_from},
+                          [{'position': 0, 'path': os.path.join(WORK, 'outputs', 'a.png'), 'prompt': 'a read prompt'}],
+                          [[]])
+twin_db.record_generation({'created_at': '2026-11-09T00:00:01', 'mode': 'txt2img', 'image_count': 1},
+                          [{'position': 0, 'path': os.path.join(WORK, 'recorded.png')}], [[]])
+check('408. a synced image with a prompt, and one the recorder wrote with none: no note',
+      release_notes._holds('synced_without_prompt'), False)
+twin_db.record_generation({'created_at': '2026-11-09T00:00:02', 'mode': 'txt2img', 'image_count': 1,
+                           'source_id': synced_from},
+                          [{'position': 0, 'path': os.path.join(WORK, 'outputs', 'b.png')}], [[]])
+check('408. a synced image with no prompt: the note is for this library',
+      release_notes._holds('synced_without_prompt'), True)
+
 
 # Civitai's answer for many models at once - the metadata sync's - can name a
 # file otherwise than its answer for one version, and the lookup by hash,

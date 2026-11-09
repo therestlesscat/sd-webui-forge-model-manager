@@ -646,6 +646,10 @@ class ModelsDatabase:
         """The number a synced folder is known by; see GenerationsOps.source_id()."""
         return self._generations.source_id(folder)
 
+    def has_synced_without_prompt(self) -> bool:
+        """Whether a synced image has no prompt; see GenerationsOps.has_synced_without_prompt()."""
+        return self._generations.has_synced_without_prompt()
+
     def synced_counts(self) -> Dict[str, int]:
         """How many generations each synced folder brought; see GenerationsOps.synced_counts()."""
         return self._generations.synced_counts()

@@ -133,7 +133,8 @@ export async function sendInfotext({ infotext, mode, meta = {}, generationId = n
         if (!await showImageResources({ meta }, null, { note, send, recheck: listing })) showNotice(note);
         return false;
     }
-    if (plan.instead) showNotice(insteadNotice(plan.instead, plan.pick), { info: true });
+    if (promptsOnly({ infotext, meta })) showNotice(promptsOnlyNotice(meta), { info: true });
+    else if (plan.instead) showNotice(insteadNotice(plan.instead, plan.pick), { info: true });
     if (plan.preset) await switchForgePreset(plan.preset);
     if (plan.checkpoint && typeof selectCheckpoint === 'function') {
         console.log('[ModelManager] Setting checkpoint:', plan.checkpoint);
@@ -575,10 +576,11 @@ export function cannotSend(img, model, version) {
     return 'This image does not say which checkpoint it was made with, which Send needs.';
 }
 
-// An image a sync brought with no generation text (#233) has nothing for
-// Send to paste: its Send is disabled, saying so. The Generations tab's
-// once did nothing at all, seen on 7880; a model's gallery left both buttons
-// enabled until #410, read in the code.
+// An image a sync brought with no generation text (#233), and no prompt
+// another tool wrote into the file (#408), has nothing for Send to paste:
+// its Send is disabled, saying so. The Generations tab's once did nothing
+// at all, seen on 7880; a model's gallery left both buttons enabled until
+// #410, read in the code.
 const NO_TEXT = 'This image has no infotext - Sync images found none in the file - so there is nothing to send.';
 
 /**
@@ -587,10 +589,29 @@ const NO_TEXT = 'This image has no infotext - Sync images found none in the file
  * the stops behind them - so a change to what can be sent is made here once.
  * It is handed the image, or the `{ infotext, meta }` a send carries, and for
  * a whole-generation Send (a model gallery's card) the generation, whose own
- * text goes before its image's.
+ * text goes before its image's. A prompts-only image - another tool's
+ * prompts, read by Sync images (#408) - is sent too: the server builds its
+ * text from its data.
  */
 export function generationSendRefusal(image, { generation = null } = {}) {
-    return (generation?.infotext || image?.infotext) ? '' : NO_TEXT;
+    return (generation?.infotext || image?.infotext || promptsOnly(image)) ? '' : NO_TEXT;
+}
+
+/** Whether an image is a prompts-only one (#408): no infotext, and a prompt in its data. */
+export function promptsOnly(image) {
+    return !image?.infotext && Boolean(String(image?.meta?.prompt ?? '').trim());
+}
+
+/**
+ * What a Send of a prompts-only image took from it (#408), said in place of
+ * the notice for a checkpoint of another model: the image names none of its
+ * own, so any pick is another model's.
+ */
+function promptsOnlyNotice(meta) {
+    const read = meta?.['Made with']
+        ? `Made with ${meta['Made with']}: Sync images read its prompts, its size and what its file name says`
+        : 'Sync images read this image\'s prompts, its size and what its file name says';
+    return `${read}; its other settings are the checkpoint's usual ones where ticked, else as Forge has them.`;
 }
 
 /**
@@ -982,6 +1003,7 @@ const CHECKPOINT_WAITS = {
     elsewhere: 'The checkpoint is in a folder this WebUI does not load.',
     not_listed: 'Forge does not list the checkpoint yet.',
     not_checkpoint: 'The image names no checkpoint.',
+    not_named: 'This image names no checkpoint.',
     gone: 'The checkpoint is no longer on disk.',
     unsupported: 'No UI preset of Forge\'s is for the checkpoint\'s family.',
 };
@@ -1087,6 +1109,7 @@ function checkpointNote(problem) {
                     + 'Its checkpoint list is being refreshed; Send works once it is.',
         not_checkpoint: 'This image does not say which checkpoint it was made with: what it names as one is '
                         + 'not a checkpoint, in your library or on Civitai.',
+        not_named: 'This image names no checkpoint: pick one of yours to send it with.',
     }[problem.reason];
 }
 
@@ -1109,9 +1132,11 @@ function sendButtonLabel(into, tab = 'txt2img') {
 /**
  * Whether the dialog can ask again about the image's own checkpoint: not
  * for one Civitai files under a family no preset runs, nor for no
- * checkpoint at all - nothing it offers changes those.
+ * checkpoint at all - nothing it offers changes those. Asked again, an
+ * image that names none (#408) has nothing missing, and its Send would go
+ * on: it waits for a pick.
  */
-const checkable = (problem) => Boolean(problem) && !['not_checkpoint', 'unsupported'].includes(problem.reason)
+const checkable = (problem) => Boolean(problem) && !['not_checkpoint', 'unsupported', 'not_named'].includes(problem.reason)
     && !problem.own;
 
 /**

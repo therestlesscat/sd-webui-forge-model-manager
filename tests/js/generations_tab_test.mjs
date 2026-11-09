@@ -74,7 +74,9 @@ globalThis.fetch = withGalleryPages(async (url, init = {}) => {
         const params = new URL(href, 'http://webui').searchParams;
         const card = CARDS.find((c) => c.id === Number(params.get('generation')));
         const first = card?.images.find((i) => i.id === Number(params.get('image'))) || card?.images[0];
-        return reply({ success: true, text: (params.get('whole') === 'true' && card?.infotext) || first?.infotext,
+        // A prompts-only image's is built from its data (#408): its prompt, here.
+        return reply({ success: true, text: (params.get('whole') === 'true' && card?.infotext) || first?.infotext
+                                            || first?.meta?.prompt,
                        scheduler: 'Automatic', hires: false });
     }
     if (href.includes('/model-manager/generations/page')) {
@@ -386,12 +388,16 @@ const NO_TEXT = 'This image has no infotext - Sync images found none in the file
 CARDS.push({ id: 4, created_at: '2026-09-28T17:00:00', mode: 'txt2img', image_count: 1, matching_count: 1,
              infotext: null, images: [image(41, 4, { infotext: null, meta: { Size: '832x1216' } })] },
            { id: 5, created_at: '2026-09-28T17:10:00', mode: 'txt2img', image_count: 1, matching_count: 1,
-             infotext: null, images: [image(51, 5)] });
+             infotext: null, images: [image(51, 5)] },
+           // #408: another tool's prompts in its data, no infotext.
+           { id: 6, created_at: '2026-09-28T17:20:00', mode: 'txt2img', image_count: 1, matching_count: 1,
+             infotext: null, images: [image(61, 6, { infotext: null,
+                                                      meta: { prompt: 'a red fox', 'Made with': 'SwarmUI', Size: '832x1216' } })] });
 await act('modelManager.selectModel', { index: 0 });
 await waitFor('the first model again, with its generations counted',
               () => tabs().length === 2 && tabs()[1][0] !== 'Your generations (0)');
 await act('modelManager.showGalleryTab', { tab: 'generations' });
-await waitFor('its cards, with the two new ones', () => cards().length === 3);
+await waitFor('its cards, with the three new ones', () => cards().length === 4);
 const cardOf = (id) => Array.from(cards()).find((c) => c.dataset.generation === String(id));
 const sendState = (root, selectors) => selectors.map((s) => {
     const button = root?.querySelector(s);
@@ -419,6 +425,30 @@ check('410. in the viewer, an image with infotext: Send and Send as… enabled',
       sendState(viewer(), ['[data-gen-send]', '[data-gen-send-as]']).map(([disabled]) => disabled), [false, false]);
 document.dispatchEvent(Object.assign(new window.Event('keydown'), { key: 'Escape' }));
 await waitFor('the viewer closed again', () => !viewer());
-CARDS.splice(-2, 2);
+
+check('408. a prompts-only card: its Send and Send as… enabled',
+      sendState(cardOf(6), CARD_SENDS).map(([disabled]) => disabled), [false, false]);
+document.querySelector('#txt2img_prompt textarea').value = '';
+const pastedBeforeOnly = pasted.txt2img;
+await act('modelManager.sendGeneration', { generation: 6 });
+await waitFor('its paste', () => pasted.txt2img > pastedBeforeOnly);
+check('408. its card\'s Send sends it: the text the server built', document.querySelector('#txt2img_prompt textarea').value,
+      'a red fox');
+cardOf(6).querySelector('img[data-view-generation-image]').dispatchEvent(new window.Event('click', { bubbles: true }));
+await waitFor('the viewer on it', () => viewer()?.querySelector('[data-gen-send]'));
+check('408. in the viewer, its Send and Send as… enabled',
+      sendState(viewer(), ['[data-gen-send]', '[data-gen-send-as]']).map(([disabled]) => disabled), [false, false]);
+const pastedBeforeViewer = pasted.txt2img;
+press(viewer().querySelector('[data-gen-send]'));
+await waitFor('the viewer\'s paste', () => pasted.txt2img > pastedBeforeViewer);
+check('408. and the viewer\'s Send sends it, the viewer closed', [pasted.txt2img - pastedBeforeViewer, !!viewer()], [1, false]);
+const pastedBeforeAsOnly = pasted.txt2img;
+await act('modelManager.sendGenerationAs', { generation: 6 });
+await waitFor('its Resources dialog', () => document.querySelector('.mm-resources-modal [data-action="resources.sendAgain"]'));
+check('408. its card\'s Send as…: the Resources dialog with a Send line, naming the tab; nothing pasted yet',
+      [document.querySelector('.mm-resources-modal [data-action="resources.sendAgain"]')?.textContent.trim(),
+       pasted.txt2img - pastedBeforeAsOnly], ['Send to txt2img', 0]);
+document.querySelectorAll('#mm_meta_modal').forEach((m) => { m.close?.(); m.remove(); });
+CARDS.splice(-3, 3);
 
 done();

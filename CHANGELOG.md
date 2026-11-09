@@ -11,9 +11,11 @@ structure keeps its version and moves the build on, and is not listed here.
 *9 November 2026*
 
 Sync images reads the prompts other tools write into their images - SwarmUI, Fooocus, InvokeAI, NovelAI,
-Easy Diffusion and others - where it read only Forge's infotext. 0.77.0 reads them from the file; the
-versions after it store them, and send them with a checkpoint you pick.
+Easy Diffusion and others - where it read only Forge's infotext. They are stored and searched, an image's
+NSFW level is judged from them, and Send sends them with a checkpoint you pick. ComfyUI's own workflow is
+not read yet (#232).
 
+- **0.77.1** (build 661) - An image Sync images found another tool's prompts in, with no infotext, came in with no prompt, at the dialog's NSFW level. It is now stored with them: its prompt and negative prompt, searched and shown in the viewer with a Made with row naming the tool, its level judged from them; images without infotext join one batch only when their prompts are the same. Send sends it, its text built from its prompts and what its file name says; where it names no checkpoint - this holds for any generation that names none - Send stops on the Resources dialog's list of your checkpoints, its Send waiting for a pick, and a send into img2img goes on, saying so. Read every image again reads the images synced before (#408).
 - **0.77.0** (build 658) - Sync images read the JSON that SwarmUI, RuinedFooocus, Fooocus, Easy Diffusion and Civitai's early on-site images write where Forge writes its infotext as if it were infotext; it no longer does. Fooocus writes its JPEG and WebP text where Sync images never looked: it is read now, its a1111 form as infotext. A JPEG's comment was read as infotext whatever it held - an image editor's "Created with GIMP" included; a comment, like Fooocus's place, now counts only when it ends with a line of settings. And a JPEG or WebP whose infotext starts with a character such as 一 was read as garbage, its byte order guessed from the first character alone; Forge's own order is now kept whenever it reads as infotext. Each was shown on made-up files. The other tools' prompts are read from the file and not yet stored (#408).
 
 ## 0.76 - One generation with several checkpoints

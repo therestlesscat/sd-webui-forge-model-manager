@@ -30,7 +30,8 @@ A note is:
     when      optional: a condition of this install the note is only for, of
               CONDITIONS - "custom_database", the database file set in the
               settings, which two WebUIs sharing one database need;
-              "twin_files", a file recorded under its twin's Civitai id - or
+              "twin_files", a file recorded under its twin's Civitai id;
+              "synced_without_prompt", a synced image with no prompt - or
               "repair:<name>", while that repair has work here (repairs/)
     important optional true: shown first, headed [Important] - for what
               everyone should read, not only what needs doing
@@ -70,8 +71,16 @@ def _twin_files() -> bool:
     return bool(get_models_db().files_under_twin_ids())
 
 
+def _synced_without_prompt() -> bool:
+    """Whether a synced image has no prompt (#408): it may hold another
+    tool's, which Read every image again reads."""
+    from .db import get_models_db
+    return get_models_db().has_synced_without_prompt()
+
+
 # Conditions a note can be for, by the name its "when" gives.
-CONDITIONS = {"custom_database": _custom_database, "twin_files": _twin_files}
+CONDITIONS = {"custom_database": _custom_database, "twin_files": _twin_files,
+              "synced_without_prompt": _synced_without_prompt}
 
 
 def _holds(when: str) -> bool:
