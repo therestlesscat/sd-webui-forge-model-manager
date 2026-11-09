@@ -640,5 +640,36 @@ with_meta = getattr(send, 'with_usual_meta', lambda meta, usual, *a: meta)
 check('15. no usual: a Civitai image\'s data and a generation\'s line as they are, the very objects',
       [with_meta(KARRAS, None, SAMPLERS, SCHEDULERS) is KARRAS, with_line(LINE, None) is LINE], [True, True])
 
+# ------------------------------------------- a prompts-only image's text (#408)
+# Sync images stores another tool's prompts, a Made with row, the size and
+# what the file name gave, under Forge's names: built as a Civitai image's is.
+from model_manager.image_text import line_params   # noqa: E402
+PO_SAMPLERS, PO_SCHEDULERS = ['Euler a', 'DPM++ 2M'], ['Automatic', 'Karras']
+PROMPTS_ONLY = {'prompt': 'a cat', 'negativePrompt': 'dog', 'Made with': 'SwarmUI', 'Model': 'mx',
+                'Steps': '30', 'Sampler': 'Euler a', 'Size': '64x64'}
+po = send.prompts_only_text(PROMPTS_ONLY, PO_SAMPLERS, PO_SCHEDULERS)
+check('408. a prompts-only image\'s text: its prompts, the file name\'s settings as Forge names them, no Made with',
+      po, 'a cat\nNegative prompt: dog\nSteps: 30, Sampler: Euler a, Size: 64x64, Model: mx, ADetailer enable: False')
+check('408. a size alone: Size-1, Size-2 and ADetailer\'s switch, three fields Forge reads as settings',
+      send.prompts_only_text({'prompt': 'a cat', 'Size': '64x64'}, PO_SAMPLERS, PO_SCHEDULERS),
+      'a cat\nSize-1: 64, Size-2: 64, ADetailer enable: False')
+po_usual = send.prompts_only_text(PROMPTS_ONLY, PO_SAMPLERS, PO_SCHEDULERS, {'sampler': 'DPM++ 2M', 'steps': 40})
+check('408. with the pick\'s usual settings ticked, Forge\'s pattern reads the pick\'s sampler and steps, '
+      'not the file name\'s', {k: line_params(po_usual).get(k) for k in ('Sampler', 'Steps')},
+      {'Sampler': 'DPM++ 2M', 'Steps': '40'})
+po_schedule = send.prompts_only_text(PROMPTS_ONLY, PO_SAMPLERS, PO_SCHEDULERS, {'schedule_type': 'Karras'})
+check('408. with only the usual schedule type ticked, the file name\'s sampler stays',
+      {k: line_params(po_schedule).get(k) for k in ('Sampler', 'Schedule type')},
+      {'Sampler': 'Euler a', 'Schedule type': 'Karras'})
+check('408. no negative: no Negative prompt line',
+      'Negative prompt' in send.prompts_only_text({'prompt': 'a cat', 'Size': '64x64'}, PO_SAMPLERS, PO_SCHEDULERS),
+      False)
+check('408. a prompt wholly in quotes is kept as written - Civitai\'s unquoting is Civitai\'s',
+      send.prompts_only_text({'prompt': '"a cat"', 'negativePrompt': '"dog"', 'Size': '64x64'},
+                             PO_SAMPLERS, PO_SCHEDULERS).split('\n')[:2],
+      ['"a cat"', 'Negative prompt: "dog"'])
+check('and a Civitai image\'s still loses them, as before',
+      send.build_infotext({'prompt': '"a cat"', 'Size': '64x64'}, PO_SAMPLERS, PO_SCHEDULERS).split('\n')[0], 'a cat')
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

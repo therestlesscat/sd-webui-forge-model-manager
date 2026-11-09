@@ -951,7 +951,7 @@ def _field(key: str, value: Any) -> str:
 
 def build_infotext(meta: Any, samplers: List[str], schedulers: List[str],
                    denoising_strength: Any = None, hires_upscaler: Any = None,
-                   upscalers: Optional[List[str]] = None) -> str:
+                   upscalers: Optional[List[str]] = None, as_written: bool = False) -> str:
     """
     A Civitai image's generation data as an infotext Forge's paste reads:
     the prompt, the negative prompt, then a settings line. What Forge's paste
@@ -961,15 +961,18 @@ def build_infotext(meta: Any, samplers: List[str], schedulers: List[str],
     where it would otherwise turn Hires fix on. `hires_upscaler`: an
     upscaler's gallery's own, over the image's (#134). `upscalers`: Hires
     fix's, as this WebUI lists them, the image's matched to one (#309).
+    `as_written`: the prompts as they are - Civitai's rule that drops the
+    quotes round a whole prompt is Civitai's alone (#408).
     """
     if not _truthy(meta):
         return ""
     meta = meta if isinstance(meta, dict) else {}
+    unquoted = (lambda text: text) if as_written else _unquoted
     infotext = ""
-    prompt = _unquoted(meta.get("prompt"))
+    prompt = unquoted(meta.get("prompt"))
     if _truthy(prompt):
         infotext += _js_text(prompt)
-    negative = _unquoted(meta.get("negativePrompt"))
+    negative = unquoted(meta.get("negativePrompt"))
     if _truthy(negative):
         infotext += "\nNegative prompt: " + _js_text(negative)
 
@@ -1478,6 +1481,45 @@ def without_renames(source: Dict[str, Any]) -> Dict[str, Any]:
     return {k: v for k, v in source.items() if k not in ("prompt", "negative_prompt", "renames")}
 
 
+# What Sync images reads from a file's name, under Forge's infotext names,
+# as a Civitai image's data names them - which build_infotext reads.
+_NAME_FIELDS = {"Sampler": "sampler", "Steps": "steps", "CFG scale": "cfgScale", "Seed": "seed"}
+
+
+def prompts_only(generation: Dict[str, Any]) -> bool:
+    """
+    Whether a generation is one Sync images read another tool's prompts for
+    (#408): no infotext, its own or its first image's, and a prompt in that
+    image's data.
+    """
+    images = generation.get("images") or []
+    first = images[0] if images else {}
+    return not generation.get("infotext") and not first.get("infotext") \
+        and _truthy((first.get("meta") or {}).get("prompt"))
+
+
+def prompts_only_data(meta: Dict[str, Any]) -> Dict[str, Any]:
+    """A prompts-only image's data under the names a Civitai image's data
+    uses, which build_infotext and the schedule type read; Made with left
+    out."""
+    return {_NAME_FIELDS.get(key, key): value for key, value in (meta or {}).items() if key != "Made with"}
+
+
+def prompts_only_text(meta: Dict[str, Any], samplers: List[Any], schedulers: List[Any],
+                      usual: Optional[Dict[str, Any]] = None) -> str:
+    """
+    The text a Send of a prompts-only image pastes (#408), built as a Civitai
+    image's is: its data's file-name fields renamed to the names Civitai's
+    data uses, Made with left out, the pick's usual settings over them
+    (with_usual_meta - left as they were, the file name's would be written
+    after them, and Forge's parser keeps the last), then build_infotext,
+    the prompts as written. A size alone makes three fields of the line
+    (Size-1, Size-2 and ADetailer's switch), so Forge reads it as settings.
+    """
+    data = with_usual_meta(prompts_only_data(meta), usual, samplers, schedulers)
+    return build_infotext(data, samplers, schedulers, as_written=True)
+
+
 def replays(generation: Dict[str, Any], into: bool) -> bool:
     """Whether a generation's Send sets its kept press back (#7) rather than
     pasting its infotext: it kept one, and goes back to its own tab - into
@@ -1500,7 +1542,9 @@ def generation_settings(db, source: Dict[str, Any], into: bool = False,
     where it has none - as the page did (`card.infotext || first.infotext`:
     2 of one library's 7,174 differ). `usual`: the pick's usual settings,
     ticked (usual_settings.chosen), in its settings line and handed on for the
-    replay. None for no such generation.
+    replay. A prompts-only image's text is built from its data
+    (prompts_only_text), the renames applied to it. None for no such
+    generation.
     """
     generation = db.get_generation(int(source.get("generation") or 0))
     if not generation:
@@ -1510,7 +1554,15 @@ def generation_settings(db, source: Dict[str, Any], into: bool = False,
     meta = image.get("meta") or {}
     infotext = (generation.get("infotext") if source.get("whole") else None) or image.get("infotext") or ""
     samplers, schedulers = forge_lists()
-    text = with_usual_line(renamed(infotext, source.get("renames")), usual) if infotext else ""
+    if not infotext and _truthy(meta.get("prompt")):
+        # Another tool's prompts (#408): built, the usual settings in it; the
+        # schedule type read from what it was built from, where a file name's
+        # `DPM++ 2M Karras` is a sampler the paste splits.
+        infotext = renamed(prompts_only_text(meta, samplers, schedulers, usual), source.get("renames"))
+        text = infotext
+        meta = prompts_only_data(meta)
+    else:
+        text = with_usual_line(renamed(infotext, source.get("renames")), usual) if infotext else ""
     # The paste's event sets the schedule type the line was given: none where
     # the text has no settings line to give the usual ones to.
     pasted = (usual or {}).get("schedule_type") if settings_line(text) else None
@@ -1629,7 +1681,9 @@ def generation_plan(db, generation_id: int, use_checkpoint: Optional[str] = None
             return plan
         kind = generation_pick_kind(db, generation, picked, image_model)
         plan = plan_for(db, picked, modules if kind != "model" else [])
-        if kind == "model":
+        if kind == "model" or prompts_only(generation):
+            # A prompts-only image recorded no modules (#408): an empty list
+            # would clear every VAE and text encoder Forge has selected.
             plan["target"], plan["modules_missing"] = family_modules(db, picked), []
         if kind != "own":
             plan.update({"instead": os.path.basename(picked), "pick": kind})
@@ -1650,7 +1704,7 @@ def generation_plan(db, generation_id: int, use_checkpoint: Optional[str] = None
                       if os.path.isfile(p)]
         listed = next((p for p in candidates if checkpoint_name(p)), None)
         if listed:
-            plan = plan_for(db, listed, modules)
+            plan = with_family(db, generation, listed, plan_for(db, listed, modules))
         elif candidates:
             found = candidates[0]
             plan["checkpoint_missing"] = os.path.basename(found)
@@ -1658,12 +1712,25 @@ def generation_plan(db, generation_id: int, use_checkpoint: Optional[str] = None
                                           "name": os.path.basename(found), "path": found}
         else:
             # Synced from a folder, its text may name a checkpoint by name alone.
+            # Naming none, it stops all the same (#408): sent onto whatever
+            # Forge has loaded, it would not come out as it was.
             name = (None if path else db.unheld_checkpoint(generation_id)) or plan["checkpoint_missing"]
             plan["checkpoint_missing"] = name
-            plan["checkpoint_problem"] = {"reason": "missing", "name": name} if name else None
+            plan["checkpoint_problem"] = {"reason": "missing", "name": name} if name else {"reason": "not_named"}
+    else:
+        plan = with_family(db, generation, path, plan)
     # Whether its Send sets back what the press was sent (#7); a generation
     # recorded without them has Forge's paste, corrected.
     plan["inputs"] = bool(generation.get("inputs"))
+    return plan
+
+
+def with_family(db, generation: Dict[str, Any], path: str, plan: Dict[str, Any]) -> Dict[str, Any]:
+    """A plan for a prompts-only generation (#408) sets up its checkpoint's
+    family's VAE and text encoders, as a pick of another model does: it
+    recorded none. Any other plan as it is."""
+    if prompts_only(generation):
+        plan["target"], plan["modules_missing"] = family_modules(db, path), []
     return plan
 
 

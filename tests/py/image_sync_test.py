@@ -840,6 +840,65 @@ db.restamp_generation_levels(lambda meta: PROMPT_LEVEL)
 check('408. a restamp judges a prompts-only image again; one with nothing keeps its level',
       (stored(plain)['level'], stored(still)['level']), (PROMPT_LEVEL, PG))
 check('no prompt is left that nothing names', unused(), [])
+
+# Send's server, for a prompts-only image (#408).
+from model_manager import send as send_module                               # noqa: E402
+SENDS = os.path.join(OUT, 'others-send')
+CK_STEM = os.path.splitext(os.path.basename(CHECKPOINT))[0]
+# An earlier section's sync read the fixture's file, no real checkpoint, as
+# Unknown: filed as a checkpoint again, as the suite's top files it.
+raw.execute("UPDATE files SET file_type = 'Checkpoint' WHERE file_path = ?", (CHECKPOINT,))
+raw.commit()
+po_free = save_prompts(SENDS, 'freeform.png', 'a free <lora:alias_x:0.5> scene', 'dull', at=0)
+po_known = save_prompts(SENDS, '03500-%s-25.png' % CK_STEM, 'a known scene', at=500)
+po_unknown = save_prompts(SENDS, '03501-nomodel_here-25.png', 'an unknown scene', at=1000)
+run([SENDS], level=PG)
+gen = {path: stored(path)['generation'] for path in (po_free, po_known, po_unknown)}
+sd_models = types.ModuleType('modules.sd_models')
+sd_models.checkpoints_list = {'c': types.SimpleNamespace(filename=CHECKPOINT, title='%s.safetensors [abcd]' % CK_STEM)}
+sd_models.checkpoint_aliases = {'%s.safetensors [abcd]' % CK_STEM: sd_models.checkpoints_list['c']}
+sys.modules['modules.sd_models'] = sd_models
+family_before, offered_before = send_module.family_modules, forge_host.installed_modules
+forge_host.installed_modules = lambda: {'sdxl_vae.safetensors': VAE}
+send_module.family_modules = lambda db_, path: ['family_of_%s' % os.path.basename(path)]
+check('408. Send\'s plan for a generation that names no checkpoint: a stop of its own, not_named',
+      send_plan(db, gen[po_free])['checkpoint_problem'], {'reason': 'not_named'})
+known_plan = send_plan(db, gen[po_known])
+check('408. one whose file name names a checkpoint the library has: that checkpoint, with its family\'s VAE '
+      'and text encoders, not the empty list it recorded',
+      (known_plan['checkpoint'], known_plan['target'], known_plan.get('checkpoint_problem')),
+      ('%s.safetensors [abcd]' % CK_STEM, ['family_of_%s' % os.path.basename(CHECKPOINT)], None))
+# Its own checkpoint picked: a pick of the same file, which for a generation
+# with text keeps the modules it recorded - this one recorded none.
+picked_plan = send_plan(db, gen[po_known], use_checkpoint='%s.safetensors [abcd]' % CK_STEM)
+check('408. its own checkpoint picked in the Resources dialog: with its family\'s modules, not none',
+      (picked_plan['checkpoint'], picked_plan['target']),
+      ('%s.safetensors [abcd]' % CK_STEM, ['family_of_%s' % os.path.basename(CHECKPOINT)]))
+check('one whose file name names a checkpoint the library lacks: today\'s stop, naming it',
+      send_plan(db, gen[po_unknown])['checkpoint_problem'], {'reason': 'missing', 'name': 'nomodel_here'})
+recorded_plan = send_plan(db, gid_matched)
+check('a generation with text keeps the modules it recorded', recorded_plan['target'], ['sdxl_vae.safetensors'])
+send_module.family_modules, forge_host.installed_modules = family_before, offered_before
+del sys.modules['modules.sd_models']
+po_settings = send_module.settings(db, {'kind': 'generation', 'generation': gen[po_free],
+                                        'renames': [{'from': 'alias_x', 'to': 'file_x'}]})
+check('408. its text, built from its data, the chips\' rename applied',
+      po_settings['text'].split('\n')[:2], ['a free <lora:file_x:0.5> scene', 'Negative prompt: dull'])
+# A file name's sampler with its schedule type folded in, which the paste splits.
+raw.execute("UPDATE generation_image_details SET meta = json_set(meta, '$.Sampler', 'DPM++ 2M Karras') "
+            "WHERE image_id = (SELECT id FROM generation_images WHERE path = ?)", (po_free,))
+raw.commit()
+lists_before = send_module.forge_lists
+send_module.forge_lists = lambda: (['Euler a', 'DPM++ 2M'], ['Automatic', 'Karras'])
+check('408. the schedule type set after the paste is the one the built text gives, not Automatic',
+      send_module.settings(db, {'kind': 'generation', 'generation': gen[po_free]})['scheduler'], 'Karras')
+send_module.forge_lists = lists_before
+check('408. into img2img, the prompts go with the picture',
+      send_module.settings(db, {'kind': 'generation', 'generation': gen[po_free]}, into=True)['text'].split('\n')[0],
+      'a free <lora:alias_x:0.5> scene')
+check('408. a whole generation\'s Send - a model\'s gallery card - builds the same way',
+      send_module.settings(db, {'kind': 'generation', 'generation': gen[po_known], 'whole': True})['text'].split('\n')[0],
+      'a known scene')
 opts.samples_filename_pattern = pattern_before
 
 # ---------------------------------------- folders reached through links (#348)
