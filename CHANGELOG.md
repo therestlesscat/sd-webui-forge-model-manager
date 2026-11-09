@@ -6,6 +6,16 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.77 - Prompts from other tools' images
+
+*9 November 2026*
+
+Sync images reads the prompts other tools write into their images - SwarmUI, Fooocus, InvokeAI, NovelAI,
+Easy Diffusion and others - where it read only Forge's infotext. 0.77.0 reads them from the file; the
+versions after it store them, and send them with a checkpoint you pick.
+
+- **0.77.0** (build 658) - Sync images read the JSON that SwarmUI, RuinedFooocus, Fooocus, Easy Diffusion and Civitai's early on-site images write where Forge writes its infotext as if it were infotext; it no longer does. Fooocus writes its JPEG and WebP text where Sync images never looked: it is read now, its a1111 form as infotext. A JPEG's comment was read as infotext whatever it held - an image editor's "Created with GIMP" included; a comment, like Fooocus's place, now counts only when it ends with a line of settings. And a JPEG or WebP whose infotext starts with a character such as 一 was read as garbage, its byte order guessed from the first character alone; Forge's own order is now kept whenever it reads as infotext. Each was shown on made-up files. The other tools' prompts are read from the file and not yet stored (#408).
+
 ## 0.76 - One generation with several checkpoints
 
 *4 November 2026*

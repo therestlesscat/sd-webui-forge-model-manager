@@ -7,7 +7,9 @@ reader (#232):
 - the generation text Forge writes into the file: PNG's `parameters`, and the
   EXIF comment of a JPEG, WebP, AVIF or JXL - read here with PIL rather than
   by Forge's read_info_from_image, which in the original Forge scans a file's
-  pixels for hidden text when there is none, and imports the WebUI to do it;
+  pixels for hidden text when there is none, and imports the WebUI to do it.
+  Where it is not there, the prompts another tool wrote (image_formats.py,
+  #408);
 - the file's own name and folders, read back by Forge's naming settings:
   for an image with no text, what its name says - model, sampler, steps,
   size, time - is all there is.
@@ -23,6 +25,7 @@ import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
+from . import image_formats
 from .forge_host import infotext_line_pattern
 
 # What a sync reads as an image.
@@ -32,9 +35,20 @@ _EXIF_IFD = 0x8769
 _USER_COMMENT = 0x9286
 
 
-def read_text(path: str) -> Tuple[Optional[str], int, int]:
+def read_text(path: str) -> Tuple[Optional[str], int, int, Optional[image_formats.Prompts]]:
     """
-    The generation text written into an image file, and the image's size.
+    What an image file says about how it was made, and its size: (text, width,
+    height, prompts). `text` is Forge's generation text; where the file has
+    none, `prompts` is the prompt and negative another tool wrote
+    (image_formats), else None - never both.
+
+    Forge's text is looked for where Forge writes it - `parameters`, the Exif
+    part's UserComment, a JPEG's comment - then at the EXIF's top level, where
+    Fooocus writes it. At each place: JSON is another tool's, handed to its
+    readers, and the search goes on; text is Forge's, and ends it - a
+    `parameters` of spaces alone ends it with nothing. The comment and the
+    top level count only with a settings line last: an image editor or a
+    script writes its own words there.
 
     Raises OSError for a file that cannot be opened as an image.
     """
@@ -42,14 +56,37 @@ def read_text(path: str) -> Tuple[Optional[str], int, int]:
     with Image.open(path) as image:
         width, height = image.size
         info = image.info or {}
-        text = info.get("parameters")
-        if not text and "exif" in info:
-            text = _user_comment(image)
-        if not text and isinstance(info.get("comment"), (bytes, str)):
-            comment = info["comment"]
-            text = comment.decode("utf-8", "ignore") if isinstance(comment, bytes) else comment
-    text = text.strip() if isinstance(text, str) else None
-    return (text or None), width, height
+        found = None
+        for place, value in _places(image, info):
+            if not value:
+                continue
+            data = image_formats.json_object(value)
+            if data is not None:
+                found = found or image_formats.from_json(data)
+                continue
+            if place in ("comment", "top") and not line_params(value):
+                continue
+            if not value.strip() and found:
+                break
+            return (value.strip() or None), width, height, None
+        return None, width, height, found or image_formats.from_chunks(info)
+
+
+def _places(image, info):
+    """Where Forge's text may be, in the order it is looked for, each read
+    only when the one before held nothing."""
+    yield "parameters", info.get("parameters") if isinstance(info.get("parameters"), str) else None
+    if "exif" in info:
+        yield "exif", _user_comment(image)
+    comment = info.get("comment")
+    if isinstance(comment, (bytes, str)):
+        yield "comment", comment.decode("utf-8", "ignore") if isinstance(comment, bytes) else comment
+    if "exif" in info:
+        yield "top", _top_user_comment(image)
+
+
+# The eight bytes that start a UserComment, naming its encoding.
+_COMMENT_HEADS = (b"UNICODE\x00", b"ASCII\x00\x00\x00", b"JIS\x00\x00\x00\x00\x00", b"\x00" * 8)
 
 
 def _user_comment(image) -> Optional[str]:
@@ -59,17 +96,51 @@ def _user_comment(image) -> Optional[str]:
         value = image.getexif().get_ifd(_EXIF_IFD).get(_USER_COMMENT)
     except Exception:
         return None
+    return _decode_comment(value)
+
+
+def _top_user_comment(image) -> Optional[str]:
+    """A UserComment at the EXIF's top level, where Fooocus writes its text
+    through PIL: as text, with no encoding named - PIL kept ASCII alone, so a
+    prompt's other characters were written as `?`."""
+    try:
+        value = image.getexif().get(_USER_COMMENT)
+    except Exception:
+        return None
+    if isinstance(value, bytes) and value[:8] not in _COMMENT_HEADS:
+        return value.decode("utf-8", "ignore")
+    return _decode_comment(value)
+
+
+def _decode_comment(value) -> Optional[str]:
     if isinstance(value, str):
         return value
     if not isinstance(value, bytes) or len(value) < 8:
         return None
     head, body = value[:8], value[8:]
     if head == b"UNICODE\x00":
-        # Forge writes it big-endian (piexif); a little-endian writer starts
-        # its text with a zero byte the other way round.
-        encoding = "utf-16-le" if body[1:2] == b"\x00" and body[:1] != b"\x00" else "utf-16-be"
-        return body.decode(encoding, "ignore")
+        return _utf16(body)
     return body.decode("utf-8", "ignore")
+
+
+def _utf16(body: bytes) -> str:
+    """
+    A UTF-16 UserComment in its byte order. Forge writes big-endian
+    (piexif), SwarmUI little-endian. Read big-endian, it is kept whenever it
+    ends with a settings line: every Forge text does. Else the order is told
+    by where its zero bytes fall - at odd places little-endian, at even ones
+    big-endian - as Civitai's reader tells it, an ASCII-heavy text such as
+    SwarmUI's JSON putting them plainly on one side; with nothing to tell,
+    big-endian. The first character alone misled: a prompt starting 一
+    (U+4E00) reads 4E 00 big-endian, a little-endian ASCII letter's shape;
+    and zero bytes alone would mislead a Forge text mostly of characters
+    such as U+3000 or 가 (U+AC00), whose zero falls the other way.
+    """
+    big = body.decode("utf-16-be", "ignore")
+    if line_params(big):
+        return big
+    even, odd = body[0::2].count(0), body[1::2].count(0)
+    return body.decode("utf-16-le", "ignore") if odd > even else big
 
 
 def line_params(text: Optional[str], pattern=None) -> Dict[str, str]:

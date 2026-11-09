@@ -339,6 +339,9 @@ class _Image:
     mtime_ns: int
     number: Optional[int]
     text: Optional[str] = None
+    # Another tool's prompts, where the file has no Forge text (#408): read,
+    # not yet stored.
+    prompts: Optional[Dict[str, Any]] = None
     width: int = 0
     height: int = 0
     params: Dict[str, str] = field(default_factory=dict)
@@ -614,7 +617,7 @@ class ImageSync(object):
                 return
             progress.folder = image.root
             try:
-                image.text, image.width, image.height = read_text(image.path)
+                image.text, image.width, image.height, image.prompts = read_text(image.path)
             except Exception as e:
                 progress.note_error(f"could not read {image.path}: {e}")
                 progress.read += 1

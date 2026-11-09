@@ -145,7 +145,7 @@ open(broken, 'wb').write(b'not an image at all')
 from model_manager.image_text import read_text   # noqa: E402
 check('a PNG\'s text is its parameters chunk', read_text(png)[0], infotext('a castle', 7))
 check('a JPEG\'s text is its EXIF comment', read_text(jpg)[0], infotext('a jpeg castle', 70))
-check('an image with no text reads as none, with its size', read_text(bare), (None, 64, 64))
+check('an image with no text reads as none, with its size, and no prompts', read_text(bare), (None, 64, 64, None))
 progress = run([READ])
 check('a file that is no image is reported, not fatal', (progress.state, progress.error_count), ('done', 1))
 check('the readable three come in', len(images_at(READ)), 3)
