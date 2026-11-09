@@ -256,9 +256,9 @@ tiles = [...tiles, { kind: 'generation', generation: { ...generation, id: 2 }, m
 await act('generations.refresh');
 await waitFor('the second tile', () => document.querySelectorAll('#gen_grid .gen-tile').length === 2);
 const sendOf = (n) => document.querySelector(`#gen_grid [data-action="generations.send"][data-tile="${n}"]`);
-check('an image with no text: its Send is disabled, saying why; one with text is not',
-      [sendOf(1)?.disabled, (sendOf(1)?.title || '').includes('no infotext'), sendOf(0)?.disabled],
-      [true, true, false]);
+const NO_TEXT = 'This image has no infotext - Sync images found none in the file - so there is nothing to send.';
+check('an image with no text: its Send is disabled, saying why word for word (#410); one with text is not',
+      [sendOf(1)?.disabled, sendOf(1)?.title, sendOf(0)?.disabled], [true, NO_TEXT, false]);
 await act('generations.view', { tile: 1 });
 await waitFor('the viewer', () => document.querySelector('[data-gen-send]'));
 check('and in the viewer', document.querySelector('[data-gen-send]')?.disabled, true);

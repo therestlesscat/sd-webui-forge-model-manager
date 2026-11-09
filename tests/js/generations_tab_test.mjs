@@ -159,6 +159,8 @@ await waitFor('the cards', () => cards().length === 2);
 check('opened, it asks for the open model\'s generations',
       asked.some((u) => u.includes('/generations/page') && u.includes('a.safetensors')), true);
 check('and draws a card per generation', cards().length, 2);
+check('410. a card with infotext has its Send and Send as… enabled',
+      ['.mm-send-btn', '.mm-send-as-btn'].map((s) => cards()[0].querySelector(s)?.disabled), [false, false]);
 check('page 1 of them, ending with its note - which says nothing of Civitai, as none come from it',
       Array.from(document.querySelectorAll('#mm_images .mm-page-note')).map((n) => n.textContent.trim()),
       ['Displaying 7 images for page 1']);
@@ -373,5 +375,50 @@ await act('modelManager.selectModel', { index: 1 });
 await waitFor('the next model', () => tabs().length === 2 && tabs()[0][1]);
 check('the next model opens on its Civitai images again', tabs(),
       [['Civitai images', true], ['Your generations (0)', false]]);
+
+// #410: an image Sync images added without infotext has nothing to send. Its
+// card's and its viewer's Send and Send as… are disabled, saying why, as the
+// Generations tab's Send is - they were enabled, and pressing one sent nothing.
+// A card sends its generation's own text, and when the generation has none,
+// its first image's: card 5 has no text of its own, its first image has, and
+// it can still be sent.
+const NO_TEXT = 'This image has no infotext - Sync images found none in the file - so there is nothing to send.';
+CARDS.push({ id: 4, created_at: '2026-09-28T17:00:00', mode: 'txt2img', image_count: 1, matching_count: 1,
+             infotext: null, images: [image(41, 4, { infotext: null, meta: { Size: '832x1216' } })] },
+           { id: 5, created_at: '2026-09-28T17:10:00', mode: 'txt2img', image_count: 1, matching_count: 1,
+             infotext: null, images: [image(51, 5)] });
+await act('modelManager.selectModel', { index: 0 });
+await waitFor('the first model again, with its generations counted',
+              () => tabs().length === 2 && tabs()[1][0] !== 'Your generations (0)');
+await act('modelManager.showGalleryTab', { tab: 'generations' });
+await waitFor('its cards, with the two new ones', () => cards().length === 3);
+const cardOf = (id) => Array.from(cards()).find((c) => c.dataset.generation === String(id));
+const sendState = (root, selectors) => selectors.map((s) => {
+    const button = root?.querySelector(s);
+    return [button?.disabled, button?.getAttribute('title')];
+});
+const CARD_SENDS = ['.mm-send-btn', '.mm-send-as-btn'];
+check('410. a generation with no infotext: its card\'s Send and Send as… disabled, saying why',
+      sendState(cardOf(4), CARD_SENDS), [[true, NO_TEXT], [true, NO_TEXT]]);
+check('410. one with no text of its own but its first image\'s: both enabled',
+      sendState(cardOf(5), CARD_SENDS).map(([disabled]) => disabled), [false, false]);
+cardOf(4).querySelector('img[data-view-generation-image]').dispatchEvent(new window.Event('click', { bubbles: true }));
+await waitFor('the viewer on it', () => viewer()?.querySelector('[data-gen-send]'));
+check('410. in the viewer, the image\'s Send and Send as… disabled, saying why',
+      sendState(viewer(), ['[data-gen-send]', '[data-gen-send-as]']), [[true, NO_TEXT], [true, NO_TEXT]]);
+const pastedBeforeBare = pasted.txt2img;
+press(viewer().querySelector('[data-gen-send]'));
+await new Promise((resolve) => setTimeout(resolve, 20));
+check('410. its click, pressed anyway, leaves the viewer open and sends nothing',
+      [!!viewer(), pasted.txt2img - pastedBeforeBare], [true, 0]);
+document.dispatchEvent(Object.assign(new window.Event('keydown'), { key: 'Escape' }));
+await waitFor('the viewer closed', () => !viewer());
+cardOf(5).querySelector('img[data-view-generation-image]').dispatchEvent(new window.Event('click', { bubbles: true }));
+await waitFor('the viewer on an image with infotext', () => viewer()?.querySelector('[data-gen-send]'));
+check('410. in the viewer, an image with infotext: Send and Send as… enabled',
+      sendState(viewer(), ['[data-gen-send]', '[data-gen-send-as]']).map(([disabled]) => disabled), [false, false]);
+document.dispatchEvent(Object.assign(new window.Event('keydown'), { key: 'Escape' }));
+await waitFor('the viewer closed again', () => !viewer());
+CARDS.splice(-2, 2);
 
 done();

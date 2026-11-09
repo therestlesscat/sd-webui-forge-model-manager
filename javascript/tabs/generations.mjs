@@ -40,7 +40,7 @@ const { TIMING, apiCall, escapeHtml, setText } = await shared('core.mjs');
 const { ready, call } = await shared('calls.mjs');
 const { tabWork, available, open, unavailableReason } = await shared('loading.mjs');
 const { showTab } = await shared('tabs.mjs');
-const { sendInfotext, generationResourcesLine, IMG2IMG_SENDS } = await shared('send.mjs');
+const { sendInfotext, generationResourcesLine, generationSendRefusal, IMG2IMG_SENDS } = await shared('send.mjs');
 const { showImageResources, resourceButtonLabel, resourcesMenuItem } = await shared('resources.mjs');
 const {
     nsfwModelNoteHtml, galleryDefaults, shownPath, CHOOSE_CHECKPOINT_SETTING,
@@ -674,13 +674,10 @@ function postRating(fields) {
     return requestRating({ nsfw_images: nsfwMode, ...fields }, setStatus);
 }
 
-// An image a sync brought with no generation text (#233) has nothing for
-// Send to paste: its button is disabled, saying so, where it once did
-// nothing at all - seen on 7880.
-const NO_TEXT = 'This image has no infotext - Sync images found none in the file - so there is nothing to send.';
-
+// An image with nothing to send has its button disabled, saying why: the
+// rule is Send's own (#410).
 function sendHtml(image, mode, attributes) {
-    const why = image?.infotext ? '' : NO_TEXT;
+    const why = generationSendRefusal(image);
     return `<button type="button" class="mm-btn primary mm-btn-small" ${attributes}`
         + ` title="${escapeHtml(why || `Send to ${mode}`)}"${why ? ' disabled' : ''}>`;
 }
@@ -1222,7 +1219,7 @@ const viewerSource = {
         const { tile, image } = viewerAt(index);
         if (!image) return false;
         if (event.target.closest?.('[data-gen-send]')) {
-            if (!image.infotext) return true;
+            if (generationSendRefusal(image)) return true;
             closeViewer();
             // Once it has closed: closing brought the image it showed last
             // into view, so the place is the image sent.

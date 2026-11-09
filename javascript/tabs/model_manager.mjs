@@ -64,6 +64,7 @@ const { renderImageCard: sharedImageCard, showImageMeta, imageTextHtml } = await
 const { showImageResources, resourceButtonLabel, learnResourceHashes } = await shared('resources.mjs');
 const {
     sendInfotext, sendTab, sendGalleryImage, cannotSend, gallerySendLine, generationResourcesLine,
+    generationSendRefusal,
 } = await shared('send.mjs');
 
 // The notice of a newer version beside the header's: it draws itself.
@@ -2513,10 +2514,13 @@ const generationViewerSource = {
         const { card, image } = generationViewerImages()[index] || {};
         if (!image) return '';
         const label = resourceButtonLabel({ meta: image.meta || {} }, currentVersionId);
+        // An image with nothing to send says why on both (#410): they were enabled, with nothing to send.
+        const why = generationSendRefusal(image);
         return `${ratingRowHtml(image, 'modelManager.rateInViewer')}
-            <button type="button" class="mm-btn primary mm-btn-small" data-gen-send>Send to ${sendTab(card)}</button>
+            <button type="button" class="mm-btn primary mm-btn-small" data-gen-send${why
+                ? ` disabled title="${escapeHtml(why)}"` : ''}>Send to ${sendTab(card)}</button>
             <button type="button" class="mm-btn secondary mm-btn-small" data-gen-send-as
-                    title="Pick the checkpoint to send with">Send as…</button>
+                    title="${escapeHtml(why || 'Pick the checkpoint to send with')}"${why ? ' disabled' : ''}>Send as…</button>
             ${label ? `<button type="button" class="mm-btn secondary mm-btn-small" data-gen-resources>${label}</button>` : ''}
             <button type="button" class="mm-btn danger mm-btn-small" data-gen-delete>Delete</button>`;
     },
@@ -2556,6 +2560,7 @@ const generationViewerSource = {
         // Send, or Send as… (#377): the Resources dialog, your checkpoints to pick from.
         const sendAs = event.target.closest?.('[data-gen-send-as]');
         if (sendAs || event.target.closest?.('[data-gen-send]')) {
+            if (generationSendRefusal(image)) return true;
             previousPlace.remember(`#mm_images [data-view-generation-image="${Number(image.id)}"]`);
             closeViewer();
             sendInfotext({ infotext: image.infotext, mode: card.mode, meta: image.meta, generationId: card.id,
@@ -2630,6 +2635,8 @@ function renderGenerationCard(card, index) {
     const images = card.all || card.images || [];
     const first = (card.images || [])[0] || {};
     const prompt = first.meta?.prompt || '';
+    // What the card's Send sends, as sendGeneration takes it: nothing to send, and both say why (#410).
+    const sendWhy = generationSendRefusal(first, { generation: card });
     const when = card.created_at
         ? new Date(card.created_at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
         : '';
@@ -2655,11 +2662,13 @@ function renderGenerationCard(card, index) {
                 <div class="mm-generation-when">${escapeHtml([when, card.mode, imagesText].filter(Boolean).join(' · '))}</div>
                 ${imageTextHtml(first)}
                 <div class="mm-image-actions">
-                    <button class="mm-btn primary mm-send-btn" data-action="modelManager.sendGeneration" data-generation="${Number(card.id)}">
+                    <button class="mm-btn primary mm-send-btn" data-action="modelManager.sendGeneration" data-generation="${Number(card.id)}"${
+                        sendWhy ? ` disabled title="${escapeHtml(sendWhy)}"` : ''}>
                         Send to ${sendTab(card)}
                     </button>
                     <button class="mm-btn secondary mm-send-as-btn" data-action="modelManager.sendGenerationAs"
-                            data-generation="${Number(card.id)}" title="Pick the checkpoint to send with">Send as…</button>
+                            data-generation="${Number(card.id)}" title="${escapeHtml(sendWhy || 'Pick the checkpoint to send with')}"${
+                                sendWhy ? ' disabled' : ''}>Send as…</button>
                     <button class="mm-btn secondary" data-copy="${escapeHtml(prompt)}">Copy Prompt</button>
                     ${resourcesLabel ? `<button class="mm-btn secondary" data-resources-generation="${Number(card.id)}"
                         data-action="modelManager.showGenerationResources" data-generation="${Number(card.id)}">${resourcesLabel}</button>` : ''}
@@ -2686,7 +2695,7 @@ async function sendGeneration(id, { choose = false } = {}) {
     const { card } = drawnGeneration(id);
     const first = card?.images?.[0];
     const infotext = card?.infotext || first?.infotext;
-    if (!infotext) {
+    if (generationSendRefusal(first, { generation: card })) {
         console.error('[ModelManager] No infotext to send for generation', card?.id);
         return;
     }

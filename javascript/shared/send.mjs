@@ -94,7 +94,7 @@ export async function sendInfotext({ infotext, mode, meta = {}, generationId = n
     // with no infotext too.
     const sending = into ? { mode: Number(into.mode), picture: { generation_image: Number(imageId) },
                              width: into.width ?? null, height: into.height ?? null } : null;
-    if ((!infotext && !sending) || generationId === null || generationId === undefined) return false;
+    if ((generationSendRefusal({ infotext, meta }) && !sending) || generationId === null || generationId === undefined) return false;
     meta = meta || {};
     // `usual`: the pick's usual settings, ticked in the Resources dialog (#378) - `{ name }`, the pick as it says it.
     const pick = useCheckpoint ? { checkpoint: useCheckpoint, imageModel, usual } : null;
@@ -573,6 +573,24 @@ export function cannotSend(img, model, version) {
     const named = imageCheckpoint(img);
     if (named.versionIds.length || named.hashes.length || named.name) return '';
     return 'This image does not say which checkpoint it was made with, which Send needs.';
+}
+
+// An image a sync brought with no generation text (#233) has nothing for
+// Send to paste: its Send is disabled, saying so. The Generations tab's
+// once did nothing at all, seen on 7880; a model's gallery left both buttons
+// enabled until #410, read in the code.
+const NO_TEXT = 'This image has no infotext - Sync images found none in the file - so there is nothing to send.';
+
+/**
+ * Why one of your generations' images cannot be sent back, or '' (#410): the
+ * one rule every Send of a generation asks - the buttons both tabs draw and
+ * the stops behind them - so a change to what can be sent is made here once.
+ * It is handed the image, or the `{ infotext, meta }` a send carries, and for
+ * a whole-generation Send (a model gallery's card) the generation, whose own
+ * text goes before its image's.
+ */
+export function generationSendRefusal(image, { generation = null } = {}) {
+    return (generation?.infotext || image?.infotext) ? '' : NO_TEXT;
 }
 
 /**
@@ -1200,7 +1218,7 @@ export function gallerySendLine({ img, model, version }) {
 
 /** The same for one of your generations' images; null for one with nothing to send. */
 export function generationResourcesLine({ infotext, mode, meta, generationId, imageId = null, whole = false }) {
-    if (!infotext || generationId === null || generationId === undefined) return null;
+    if (generationSendRefusal({ infotext, meta }) || generationId === null || generationId === undefined) return null;
     return generationSendLine({ infotext, mode, meta, generationId, imageId, whole }, { opened: 'resources' });
 }
 
