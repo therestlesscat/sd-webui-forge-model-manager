@@ -109,7 +109,12 @@ the code (2026-10-16).
   story - what happens, the moment it goes wrong, how likely; tests are
   situations, each new or a guard. `file:line` stays only where it helps
   look something up. The #195 plan, in chat, read as if steps were missing;
-  #200's doc, rewritten so, became the rule (2026-10-08).
+  #200's doc, rewritten so, became the rule (2026-10-08). Each part opens
+  with an italic "In short:" line or two, the part in plain words; the owner
+  reads those first, and the full text where one is not enough. They are
+  written in the same write as the part, and left out of the Final tab. A
+  separate short tab drifts from the plan, and a margin comment comes loose
+  when a round rewrites its part (#408, 2026-11-09).
 - **A plan that adds a window says what it shows and what each control
   does.** #241's review window was named in passing; the owner: "you
   mentioned review window passing by, never explained how it will look, what
