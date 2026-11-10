@@ -6744,8 +6744,9 @@ body.mm-several #txt2img_queue {
     color: #cbd5e1 !important;
 }
 
-/* A database newer than this copy knows (#136): the tab's own content
-   hidden, a notice in its place saying why and what to do. */
+/* A database newer than this copy knows (#136), one migrating (#285), or a
+   page whose requests are refused: the tab's own content hidden, a
+   notice in its place saying why and what to do. */
 .database-blocked > :not(.newer-database) {
     display: none !important;
 }

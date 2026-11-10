@@ -297,6 +297,8 @@ _said_lock = threading.Lock()
 # extension's own settings window cannot save either, its route gated too.
 ACCESS_SETTING = "Settings -> Model Manager -> Access -> Other names this computer is reached by over plain http"
 ACCESS_SWITCH = "Refuse requests sent to a name this computer does not know"
+OWN_PROXY = ("If it is this WebUI's own page, reached through a proxy of yours, add the proxy's name in "
+             f"{ACCESS_SETTING}.")
 
 
 def refused_from(origin: str, by_name: bool = False) -> JSONResponse:
@@ -319,10 +321,14 @@ def refused_from(origin: str, by_name: bool = False) -> JSONResponse:
         error = (f"Refused: this WebUI was reached as {origin}, a name it does not know. If that is how you "
                  f"reach it, add the name in {ACCESS_SETTING}, or turn off {ACCESS_SWITCH} there.")
     else:
-        error = "Refused: this request came from another website's page, not the WebUI's own."
+        # The one refusal a page of the user's own can meet with its first
+        # answer allowed - a WebUI started for the network behind a proxy that
+        # passes it on under another name - so its words carry the fix.
+        error = ("Refused: this request came from another website's page, not the WebUI's own. "
+                 f"{OWN_PROXY}")
     if first:
         say(error if by_name else f"Refused requests from {origin}: another website's page. To allow a page "
-            "of your own, start the WebUI with --cors-allow-origins naming it.")
+            f"of your own, start the WebUI with --cors-allow-origins naming it. {OWN_PROXY}")
     if more:
         say("Refusing requests from more websites' pages or names; they are not named.")
     return JSONResponse({"success": False, "refused": origin, "error": error}, status_code=403)

@@ -651,9 +651,29 @@ let newerDatabase = null;
 // tabs start, in the same page. Failed, the notice says so, and stays.
 let migrating = null;
 
-/** Whether the tabs wait under a notice: a database newer than this copy, or one migrating. */
+// The server's refusal of this page's requests: {error}, its words, or
+// null. A page reached by a name the WebUI does not know - a proxy over
+// plain http not yet named in its settings - has its first answer refused,
+// and would have every request after it refused too. Then no tab starts,
+// each tab that is on is covered by a notice with the server's own words,
+// and the switches only hide or show a tab: nothing starts, nothing asks for
+// a reload. Until the page is reloaded.
+let refused = null;
+
+/** Whether the tabs wait under a notice: a database newer than this copy, one migrating, or a refused page. */
 function blocked() {
-    return Boolean(newerDatabase || migrating);
+    return Boolean(newerDatabase || migrating || refused);
+}
+
+function refusedNotice() {
+    return `<div class="newer-database page-refused">
+        <h3>This page's requests are refused.</h3>
+        ${refused.error ? `<p>${escapeHtml(refused.error)}</p>` : ''}
+        <p>Then reload this page.</p>
+        <div class="newer-database-actions">
+            <button type="button" class="mm-btn primary" data-action="access.openSettings">Open Settings</button>
+        </div>
+    </div>`;
 }
 
 function migratingNotice() {
@@ -704,14 +724,15 @@ function drawDatabaseNotices() {
     for (const [name, tab] of Object.entries(TABS)) {
         const root = app.querySelector(`#${tab.root}`);
         if (!root || !state[name].on || !state[name].built) continue;
-        if (!newerDatabase) {
+        if (migrating && !newerDatabase && !refused) {
             // How far it has got, written only where it differs: this runs after every update.
             const shown = root.querySelector(':scope > .database-migrating .database-migrating-progress');
             if (shown) setText(shown, migrating.progress || 'Starting...');
         }
         if (root.querySelector(':scope > .newer-database')) continue;
         root.classList.add('database-blocked');
-        root.insertAdjacentHTML('afterbegin', newerDatabase ? databaseNotice() : migratingNotice());
+        root.insertAdjacentHTML('afterbegin', refused ? refusedNotice()
+                                              : newerDatabase ? databaseNotice() : migratingNotice());
     }
 }
 
@@ -779,6 +800,36 @@ async function offerDatabaseActions() {
 }
 
 /**
+ * The refused page's button: the WebUI's own Settings tab - the settings
+ * window would ask the server, which refuses it. Its listener is calls.mjs's,
+ * started alone, as the database notice's is.
+ */
+async function offerRefusedActions() {
+    await useServices(['calls.mjs'], 'access');
+    provide('access.openSettings', () => goToTab('settings'));
+}
+
+/**
+ * A refused page's tabs, as their switches say - Forge's own options, as
+ * the page loads and as they change - and whether this start built each, from
+ * whether its button is there: one on is shown under the notice, one off
+ * hidden. Nothing starts and nothing asks for a reload: every request would
+ * be refused.
+ */
+function followRefused(value) {
+    for (const [name, tab] of Object.entries(TABS)) {
+        const on = value(tab.setting);
+        const now = state[name];
+        now.on = typeof on === 'boolean' ? on : (now.on ?? tab.unsaid !== false);
+        now.built = Boolean(tabButton(name));
+        apply(name);
+    }
+    drawDatabaseNotices();
+}
+
+const forgeOption = (setting) => (typeof opts === 'object' && opts ? opts[setting] : undefined);
+
+/**
  * Start the page: the tabs that are on and built, once the page is ready -
  * every one when the server cannot say, as before - then follow their
  * switches, saved in the settings window (its answer says each value) or on
@@ -796,6 +847,17 @@ export const boot = once(() => {
     }
     onReady(async () => {
         const data = await uiOptions();
+        if (data?.refused) {
+            refused = { error: String(data.error || '') };
+            await offerRefusedActions();
+            followRefused(forgeOption);
+            window.addEventListener('mm-settings-saved', (event) => {
+                followRefused((setting) => event.detail?.settings?.[setting]?.value);
+            });
+            if (typeof onOptionsChanged === 'function') onOptionsChanged(() => followRefused(forgeOption));
+            if (typeof onAfterUiUpdate === 'function') onAfterUiUpdate(applyAll);
+            return;
+        }
         restartable = data?.restartable === true;
         newerDatabase = data?.database_newer || null;
         if (newerDatabase) await offerDatabaseActions();

@@ -356,6 +356,17 @@ check('and so does the answer, and where to turn the check off',
                 'reach it, add the name in Settings -> Model Manager -> Access -> Other names this computer is '
                 'reached by over plain http, or turn off Refuse requests sent to a name this computer does not '
                 'know there.'})
+fresh()
+check('another website\'s page refused: the answer says where to name a proxy of one\'s own',
+      origin_client.post('/act', headers={'host': '127.0.0.1:7860', 'sec-fetch-site': 'cross-site',
+                                          'origin': 'https://elsewhere.example'}).json(),
+      {'success': False, 'refused': 'https://elsewhere.example',
+       'error': 'Refused: this request came from another website\'s page, not the WebUI\'s own. If it is this '
+                'WebUI\'s own page, reached through a proxy of yours, add the proxy\'s name in Settings -> Model '
+                'Manager -> Access -> Other names this computer is reached by over plain http.'})
+check('and so does the console, beside --cors-allow-origins',
+      ('--cors-allow-origins' in ''.join(said),
+       'add the proxy\'s name in Settings -> Model Manager -> Access' in ''.join(said)), (True, True))
 check('listening alone: a request with no Host, which no browser sends, runs',
       getattr(common, 'unknown_name', lambda request: 'missing')(
           StarletteRequest({'type': 'http', 'method': 'GET', 'path': '/', 'query_string': b'', 'headers': []})),

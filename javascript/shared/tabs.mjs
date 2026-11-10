@@ -34,8 +34,10 @@ const PANELS = {
     gallery: 'tab_gallery_tab',
     modelManager: 'tab_model_manager_tab',
     civitaiBrowser: 'tab_civitai_browser_tab',
-    // The WebUI's own, the same in both: the database notice opens it (#136).
+    // The WebUI's own, the same in both: the database notice opens Extensions
+    // (#136); a refused page's notice opens Settings.
     extensions: 'tab_extensions',
+    settings: 'tab_settings',
 };
 
 /**
