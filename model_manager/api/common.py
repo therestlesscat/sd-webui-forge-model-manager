@@ -3,11 +3,13 @@ What the endpoint modules share and none of them owns: no endpoints here.
 
 The card-size parser was written four times, and the same try/except that
 logs a failure and answers 500 twenty-four times. And the gate every route
-passes: refusing a request another website's page sent, and one whose tab
-is off.
+passes: refusing a request another website's page sent, one addressed by
+a name the WebUI does not know while it listens on this computer alone,
+and one whose tab is off.
 """
 import functools
 import inspect
+import ipaddress
 import json
 import queue
 import re
@@ -19,7 +21,8 @@ from fastapi import Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from ..civitai.client import telling
-from ..forge_host import DEFAULTS, cors_origins, setting
+from ..forge_host import (DEFAULTS, cors_origins, listens_on_this_computer_alone, other_host_names,
+                          refuses_unknown_names, setting)
 from ..tabs import check_area, on, why_off
 from ..console import say, say_failure
 
@@ -58,8 +61,10 @@ def gate(area: str) -> Callable:
     A route of `area` - a tab, what several share, or ALWAYS (tabs.py): run
     while it is on, refused while it is off - with 403, success false and
     why, as every failure answers. Before that, a request another website's
-    page sent is refused (from_elsewhere), whatever its tab: the browser
-    sends such a request, and the route would carry it out. On the line under
+    page sent is refused (from_elsewhere), and, while the WebUI listens on
+    this computer alone, one addressed by a name it does not know
+    (unknown_name), whatever its tab: the browser sends such a request, and
+    the route would carry it out. On the line under
     each route's own, so the next route is written with it;
     tab_switches_test.py fails on a route without one.
 
@@ -81,18 +86,18 @@ def gate(area: str) -> Callable:
         if inspect.iscoroutinefunction(endpoint):
             @functools.wraps(endpoint)
             async def answer(*args, **kwargs):
-                refusal = from_elsewhere(take(kwargs))
+                refusal = refusal_of(take(kwargs))
                 if refusal is not None:
-                    return refused_from(refusal)
+                    return refusal
                 if not on(area):
                     return refused(area)
                 return await endpoint(*args, **kwargs)
         else:
             @functools.wraps(endpoint)
             def answer(*args, **kwargs):
-                refusal = from_elsewhere(take(kwargs))
+                refusal = refusal_of(take(kwargs))
                 if refusal is not None:
-                    return refused_from(refusal)
+                    return refusal
                 if not on(area):
                     return refused(area)
                 return endpoint(*args, **kwargs)
@@ -132,13 +137,77 @@ OWN_REQUEST = ("same-origin", "none")
 DEFAULT_PORTS = {"http": 80, "https": 443}
 
 
+def refusal_of(request: Optional[Request]) -> Optional[JSONResponse]:
+    """The gate's answer to a request it refuses before its tab is asked; None to go on."""
+    name = unknown_name(request)
+    if name is not None:
+        return refused_from(name, by_name=True)
+    origin = from_elsewhere(request)
+    return None if origin is None else refused_from(origin)
+
+
+# The names a WebUI listening on this computer alone is reached by, as the
+# URL parser reads a Host: localhost, 127.0.0.1, [::1].
+LOOPBACK_NAMES = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def unknown_name(request: Optional[Request]) -> Optional[str]:
+    """
+    The name a request was addressed to, when the WebUI listens on this
+    computer alone, the user's switch is on, and the name is none of
+    localhost, an IP address or a name in the setting - another website's
+    name pointed at this computer. An address passes: rebinding needs a
+    name, as an address involves no DNS lookup.
+
+    It passes too when the browser sent Sec-Fetch-Site, which it sends only
+    over https or to this computer's own addresses - through an https tunnel,
+    whatever name it passes on - unless an Origin or Referer it sent is a
+    plain-http page's. A page under another site's name reaches the WebUI
+    over plain http, and no browser adds the header there. The header is the
+    sign, not the Origin or Referer: both WebUIs tell their page to send no
+    Referer, so its GETs through a tunnel carry the header alone.
+    None to go on; no browser sends a request with no Host.
+    """
+    if request is None or not listens_on_this_computer_alone() or not refuses_unknown_names():
+        return None
+    headers = request.headers
+    host = headers.get("host")
+    if not host:
+        return None
+    try:
+        name = urlsplit("//" + host).hostname
+    except ValueError:
+        return host
+    if name in LOOPBACK_NAMES or name in other_host_names() or is_address(name):
+        return None
+    if headers.get("sec-fetch-site") is not None:
+        sent = (headers.get("origin"), headers.get("referer"))
+        if not any(page and page.strip().lower().startswith("http:") for page in sent):
+            return None
+    return name or host
+
+
+def is_address(name: Optional[str]) -> bool:
+    """
+    Whether a Host's name is an IP address, v4 or v6, rather than a name -
+    but 0.0.0.0 and ::, which a browser on Linux or macOS sends to this
+    computer, without Sec-Fetch-Site, from any site's page.
+    """
+    try:
+        address = ipaddress.ip_address(name or "")
+    except ValueError:
+        return False
+    return not address.is_unspecified
+
+
 def from_elsewhere(request: Optional[Request]) -> Optional[str]:
     """
     The origin a request came from when it is another website's page, which
     the gate refuses; None for the WebUI's own page, and for a script or a
     tool, which sends none of these headers - or a direct call, with no
     request at all. An origin the WebUI lets read its answers
-    (--cors-allow-origins, its pattern; not "*") is let through too.
+    (--cors-allow-origins, its pattern; not "*") is let through too, and
+    one whose host the user named in the setting (named_host).
     """
     if request is None:
         return None
@@ -151,9 +220,22 @@ def from_elsewhere(request: Optional[Request]) -> Optional[str]:
         return origin or UNNAMED
     if origin is None or allowed_origin(origin):
         return None
-    if same_host(origin, headers.get("host")):
+    if same_host(origin, headers.get("host")) or named_host(origin):
         return None
     return origin
+
+
+def named_host(origin: str) -> bool:
+    """
+    Whether an origin's host is one the user named in the setting: their
+    own proxy's page, whatever Host the proxy passes on - nginx's default
+    rewrites it to 127.0.0.1 - at any port and either scheme.
+    """
+    try:
+        name = urlsplit(origin).hostname
+    except ValueError:
+        return False
+    return bool(name) and name in other_host_names()
 
 
 # What a refusal names when the page said nothing of where it came from.
@@ -211,10 +293,17 @@ _said_more = []
 _said_lock = threading.Lock()
 
 
-def refused_from(origin: str) -> JSONResponse:
+# As Forge's Settings page names them: while a name is refused, the
+# extension's own settings window cannot save either, its route gated too.
+ACCESS_SETTING = "Settings -> Model Manager -> Access -> Other names this computer is reached by over plain http"
+ACCESS_SWITCH = "Refuse requests sent to a name this computer does not know"
+
+
+def refused_from(origin: str, by_name: bool = False) -> JSONResponse:
     """
-    What a request another website's page sent is answered, and the
-    console's line about it: once for each origin until the WebUI restarts,
+    What a request another website's page sent is answered - or, by_name,
+    one addressed by a name the WebUI does not know - and the console's
+    line about it: once for each origin or name until the WebUI restarts,
     for at most MOST_ORIGINS_SAID, so a page sending many cannot fill it.
     """
     origin = str(origin)[:100]
@@ -226,14 +315,17 @@ def refused_from(origin: str) -> JSONResponse:
             _said.add(origin)
         if more:
             _said_more.append(origin)
+    if by_name:
+        error = (f"Refused: this WebUI was reached as {origin}, a name it does not know. If that is how you "
+                 f"reach it, add the name in {ACCESS_SETTING}, or turn off {ACCESS_SWITCH} there.")
+    else:
+        error = "Refused: this request came from another website's page, not the WebUI's own."
     if first:
-        say(f"Refused requests from {origin}: another website's page. To allow a page of your own, "
-            "start the WebUI with --cors-allow-origins naming it.")
+        say(error if by_name else f"Refused requests from {origin}: another website's page. To allow a page "
+            "of your own, start the WebUI with --cors-allow-origins naming it.")
     if more:
-        say("Refusing requests from more websites' pages; they are not named.")
-    return JSONResponse({"success": False, "refused": origin,
-                         "error": "Refused: this request came from another website's page, not the WebUI's own."},
-                        status_code=403)
+        say("Refusing requests from more websites' pages or names; they are not named.")
+    return JSONResponse({"success": False, "refused": origin, "error": error}, status_code=403)
 
 
 def refused(area: str) -> JSONResponse:

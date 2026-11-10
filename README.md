@@ -64,7 +64,7 @@ number, such as LoRAs and embeddings together. Combine LoRA kinds, in the settin
 cards, shows LORA, LoCon, LoHa, LoKr, DoRA and LyCORIS Full as one entry.
 
 **0.68 - Settings named by what they do.** Every setting now has a name that says what it
-does, in ten groups by what the settings are for. Inside a group, a setting for one tab sits
+does, in eleven groups by what the settings are for. Inside a group, a setting for one tab sits
 under that tab's heading, and one that depends on a switch sits under it, greyed while the
 switch is off. Forge's Settings page lists them in the same groups, under Model Manager.
 The window lists the groups beside the settings, each with its count; a tab's gear opens on
@@ -454,7 +454,7 @@ starting either.
 ## Settings
 
 In the settings window - the gear at the top right of each tab - or under **Settings ->
-Model Manager**, in ten groups by what the settings are for. Both edit the same values; each
+Model Manager**, in eleven groups by what the settings are for. Both edit the same values; each
 setting is named there by what it does, and on Forge's page by a name that stands alone.
 Inside a group, a setting for one tab sits under that tab's heading, and one that depends
 on a switch sits under it, greyed while the switch is off. The window lists the groups on

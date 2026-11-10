@@ -1466,6 +1466,48 @@
    "badges": [],
    "switch": null,
    "value": true
+  },
+  "model_manager_refuse_unknown_names": {
+   "label": "Refuse requests sent to a name this computer does not know",
+   "info": "While the WebUI listens on this computer alone, the extension refuses a request addressed to it by a name other than localhost, an IP address or one of the names below, unless your browser reached it over https. Another website can point a name of its own at your computer and reach the WebUI through your browser, and this stops it. Turn it off only if a proxy or tunnel of yours is refused and you would rather not list its name. A WebUI started with --listen or --server-name for your network is not checked by name either way.",
+   "kind": "bool",
+   "default": true,
+   "name": "Refuse requests addressed to a name this computer does not know",
+   "group": "access",
+   "heading": "Shared across tabs",
+   "tags": [
+    "queue",
+    "generations",
+    "gallery",
+    "model_manager",
+    "civitai_browser"
+   ],
+   "shown_with": [],
+   "under": null,
+   "badges": [],
+   "switch": null,
+   "value": true
+  },
+  "model_manager_other_host_names": {
+   "label": "Other names this computer is reached by over plain http",
+   "info": "Names of your own that this computer is reached by, separated by commas: for example webui.home.lan. Write here the name of a proxy or tunnel you reach the WebUI through over plain http. Write here too the name of a proxy in front of a WebUI started for your network, if the proxy passes the WebUI on under another name or address: nginx, for one, passes on the address it forwards to unless told to keep the name. A tunnel reached over https needs nothing here in a browser from 2023 or later, and neither does an IP address. The names here count whether the switch above is on or off.",
+   "kind": "text",
+   "default": "",
+   "name": "Other names this computer is reached by",
+   "group": "access",
+   "heading": "Shared across tabs",
+   "tags": [
+    "queue",
+    "generations",
+    "gallery",
+    "model_manager",
+    "civitai_browser"
+   ],
+   "shown_with": [],
+   "under": null,
+   "badges": [],
+   "switch": null,
+   "value": ""
   }
  },
  "order": [
@@ -1535,7 +1577,9 @@
   "model_manager_queue_ask_above",
   "model_manager_hash_threads",
   "model_manager_sync_images_per_version",
-  "model_manager_check_updates"
+  "model_manager_check_updates",
+  "model_manager_refuse_unknown_names",
+  "model_manager_other_host_names"
  ],
  "groups": [
   {
@@ -1577,6 +1621,10 @@
   {
    "id": "updates",
    "label": "Updates"
+  },
+  {
+   "id": "access",
+   "label": "Access"
   }
  ],
  "tag_labels": {

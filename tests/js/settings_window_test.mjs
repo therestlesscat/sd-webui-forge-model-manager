@@ -226,7 +226,7 @@ const titles = Array.from(document.querySelectorAll('#mm_settings_nav [data-act=
 check('the text encoder and VAE table is asked for too', tableAsked.length, 1);
 check('grouped as the registry groups them, in its order - What\'s new first, then Tabs (#320)',
       titles, ["What's new", 'Tabs', 'Civitai account', 'Downloads', 'Pages and cards', 'What is hidden', 'Send',
-               'Generations', 'Files and folders', 'Sync and queue', 'Updates']);
+               'Generations', 'Files and folders', 'Sync and queue', 'Updates', 'Access']);
 check('no group title above the list: the left pane says which group shows (#344)',
       document.querySelectorAll('.mm-settings-group-title, #mm_settings_body h4').length, 0);
 // The window as the proof of concept drew it (#320): the groups on the left,
@@ -311,7 +311,8 @@ check('Files hashed at once goes with the Model Manager; Number of images stored
       [shown('model_manager_hash_threads'), shown('model_manager_sync_images_per_version')], [false, true]);
 tickTab('model_manager_record_generations', false);
 check('Generations off too: the groups with nothing left go',
-      SECTION_IDS.filter(sectionShown), ['tabs', 'civitai_account', 'downloads', 'send', 'files', 'sync_and_queue', 'updates']);
+      SECTION_IDS.filter(sectionShown), ['tabs', 'civitai_account', 'downloads', 'send', 'files', 'sync_and_queue', 'updates',
+                                     'access']);
 check('the picked group, Pages and cards, emptied: the first with a setting shown instead (#344)',
       [shownSections(), navEntries().find(([, , c]) => c === 'true')?.[0]], [['tabs'], 'Tabs']);
 tickTab('model_manager_gallery_tab', true);
@@ -543,7 +544,7 @@ type($('#mm_settings_search'), 'queue tab');
 check('a tab\'s name finds what acts in it', ORDER.filter(shown),
       ['model_manager_queue_enabled', 'model_manager_civitai_images_at_once', 'model_manager_downloads_at_once',
        'model_manager_queue_several', 'model_manager_database_path', 'model_manager_queue_inputs_dir', 'model_manager_queue_ask_above',
-       'model_manager_check_updates']);
+       'model_manager_check_updates', 'model_manager_refuse_unknown_names', 'model_manager_other_host_names']);
 // Every word typed, in any order (#320): as one piece, "queue folder" found nothing.
 type($('#mm_settings_search'), 'queue folder');
 check('every word typed, in any order, finds a setting holding them apart', ORDER.filter(shown),
@@ -908,10 +909,11 @@ for (const [tab, label] of [['model_manager', 'Model Manager Tab'], ['civitai_br
           [taggedWith(tab), groupsOf(taggedWith(tab)).slice(0, 1), false,
            [[`${label} settings ${taggedWith(tab).length}`, 'true'], [`All settings ${byTabs().length}`, 'false']]]);
 }
-check('the Queue Tab\'s: its switch, its two settings, the database file and the update check',
+check('the Queue Tab\'s: its switch, its two settings, the database file, the update check and the two of Access',
       taggedWith('queue'), ['model_manager_queue_enabled', 'model_manager_database_path',
                             'model_manager_queue_inputs_dir', 'model_manager_queue_ask_above',
-                            'model_manager_check_updates']);
+                            'model_manager_check_updates', 'model_manager_refuse_unknown_names',
+                            'model_manager_other_host_names']);
 check('What\'s new and Send, with the text encoder table, never open from a gear',
       [$('[data-whats-new]').hidden, shownSections().includes('send')], [true, false]);
 band()?.querySelector('[data-band="all"]')?.click();

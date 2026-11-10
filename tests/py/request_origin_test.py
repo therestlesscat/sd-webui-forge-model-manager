@@ -18,7 +18,12 @@ refused, read from the browser's Sec-Fetch-Site, else Origin, else Referer;
 the WebUI's own page, a script and the test client are not; an origin the
 WebUI allows (--cors-allow-origins, its pattern, never "*") is let through;
 the refusal comes before a tab's own; the console says it once an origin;
-and each of the 96 routes, called with such a request, refuses it before
+while the WebUI listens on this computer alone and the switch is on, a
+request sent to a name it does not know - not localhost, an IP address or
+a name in the setting - is refused unless the browser sent Sec-Fetch-Site,
+over https, and the setting's names count, in Host and in Origin, the
+latter whatever the switch says; the
+listening address is read as the WebUI chooses it; and each of the 96 routes, called with such a request, refuses it before
 any of its own code runs.
 """
 import asyncio
@@ -263,6 +268,142 @@ check('25 origins: 20 named, then one line that more are refused, and no more',
       (len(said), 'more' in ''.join(said[-1:])), (21, True))
 check('a very long origin is cut to 100 characters',
       len(ask({'sec-fetch-site': 'cross-site', 'origin': 'https://' + 'x' * 300 + '.example'})[2] or ''), 100)
+
+
+# ------------------------------------------- the name a request was sent to
+# While the WebUI listens on this computer alone and the switch is on, a
+# name other than a loopback one, an IP address or one in the setting is
+# another website's name pointed at this computer. It passes only with
+# Sec-Fetch-Site, which no browser sends to a plain-http name: through an
+# https tunnel, or as a person's own navigation. Both WebUIs' pages send no
+# Referer, so the page's GETs through a tunnel carry the header alone.
+import types                                              # noqa: E402
+from model_manager import forge_host                       # noqa: E402
+
+alone = {'on': True}
+names = {'set': frozenset()}
+switch = {'on': True}
+common.listens_on_this_computer_alone = lambda: alone['on']
+common.other_host_names = lambda: names['set']
+common.refuses_unknown_names = lambda: switch['on']
+fresh()
+check('listening alone, no Sec-Fetch-Site: another name refused, a name that only starts like localhost too',
+      [ask({}, host=h) for h in ('example.invalid:7860', '127.0.0.1.nip.io:7860', 'localhost.example.invalid',
+                                 'localhost.')],
+      [(403, False, 'example.invalid'), (403, False, '127.0.0.1.nip.io'), (403, False, 'localhost.example.invalid'),
+       (403, False, 'localhost.')])
+check('listening alone: localhost, 127.0.0.1 and [::1] run',
+      [ask({}, host=h)[:2] for h in ('127.0.0.1:7860', 'localhost:7860', '[::1]:7860')], [(200, True)] * 3)
+check('listening alone: any IP address runs - a port forward to this computer; rebinding needs a name',
+      [ask({}, host=h)[:2] for h in ('192.168.1.181:7860', '[fe80::1]:7860', '10.0.0.5')], [(200, True)] * 3)
+check('but 0.0.0.0 and ::, which a browser on Linux or macOS sends to this computer from any page, are refused',
+      [ask({}, host=h)[:2] for h in ('0.0.0.0:7860', '[::]:7860')], [(403, False)] * 2)
+names['set'] = frozenset({'webui.home.lan', 'other.lan'})
+check('listening alone: a name in the setting runs, in any case and at any port',
+      [ask({}, host=h)[:2] for h in ('WebUI.Home.LAN:8080', 'other.lan')], [(200, True)] * 2)
+names['set'] = frozenset()
+check('listening alone: an https tunnel\'s fetch POST, under its own name, runs',
+      ask({'sec-fetch-site': 'same-origin', 'origin': 'https://tunnel.example'}, host='tunnel.example')[:2], (200, True))
+check('listening alone: the same tunnel\'s GETs and images, which carry Sec-Fetch-Site alone, run',
+      ask({'sec-fetch-site': 'same-origin'}, method='get', host='tunnel.example')[:2], (200, True))
+check('listening alone: an https page under another name, sending the browser to it over plain http, is refused',
+      [ask({'origin': 'https://rebind.example:7860'}, host='rebind.example:7860')[:2],
+       ask({'referer': 'https://rebind.example:7860/x'}, method='get', host='rebind.example:7860')[:2],
+       ask({'origin': 'https://rebind.example'}, host='rebind.example')[:2]],
+      [(403, False)] * 3)
+check('listening alone: a plain-http page under another name is refused, whatever Sec-Fetch-Site says',
+      [ask({'sec-fetch-site': 'same-origin', 'origin': 'http://rebind.example'}, host='rebind.example')[:2],
+       ask({'sec-fetch-site': 'same-origin', 'referer': 'http://rebind.example/x'}, method='get',
+           host='rebind.example')[:2]],
+      [(403, False)] * 2)
+check('listening alone: a person\'s own navigation to another name runs',
+      ask({'sec-fetch-site': 'none'}, method='get', host='rebind.example')[:2], (200, True))
+names['set'] = frozenset({'tunnel.example'})
+check('listening alone: an older browser through a tunnel, its name in the setting, runs',
+      ask({'origin': 'https://tunnel.example'}, host='tunnel.example')[:2], (200, True))
+names['set'] = frozenset()
+switch['on'] = False
+check('listening alone, the switch off: another name runs', ask({}, host='example.invalid:7860')[:2], (200, True))
+switch['on'] = True
+alone['on'] = False
+check('listening on the network: another name, its page the same origin, runs',
+      ask({'origin': 'http://pc.lan:7860'}, host='pc.lan:7860')[:2], (200, True))
+
+# A proxy of the user's own that rewrites Host to 127.0.0.1, as nginx does by
+# default: its page's Origin names the proxy, which the setting lets through,
+# whatever the switch says - the switch is for the name check alone.
+names['set'] = frozenset({'webui.home.lan'})
+check('a proxy rewriting Host: the setting\'s name in Origin counts as the request\'s own, at any port',
+      ask({'origin': 'http://webui.home.lan:8080'}, host='127.0.0.1:7860')[:2], (200, True))
+switch['on'] = False
+check('and with the switch off too', ask({'origin': 'http://webui.home.lan:8080'}, host='127.0.0.1:7860')[:2],
+      (200, True))
+switch['on'] = True
+names['set'] = frozenset()
+check('and without the name, refused', ask({'origin': 'http://webui.home.lan:8080'}, host='127.0.0.1:7860')[:2],
+      (403, False))
+
+alone['on'] = True
+fresh()
+ask({}, host='example.invalid:7860')
+check('a name refused: the console says where to add it, and where to turn the check off',
+      ('example.invalid' in ''.join(said), 'Other names this computer is reached by' in ''.join(said),
+       'Refuse requests sent to a name this computer does not know' in ''.join(said)), (True, True, True))
+check('and so does the answer, and where to turn the check off',
+      origin_client.get('/act', headers={'host': 'example.invalid:7860'}).json(),
+      {'success': False, 'refused': 'example.invalid',
+       'error': 'Refused: this WebUI was reached as example.invalid, a name it does not know. If that is how you '
+                'reach it, add the name in Settings -> Model Manager -> Access -> Other names this computer is '
+                'reached by over plain http, or turn off Refuse requests sent to a name this computer does not '
+                'know there.'})
+check('listening alone: a request with no Host, which no browser sends, runs',
+      getattr(common, 'unknown_name', lambda request: 'missing')(
+          StarletteRequest({'type': 'http', 'method': 'GET', 'path': '/', 'query_string': b'', 'headers': []})),
+      None)
+alone['on'] = False
+
+# The switch, read: on by default, off when the user turns it off.
+real_setting = forge_host.setting
+check('the switch is on by default', forge_host.DEFAULTS.get('model_manager_refuse_unknown_names'), True)
+forge_host.setting = lambda key: False
+check('and read from the setting', getattr(forge_host, 'refuses_unknown_names', lambda: None)(), False)
+forge_host.setting = real_setting
+
+# The setting, read: commas, spaces, case, an address written whole.
+real_setting = forge_host.setting
+forge_host.setting = lambda key: ' WebUI.Home.LAN, other.lan ,http://proxy.lan:8080/path, , 192.168.1.20'
+check('the setting\'s names: spaces taken off, lower-cased, an address counted by its name',
+      sorted(getattr(forge_host, 'other_host_names', frozenset)()), ['192.168.1.20', 'other.lan', 'proxy.lan', 'webui.home.lan'])
+forge_host.setting = real_setting
+
+# The address the WebUI listens on, read as the WebUI chooses it.
+real_folders = forge_host.model_folders
+real_gradio = os.environ.pop('GRADIO_SERVER_NAME', None)
+def listening(environment=None, **options):
+    forge_host.model_folders = lambda: (types.SimpleNamespace(**options), '')
+    if environment is not None:
+        os.environ['GRADIO_SERVER_NAME'] = environment
+    try:
+        return getattr(forge_host, 'listens_on_this_computer_alone', lambda: None)()
+    finally:
+        os.environ.pop('GRADIO_SERVER_NAME', None)
+check('the listening address: no options, --server-name 127.0.0.1, localhost, ::1, --share alone: this computer',
+      [listening(), listening(server_name='127.0.0.1'), listening(server_name='localhost'),
+       listening(server_name='[::1]'), listening(share=True)], [True] * 5)
+check('--listen, --server-name 0.0.0.0, a LAN address, GRADIO_SERVER_NAME=0.0.0.0: the network',
+      [listening(listen=True), listening(server_name='0.0.0.0'), listening(server_name='192.168.1.20'),
+       listening(environment='0.0.0.0')], [False] * 4)
+check('the API alone (--nowebui), handed no address; GRADIO_SERVER_NAME set but empty: the network',
+      [listening(nowebui=True), listening(environment='')], [False, False])
+check('--server-name before GRADIO_SERVER_NAME, and before --nowebui',
+      [listening(environment='0.0.0.0', server_name='127.0.0.1'), listening(nowebui=True, server_name='127.0.0.1')],
+      [True, True])
+forge_host.model_folders = lambda: (None, '')
+check('outside the WebUI: not this computer alone',
+      getattr(forge_host, 'listens_on_this_computer_alone', lambda: None)(), False)
+forge_host.model_folders = real_folders
+if real_gradio is not None:
+    os.environ['GRADIO_SERVER_NAME'] = real_gradio
 
 
 # ------------------------------------------- every route, from another site

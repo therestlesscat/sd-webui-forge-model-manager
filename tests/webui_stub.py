@@ -60,7 +60,10 @@ def install(**overrides):
     paths = types.ModuleType("modules.paths")
 
     shared.opts = opts
-    shared.cmd_opts = Options({"ckpt_dir": None, "lora_dir": None, "vae_dir": None})
+    # Listening on the network, as far as the gate is concerned: the test
+    # client reaches every route as "testserver", a name a WebUI listening
+    # on this computer alone would refuse (api/common.unknown_name).
+    shared.cmd_opts = Options({"ckpt_dir": None, "lora_dir": None, "vae_dir": None, "server_name": "0.0.0.0"})
 
     # Registered at import; nothing here needs to fire them.
     for name in ("on_app_started", "on_ui_settings", "on_ui_tabs", "on_ui_train_tabs",

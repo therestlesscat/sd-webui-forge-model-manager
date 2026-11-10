@@ -22,9 +22,11 @@ reads as its default, a list Forge keeps as empty, and a question only Forge
 can answer raises, as it did where it was asked before.
 """
 import importlib.util
+import ipaddress
 import os
 import sys
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, FrozenSet, List, Optional, Tuple
+from urllib.parse import urlsplit
 from .console import say
 
 # Every setting the extension registers, and its default: what it reads as
@@ -92,6 +94,13 @@ DEFAULTS = {
     "model_manager_nsfw_detection": "model",
     "model_manager_nsfw_prompt_model_percent": 2.0,
     "model_manager_check_updates": True,
+    # While the WebUI listens on this computer alone, a request addressed to
+    # a name it does not know is refused; the switch turns that off.
+    "model_manager_refuse_unknown_names": True,
+    # Names this computer is reached by, beside localhost and its addresses:
+    # a proxy of the user's own over plain http. They count in the Origin
+    # comparison too, whatever the switch says.
+    "model_manager_other_host_names": "",
     # Where the queue keeps the images a task needs to run, empty for the
     # WebUI's own queue-inputs folder (#149).
     "model_manager_queue_inputs_dir": "",
@@ -261,6 +270,62 @@ def cors_origins() -> Tuple[List[str], Optional[str]]:
     listed = getattr(options, "cors_allow_origins", None)
     pattern = getattr(options, "cors_allow_origins_regex", None)
     return (listed.split(",") if listed else []), (pattern or None)
+
+
+def listens_on_this_computer_alone() -> bool:
+    """
+    Whether the WebUI listens on a loopback address alone, read as it
+    chooses the address: --server-name, else 0.0.0.0 with --listen, else
+    every address under --nowebui, else Gradio's GRADIO_SERVER_NAME, else
+    127.0.0.1. --share and --ngrok tunnel to that address and do not change
+    it. False outside the WebUI.
+    """
+    options, _ = model_folders()
+    if options is None:
+        return False
+    address = getattr(options, "server_name", None)
+    if not address:
+        if getattr(options, "listen", False):
+            address = "0.0.0.0"
+        elif getattr(options, "nowebui", False):
+            # The API alone is handed no address, and uvicorn then listens
+            # on every one.
+            return False
+        else:
+            # Gradio's own reading: set but empty is no address, every one.
+            address = os.environ.get("GRADIO_SERVER_NAME", "127.0.0.1")
+    address = str(address).strip().strip("[]").lower()
+    if address == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(address).is_loopback
+    except ValueError:
+        return False
+
+
+def refuses_unknown_names() -> bool:
+    """Whether the user's switch for the name check is on; it is by default."""
+    return bool(setting("model_manager_refuse_unknown_names"))
+
+
+def other_host_names() -> FrozenSet[str]:
+    """
+    The names the user says this computer is reached by, from the setting:
+    separated by commas, spaces taken off, lower-cased; an entry written as
+    an address counts by its name, its port and path dropped. No wildcards.
+    """
+    names = set()
+    for entry in str(setting("model_manager_other_host_names") or "").split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        try:
+            name = urlsplit(entry if "://" in entry else "//" + entry).hostname
+        except ValueError:
+            continue
+        if name:
+            names.add(name)
+    return frozenset(names)
 
 
 def webui_root() -> str:

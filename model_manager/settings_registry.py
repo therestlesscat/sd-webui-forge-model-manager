@@ -39,6 +39,7 @@ GROUPS = (
     Group("files", "Files and folders"),
     Group("sync_and_queue", "Sync and queue"),
     Group("updates", "Updates"),
+    Group("access", "Access"),
 )
 CATEGORY = ("model_manager", "Model Manager")
 SECTION_PREFIX = "model_manager_"
@@ -489,6 +490,27 @@ SETTINGS: Tuple[Setting, ...] = (
             "When on, the extension reads the version.json file in its GitHub repository after the WebUI starts and "
             "every 12 hours. It reads only the version number, and each tab's header says when a newer version is "
             "out. When off, GitHub is never asked.",
+            (Q, GEN, CI, MM, CB), needs=()),
+
+    # -------------------------------------------------- Access
+    Setting("model_manager_refuse_unknown_names", "access", "checkbox",
+            "Refuse requests addressed to a name this computer does not know",
+            "Refuse requests sent to a name this computer does not know",
+            "While the WebUI listens on this computer alone, the extension refuses a request addressed to it by a "
+            "name other than localhost, an IP address or one of the names below, unless your browser reached it "
+            "over https. Another website can point a name of its own at your computer and reach the WebUI through "
+            "your browser, and this stops it. Turn it off only if a proxy or tunnel of yours is refused and you "
+            "would rather not list its name. A WebUI started with --listen or --server-name for your network is "
+            "not checked by name either way.",
+            (Q, GEN, CI, MM, CB), needs=()),
+    Setting("model_manager_other_host_names", "access", "textbox", "Other names this computer is reached by",
+            "Other names this computer is reached by over plain http",
+            "Names of your own that this computer is reached by, separated by commas: for example webui.home.lan. "
+            "Write here the name of a proxy or tunnel you reach the WebUI through over plain http. Write here too "
+            "the name of a proxy in front of a WebUI started for your network, if the proxy passes the WebUI on "
+            "under another name or address: nginx, for one, passes on the address it forwards to unless told to "
+            "keep the name. A tunnel reached over https needs nothing here in a browser from 2023 or later, and "
+            "neither does an IP address. The names here count whether the switch above is on or off.",
             (Q, GEN, CI, MM, CB), needs=()),
 )
 

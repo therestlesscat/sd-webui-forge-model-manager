@@ -171,7 +171,10 @@ check('every setting, in the registry\'s order', [k for k in page.options if k i
 check('each in its group\'s section, under the category',
       [k for k in keys if (page.options[k].section, page.options[k].category_id)
        != (reg.section(reg.by_key()[k]), 'model_manager')], [])
-check('ten sections, one per group', len({page.options[k].section for k in keys}), len(reg.GROUPS))
+check('a section on Forge\'s page, one per group', len({page.options[k].section for k in keys}), len(reg.GROUPS))
+check('the other names are shown whatever the switch for the name check says: they count either way',
+      [reg.by_key()[k].under for k in ('model_manager_refuse_unknown_names', 'model_manager_other_host_names')
+       if k in reg.by_key()], [None, None])
 check('each by its page name', [k for k in keys if page.options[k].label != reg.by_key()[k].page_name], [])
 check('with its description', [k for k in keys if not k.startswith('model_manager_modules_')
                                and page.options[k].text != html.escape(reg.by_key()[k].description, quote=False)], [])
