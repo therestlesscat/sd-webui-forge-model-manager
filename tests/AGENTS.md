@@ -117,7 +117,10 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   is the same size, a swap reproduced the timestamp, and the stale bytecode
   kept version 23: the v24 migration silently never ran, through two restarts.
   If a change "does not take effect", compare the cached `.pyc` with a fresh
-  compile before suspecting anything else.
+  compile before suspecting anything else. A break runner gives each run a
+  fresh bytecode folder (`PYTHONPYCACHEPREFIX`): two of #408's breaks, the
+  same size and written within a second, ran the one before's bytecode, and
+  the runner reported 5 failures for a break that fails 1.
 - **A check that fails once is run twenty times on HEAD before it is blamed
   on the change.** One download test asserted which of two threads started at
   once recorded itself last: the scheduler's choice, 1 run in 20.

@@ -98,7 +98,8 @@ the code (2026-10-16).
   Two read it at once, split by halves or by question (against the plan;
   what it reads and writes), where the diff has two halves or passes about
   400 lines - the owner: "make it the default" (2026-11-07). #406's commit 2,
-  split by question, took 140,414 and 138,027 tokens, under 4 minutes each.
+  split by question, took 140,414 and 138,027 tokens, under 4 minutes each;
+  #408's five took 131,667 to 174,794 tokens, 4 min 36 s to 7 min 7 s.
   Asked first, with the cost, as any two agents are.
 - **A plan doc says what before it says where.** Technical, but not
   overdone: what a part does in plain words first, its code name after - or
@@ -506,6 +507,11 @@ Where they differ, and what the extension does about it - on the server in
   value set in `Image.Exif().get_ifd(0x8769)` is not written out by
   `tobytes()`: `image_sync_test`'s JPEG fixture comes out with no text there
   (#370). Forge's own `piexif` way reads back under both.
+- **Python's limit on long integers.** Neo's 3.13 refuses to turn more than
+  4,300 digits into an int; the original Forge's 3.10.6 predates the limit.
+  A JSON number of 5,001 digits raised `ValueError` in Neo and parsed in the
+  original Forge, so one file read two ways (#408). Text from a file is
+  parsed with `parse_int` left unconverted where the number is not wanted.
 - The other differences sit beside their code: `model_manager/AGENTS.md`, "Two
   WebUIs: everything has to work in both" - no `blake3`, the detector's helpers
   moved, the other WebUI's files; and `javascript/shared/AGENTS.md`, "Two
@@ -1115,6 +1121,11 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   listed `--vae-dirs`, `--text-encoder-dirs` and `--esrgan-models-path` in
   `path_roots`. A change to the arguments needs a real stop and start, and
   `path_roots` read after it.
+- **`git stash push -- <paths>` records the whole index, not only those
+  paths.** After a commit of the files that were staged, `stash pop` replayed
+  their staged state over the commit and wrote conflict markers into 3 files
+  (#408, commit 3). Set files aside with `cp` into `tests/work/`, as "only for
+  me" changes are.
 - WSL's git reads a Windows checkout's line endings as changes: 7880's clone
   showed 318 files modified, and 0 with `-c core.autocrlf=true` or Windows'
   `git.exe`. Ask the latter before calling a clone dirty.

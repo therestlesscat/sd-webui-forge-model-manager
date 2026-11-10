@@ -107,6 +107,11 @@ that names no checkpoint has Send disabled outside a checkpoint's gallery
 and its dialog's Send waits for a pick, never for the server (`not_named`,
 #408).
 Before, a LoRA's or VAE's gallery left Forge on whatever it had loaded.
+Opened by a stop, the dialog shows its list, and its Send waits for a pick
+whatever the server answers (`sendAgainButton`: `line.choosing ?
+Boolean(line.chosen) : own`). A check of the stopped Send's wait unticks the
+list first: #408's break that let the re-check through failed no check until
+it did.
 
 **Send sets a field through Forge's paste wherever the paste has one** (#138).
 Gradio 4's dropdown takes a value only from a choice pressed in its open
