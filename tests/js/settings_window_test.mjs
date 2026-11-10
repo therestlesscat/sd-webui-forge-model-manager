@@ -74,7 +74,9 @@ function describe(drafts = {}) {
             fileRow('ae', 'Flux VAE (ae)', AE, 'ae.safetensors', null, ['Flux.1', 'Chroma']),
         ], ['Flux.1', 'Chroma']),
         build('lumina', 'Lumina Image 2.0', [
-            fileRow('gemma2_2b', 'Gemma 2 2B', [], null),
+            // A second link that is not http or https: drawn as its words alone (S2).
+            { ...fileRow('gemma2_2b', 'Gemma 2 2B', [], null),
+              links: [['gemma2_2b download', 'https://example.invalid/gemma2_2b'], ['a mirror', 'ftp://example.invalid/g']] },
             fileRow('ae', 'Flux VAE (ae)', AE, 'ae.safetensors'),
         ]),
         build('zit', 'Z-Image', [
@@ -671,6 +673,10 @@ check('a preset of several models says which use each file',
       block('flux').querySelector('[data-file="t5xxl"] .mm-settings-module-for').textContent, 'Flux.1, Chroma');
 check('a file nothing installed is gives its download links instead',
       block('lumina').querySelector('[data-file="gemma2_2b"] a')?.getAttribute('href'), 'https://example.invalid/gemma2_2b');
+check('and a link that is not http or https as its words, no link',
+      [block('lumina').querySelectorAll('[data-file="gemma2_2b"] a').length,
+       block('lumina').querySelector('[data-file="gemma2_2b"] .mm-settings-module-choice')?.textContent.includes('a mirror')],
+      [1, true]);
 check('what the setting names is chosen', choice('lumina', 'ae').value, 'ae_fp8.safetensors');
 check('and a name nothing installed matches is kept, and says why',
       block('flux').querySelector('.mm-settings-kept').textContent.replace(/\s+/g, ' ').trim(),

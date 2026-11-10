@@ -1617,10 +1617,10 @@ function renderModelDetails(model, fullDetails = null) {
                 <h4>Information</h4>
                 <table class="detail-table">
                     ${modelId ? showInCivitaiRow() : ''}
-                    ${modelId ? `<tr><td>Model ID</td><td>${modelId}</td></tr>` : ''}
-                    ${model.id ? `<tr><td>Version ID</td><td class="mm-version-id-cell">${model.id}</td></tr>` : ''}
+                    ${modelId ? `<tr><td>Model ID</td><td>${safeId(modelId) ?? 'Unknown'}</td></tr>` : ''}
+                    ${model.id ? `<tr><td>Version ID</td><td class="mm-version-id-cell">${safeId(model.id) ?? 'Unknown'}</td></tr>` : ''}
                     <tr><td>Type</td><td class="mm-type-cell"${typeTitle(model)}>${typeText(model, model.civitai_type)}</td></tr>
-                    <tr><td>Base Model</td><td>${model.base_model || 'Unknown'}</td></tr>
+                    <tr><td>Base Model</td><td>${escapeHtml(model.base_model || 'Unknown')}</td></tr>
                     <tr><td rowspan="3" class="nsfw-label-cell">NSFW Level</td><td>Model: ${expandNsfwLevel(model.civitai_model?.nsfw_level)}</td></tr>
                     <tr><td>Version: ${expandNsfwLevel(model.nsfw_level)}</td></tr>
                     <tr><td>Highest Image: ${expandNsfwLevel(model.max_image_nsfw)}</td></tr>
@@ -2648,7 +2648,7 @@ function renderGenerationCard(card, index) {
     const moreThanShown = card.matching_count > preview.length;
     const resourcesLabel = resourceButtonLabel(generationResourcesImage(card), currentVersionId);
     return `
-        <div class="mm-image-card mm-generation-card" data-generation="${card.id}">
+        <div class="mm-image-card mm-generation-card" data-generation="${Number(card.id)}">
             <div class="mm-image-left">
                 ${selectingGenerations ? `<label class="mm-select-tick" title="Select">
                     <input type="checkbox" data-mm-pick="${Number(card.id)}" ${pickedGenerations.has(card.id) ? 'checked' : ''}></label>` : ''}
@@ -3051,10 +3051,12 @@ function formatDate(dateStr) {
     }
 }
 
-// Format commercial use value for display
+// Format commercial use value for display, as markup: escaped, since a record
+// file beside a model can hold any text here.
 // Value comes in PostgreSQL array format: "{Image,RentCivit,Rent}"
 function formatCommercialUse(value) {
     if (!value) return 'Unknown';
+    value = String(value);
 
     const labels = {
         'None': 'No commercial use',
@@ -3068,11 +3070,11 @@ function formatCommercialUse(value) {
     const match = value.match(/^\{(.+)\}$/);
     if (match) {
         const values = match[1].split(',').map(v => v.trim());
-        return values.map(v => labels[v] || v).join(', ');
+        return escapeHtml(values.map(v => labels[v] || v).join(', '));
     }
 
     // Fallback for single value or other formats
-    return labels[value] || value;
+    return escapeHtml(labels[value] || value);
 }
 
 

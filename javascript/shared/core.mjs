@@ -355,15 +355,24 @@ export function start(scope) {
     });
 }
 
-export function formatNumber(num) {
+/**
+ * A count as a person reads it: "1.5K". A number first - what is not one
+ * says 0 - since its answer is put into markup as it is.
+ */
+export function formatNumber(value) {
+    const num = Number(value);
     if (!num) return '0';
     if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
     if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-    return num.toString();
+    return String(num);
 }
 
-/** Bytes as a version's files read: "1.99 GB". */
-export function formatBytes(bytes) {
+/**
+ * Bytes as a version's files read: "1.99 GB". A number first - what is not
+ * one is Unknown - and never escaped here: some callers write it as text.
+ */
+export function formatBytes(value) {
+    const bytes = Number(value);
     if (!bytes) return 'Unknown';
     if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(2) + ' GB';
     if (bytes >= 1048576) return (bytes / 1048576).toFixed(2) + ' MB';

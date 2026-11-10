@@ -79,7 +79,7 @@ function rowHtml(row) {
                src="/model-manager/generations/images/${encodeURIComponent(row.image_id)}/thumb">`
         : `<span class="mm-repair-preview mm-repair-hidden" title="Rated ${escapeHtml(row.hidden_level || '')
             }: hidden, as the Generations tab hides it">${escapeHtml(row.hidden_level || '')}</span>`;
-    const batch = row.same_press > 1 && row.batch_count > 1 ? `, batch count ${row.batch_count}` : '';
+    const batch = row.same_press > 1 && row.batch_count > 1 ? `, batch count ${Number(row.batch_count)}` : '';
     const prompt = row.prompt == null
         ? `Rated ${row.hidden_level}: hidden, as the Generations tab hides it`
         : (row.prompt || 'No prompt');
@@ -90,7 +90,7 @@ function rowHtml(row) {
             <span class="mm-repair-text">
                 <span class="mm-repair-when">${escapeHtml(when(row.created_at))} · ${escapeHtml(row.mode || '')}${batch}</span>
                 <span class="mm-repair-prompt" title="${escapeHtml(prompt)}">${escapeHtml(prompt)}</span>
-                <span>${plural(row.images, 'image', 'images')}, all in ${kept}, which has ${row.kept_images}</span>
+                <span>${plural(Number(row.images), 'image', 'images')}, all in ${kept}, which has ${Number(row.kept_images)}</span>
             </span>
         </label>`;
 }

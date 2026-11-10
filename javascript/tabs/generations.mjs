@@ -490,10 +490,10 @@ function tileHtml(tile, index) {
         const what = tile.kind === 'group' ? 'group' : task ? 'task' : 'generation';
         media = `
             <div class="mm-generation-preview mm-generation-preview-${preview.length} gen-group-preview ${picks ? 'gen-pickable' : 'gen-openable'}"
-                 data-action="generations.open" data-tile="${index}" title="${picks ? 'Select' : 'Open'} this ${what}: all ${tile.matching_count} images">
+                 data-action="generations.open" data-tile="${index}" title="${picks ? 'Select' : 'Open'} this ${what}: all ${Number(tile.matching_count)} images">
                 ${preview.map((img) => generationImageHtml(img)).join('')}
             </div>
-            <span class="gen-count">×${tile.matching_count}</span>`;
+            <span class="gen-count">×${Number(tile.matching_count)}</span>`;
         if (tile.kind === 'group') {
             const by = tile.group.by || groupChain(groupBy)[0];
             media += `<span class="gen-group-name" title="${escapeHtml(groupTitle(tile.group.value, by))}">`
@@ -542,8 +542,8 @@ function tileHtml(tile, index) {
     // checkpoint would it send? Each run has its own, once the task is open.
     const counted = (n) => `${n} image${n === 1 ? '' : 's'}`;
     const actions = tile.kind === 'group'
-        ? `<div class="gen-actions gen-group-facts">${counted(tile.matching_count)}`
-          + ` · ${tile.group.generations} generation${tile.group.generations === 1 ? '' : 's'}</div>`
+        ? `<div class="gen-actions gen-group-facts">${counted(Number(tile.matching_count))}`
+          + ` · ${Number(tile.group.generations)} generation${tile.group.generations === 1 ? '' : 's'}</div>`
         : task
         ? `<div class="gen-actions gen-task-facts">${taskFacts(tile)}`
           + `<button type="button" class="mm-btn danger mm-btn-small" data-action="generations.delete" data-tile="${index}">Delete</button></div>`

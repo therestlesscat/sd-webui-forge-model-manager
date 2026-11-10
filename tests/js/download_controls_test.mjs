@@ -200,4 +200,20 @@ showChosenFile(CONTROLS, 1, TWO, TWO.files[1]);
 check('and back to the other file: Download again', picked(), ['Download', false]);
 holder.remove();
 
+// The status and the link are the server's, drawn as markup (S2): a status it
+// never sends is text in its class and its badge, and a page link that is not
+// http or https is no link. A marker shows a fault: an element, or an
+// attribute added to the row.
+const ODD = 'odd" data-mm-marker="1 <i data-mm-marker></i>';
+server = [...server, dl(7, ODD), dl(8, 'error', { error: 'Gone', page_url: 'ftp://example.invalid/m' }),
+          dl(9, 'error', { error: 'Gone', page_url: 'https://civitai.com/models/9' })];
+downloads().track(server[0]);
+await waitFor('the odd rows', () => row(7) && row(8) && row(9));
+check('a status the page does not know is text, in the row\'s class and its badge',
+      [document.querySelectorAll('#mm_download_list [data-mm-marker]').length,
+       row(7)?.querySelector('.mm-download-status-badge')?.textContent], [0, ODD]);
+check('a page link that is not http or https is not drawn; one that is, is',
+      [row(8)?.querySelectorAll('a').length, row(9)?.querySelector('a')?.getAttribute('href')],
+      [0, 'https://civitai.com/models/9']);
+
 done();

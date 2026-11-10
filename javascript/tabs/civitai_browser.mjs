@@ -1056,11 +1056,11 @@ function renderModelDetails() {
             <div class="detail-section">
                 <h4>Information</h4>
                 <table class="detail-table">
-                    <tr><td>Model ID</td><td>${model.id}</td></tr>
-                    <tr><td>Version ID</td><td>${version?.id || 'Unknown'}</td></tr>
+                    <tr><td>Model ID</td><td>${safeId(model.id) ?? 'Unknown'}</td></tr>
+                    <tr><td>Version ID</td><td>${safeId(version?.id) ?? 'Unknown'}</td></tr>
                     <tr><td>Version Name</td><td>${escapeHtml(version?.name || 'Unknown')}</td></tr>
-                    <tr><td>Type</td><td>${model.type || 'Unknown'}</td></tr>
-                    <tr><td>Base Model</td><td>${version?.baseModel || 'Unknown'}</td></tr>
+                    <tr><td>Type</td><td>${escapeHtml(model.type || 'Unknown')}</td></tr>
+                    <tr><td>Base Model</td><td>${escapeHtml(version?.baseModel || 'Unknown')}</td></tr>
                     <tr><td>Creator</td><td>${escapeHtml(model.creator?.username || 'Unknown')}</td></tr>
                     ${paidLabel ? `<tr><td>Access</td><td class="cb-paid-cell">${escapeHtml(paidLabel)}</td></tr>` : ''}
                     <tr><td>Published</td><td>${version?.publishedAt ? formatDate(version.publishedAt) : 'Unknown'}</td></tr>

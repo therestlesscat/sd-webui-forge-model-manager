@@ -20,7 +20,7 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { TIMING, escapeHtml, formatBytes, setText } = await shared('core.mjs');
+const { TIMING, escapeHtml, formatBytes, safeUrl, setText } = await shared('core.mjs');
 const { ready, call } = await shared('calls.mjs');
 // The upkeep panel's own `ask` polls the server: the question is askUser here.
 const { ask: askUser, openDialog } = await shared('dialog.mjs');
@@ -707,8 +707,9 @@ function createSettings() {
                        <option value="${escapeHtml(c.label)}" ${c.label === row.selected ? 'selected' : ''}>${
                            escapeHtml(c.label)}${c.precision ? ` (${escapeHtml(c.precision)})` : ''}</option>`).join('')}
                </select>`
-            : `<span class="mm-settings-warning">None installed.</span> Download: ${row.links.map(([name, url]) =>
-                  `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(name)}</a>`).join(', ')}`;
+            : `<span class="mm-settings-warning">None installed.</span> Download: ${row.links.map(([name, url]) => [name, safeUrl(url)]).map(([name, href]) => (href
+                  ? `<a href="${escapeHtml(href)}" target="_blank" rel="noopener">${escapeHtml(name)}</a>`
+                  : escapeHtml(name))).join(', ')}`;
         return `
             <div class="mm-settings-module-row" data-file="${escapeHtml(row.file)}">
                 <div class="mm-settings-module-name">${escapeHtml(row.label)}${forWhom}</div>

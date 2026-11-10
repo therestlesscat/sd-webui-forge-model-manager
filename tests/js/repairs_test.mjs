@@ -136,6 +136,16 @@ check('View all, one unticked: the window closes, the Generations tab searches e
       [null, 'generation:31,33,41,42', 'generation:31,33,41,42']);
 check('and nothing was removed', posted, ['41']);
 
+// ---------------------------- the server's counts, drawn as numbers (S2)
+// A marker shows a fault: an element, or an attribute added. Nothing runs.
+const ODD = '2" data-mm-marker="1 <i data-mm-marker></i>';
+listed = [{ ...ROWS[1], batch_count: ODD, images: ODD, kept_images: ODD }];
+press(line().querySelector('button'));
+await waitFor('the odd row', () => dialog()?.querySelectorAll('[data-repair-id]').length === 1);
+check('a row\'s counts that are not numbers draw nothing as markup',
+      dialog().querySelectorAll('[data-mm-marker]').length, 0);
+dialog().querySelector('[data-repair-cancel]').dispatchEvent(new window.Event('click', { bubbles: true }));
+
 // ----------------------------------------------- stopped with its tab
 (await sharedModule('loading.mjs')).stopTab('generations');
 check('the Generations tab stopped: the repair stops too - its window no longer offered, its line gone',

@@ -7,7 +7,7 @@
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { TIMING, apiCall, escapeHtml, dataAttributes, safeId, setText, formatBytes, formatDay } = await shared('core.mjs');
+const { TIMING, apiCall, escapeHtml, dataAttributes, safeId, safeUrl, setText, formatBytes, formatDay } = await shared('core.mjs');
 const { apiKeyIsMissing, ignoredTag } = await shared('ui_options.mjs');
 const { refreshWebUiModelLists } = await shared('forge.mjs');
 
@@ -318,12 +318,15 @@ function renderDownloadItem(dl, prefix) {
         ? downloadControl('retry', id, 'Retry', 'Ask Civitai again, and download it', { kind: 'primary' })
         : '';
     const p = prefix;
+    // The server's word, but drawn as markup: escaped like any other text.
+    const statusWord = escapeHtml(status);
+    const pageUrl = safeUrl(dl.page_url);
 
     return `
-        <div class="${p}-download-item ${status}">
+        <div class="${p}-download-item ${statusWord}">
             <div class="${p}-download-item-header">
                 <div class="${p}-download-name" title="${escapeHtml(dl.file_name || 'Unknown')}">${escapeHtml(dl.file_name || 'Unknown')}</div>
-                <span class="${p}-download-status-badge ${status}">${DOWNLOAD_STATUS_TEXT[status] || status}</span>
+                <span class="${p}-download-status-badge ${statusWord}">${DOWNLOAD_STATUS_TEXT[status] || statusWord}</span>
             </div>
             ${showProgress ? `
                 <div class="${p}-download-progress">
@@ -342,8 +345,8 @@ function renderDownloadItem(dl, prefix) {
                     ${status === 'complete' ? `${total}` : ''}
                     ${status === 'complete' && dl.filed ? ` · ${escapeHtml(dl.filed)}` : ''}
                     ${status === 'error' ? escapeHtml(dl.error || 'Download failed') : ''}
-                    ${status === 'error' && dl.page_url
-                        ? ` <a class="mm-download-page-link" href="${escapeHtml(dl.page_url)}" target="_blank" rel="noopener">Open on Civitai</a>`
+                    ${status === 'error' && pageUrl
+                        ? ` <a class="mm-download-page-link" href="${escapeHtml(pageUrl)}" target="_blank" rel="noopener">Open on Civitai</a>`
                         : ''}
                     ${status === 'cancelled' ? 'Download cancelled' : ''}
                 </span>

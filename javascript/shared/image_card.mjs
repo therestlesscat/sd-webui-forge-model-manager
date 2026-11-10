@@ -95,19 +95,20 @@ export function imageTextHtml(img) {
            </div>`
         : '';
 
-    // Generation params
+    // Generation params. Each line is escaped whole: its labels are the
+    // code's own words, its values the image's data, from Civitai or a file.
     const genParamsHtml = genParams.length > 0
-        ? `<div class="mm-image-params">${genParams.join(' | ')}</div>`
+        ? `<div class="mm-image-params">${escapeHtml(genParams.join(' | '))}</div>`
         : '';
 
     // Hires params
     const hiresHtml = hiresParams.length > 0
-        ? `<div class="mm-image-hires">Hires: ${hiresParams.join(', ')}</div>`
+        ? `<div class="mm-image-hires">Hires: ${escapeHtml(hiresParams.join(', '))}</div>`
         : '';
 
     // ADetailer params
     const adetailerHtml = adetailerParams.length > 0
-        ? `<div class="mm-image-adetailer">ADetailer: ${adetailerParams.join(', ')}</div>`
+        ? `<div class="mm-image-adetailer">ADetailer: ${escapeHtml(adetailerParams.join(', '))}</div>`
         : '';
 
     return promptHtml + negPromptHtml + genParamsHtml + hiresHtml + adetailerHtml;
@@ -126,7 +127,7 @@ export function imageDetailsHtml(img) {
     const imageIdHtml = img.id
         ? `<div class="mm-image-id">
              <span class="mm-resources-label">Image ID:</span>
-             <span>${img.id}</span>
+             <span>${safeId(img.id) ?? 'Unknown'}</span>
            </div>`
         : '';
 
