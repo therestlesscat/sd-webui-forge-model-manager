@@ -65,21 +65,55 @@ def gate(area: str) -> Callable:
     check_area(area)
 
     def wrap(endpoint: Callable) -> Callable:
+        signature = inspect.signature(endpoint)
+        name, added = request_parameter(signature)
+
+        def take(kwargs):
+            # The request, kept for the route when it asked for one itself;
+            # None when the gate is called directly, with none, as a script.
+            return kwargs.pop(name, None) if added else kwargs.get(name)
+
         if inspect.iscoroutinefunction(endpoint):
             @functools.wraps(endpoint)
             async def answer(*args, **kwargs):
+                take(kwargs)
                 if not on(area):
                     return refused(area)
                 return await endpoint(*args, **kwargs)
         else:
             @functools.wraps(endpoint)
             def answer(*args, **kwargs):
+                take(kwargs)
                 if not on(area):
                     return refused(area)
                 return endpoint(*args, **kwargs)
+        if added:
+            answer.__signature__ = signature.replace(parameters=[
+                *signature.parameters.values(),
+                inspect.Parameter(name, inspect.Parameter.KEYWORD_ONLY, annotation=Request)])
         answer.mm_area = area
+        answer.mm_request_parameter = name
+        # Itself: functools.wraps copies the attributes above onto any wrapper
+        # put outside the gate, but this one points at the gate's own.
+        answer.mm_gate = answer
         return answer
     return wrap
+
+
+GATE_REQUEST = "mm_gate_request"
+
+
+def request_parameter(signature: inspect.Signature) -> Tuple[str, bool]:
+    """
+    Where the gate finds a route's request, and whether it adds the
+    parameter itself. FastAPI hands a route one request, to the last
+    parameter typed Request or a kind of it: a route that has one already -
+    streams_status adds one beneath the gate - is read through it, as a
+    second would leave the first unfilled.
+    """
+    found = [name for name, parameter in signature.parameters.items()
+             if inspect.isclass(parameter.annotation) and issubclass(parameter.annotation, Request)]
+    return (found[-1], False) if found else (GATE_REQUEST, True)
 
 
 def refused(area: str) -> JSONResponse:
