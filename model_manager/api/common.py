@@ -5,9 +5,13 @@ The card-size parser was written four times, and the same try/except that
 logs a failure and answers 500 twenty-four times. And the gate every route
 passes: refusing a request another website's page sent, one addressed by
 a name the WebUI does not know while it listens on this computer alone,
-and one whose tab is off.
+one without the WebUI's own login where it has one, and one whose tab is
+off.
 """
+import base64
+import binascii
 import functools
+import hmac
 import inspect
 import ipaddress
 import json
@@ -21,8 +25,9 @@ from fastapi import Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from ..civitai.client import telling
-from ..forge_host import (DEFAULTS, cors_origins, listens_on_this_computer_alone, other_host_names,
-                          refuses_unknown_names, setting)
+from ..forge_host import (DEFAULTS, api_credentials, cors_origins, gradio_login_named,
+                          listens_on_this_computer_alone, no_web_ui, other_host_names, refuses_unknown_names,
+                          setting)
 from ..tabs import check_area, on, why_off
 from ..console import say, say_failure
 
@@ -64,7 +69,9 @@ def gate(area: str) -> Callable:
     page sent is refused (from_elsewhere), and, while the WebUI listens on
     this computer alone, one addressed by a name it does not know
     (unknown_name), whatever its tab: the browser sends such a request, and
-    the route would carry it out. On the line under
+    the route would carry it out. Then one without the WebUI's own login,
+    where it has one (not_logged_in): Gradio and Forge ask theirs only on
+    their own routes. On the line under
     each route's own, so the next route is written with it;
     tab_switches_test.py fails on a route without one.
 
@@ -138,12 +145,91 @@ DEFAULT_PORTS = {"http": 80, "https": 443}
 
 
 def refusal_of(request: Optional[Request]) -> Optional[JSONResponse]:
-    """The gate's answer to a request it refuses before its tab is asked; None to go on."""
+    """
+    The gate's answer to a request it refuses before its tab is asked; None
+    to go on. Another website's page and an unknown name first, then the
+    WebUI's own login, where it has one.
+    """
     name = unknown_name(request)
     if name is not None:
         return refused_from(name, by_name=True)
     origin = from_elsewhere(request)
-    return None if origin is None else refused_from(origin)
+    if origin is not None:
+        return refused_from(origin)
+    return not_logged_in(request)
+
+
+# ------------------------------------------------------- the WebUI's login
+# Gradio asks its login only on the routes it adds itself, and Forge asks
+# --api-auth only on those its API adds: the extension's routes ask the same
+# login here, exactly where the WebUI has one. Read from the request's own
+# app as Gradio 4.40 keeps it in both WebUIs (get_current_user, gradio/routes.py).
+GRADIO_LOGIN = ("auth", "auth_dependency", "tokens", "cookie_id")
+
+
+def not_logged_in(request: Optional[Request]) -> Optional[JSONResponse]:
+    """
+    None when the WebUI asks no login, or the request has it: Gradio's
+    session - the page's own requests carry its cookie - or, where Forge's
+    API is on, --api-auth's Basic credentials. Either is enough; a Basic
+    header never undoes a session. Where the command line names a Gradio
+    login the app does not hold, refused rather than let through. No
+    exemption for this computer: every tunnel arrives from it.
+    """
+    if request is None:
+        return None
+    app = request.scope.get("app")
+    credentials = api_credentials()
+    holds_login = all(hasattr(app, attribute) for attribute in GRADIO_LOGIN)
+    gradio_login = holds_login and (app.auth is not None or app.auth_dependency is not None)
+    lost_login = not holds_login and gradio_login_named() and not no_web_ui()
+    if not (gradio_login or lost_login or (no_web_ui() and credentials)):
+        return None
+    if gradio_login and gradio_user(request, app) is not None:
+        return None
+    if credentials and basic_user(request, credentials) is not None:
+        return None
+    error = "Not logged in: log in to the WebUI first"
+    error += ", or give the credentials it was started with (--api-auth)." if credentials else "."
+    # The challenge only to a caller that sent Basic credentials that could
+    # count: a browser behind a proxy of its own sends that proxy's, and the
+    # challenge would bring up its own login box for the wrong login.
+    sent_basic = bool(credentials) and (request.headers.get("authorization") or "").split(" ", 1)[0].lower() == "basic"
+    return JSONResponse({"success": False, "error": error}, status_code=401,
+                        headers={"WWW-Authenticate": "Basic"} if sent_basic else None)
+
+
+def gradio_user(request: Request, app: Any) -> Optional[str]:
+    """The user Gradio's session names, read as Gradio's get_current_user reads it; None for none."""
+    try:
+        if app.auth_dependency is not None:
+            return app.auth_dependency(request)
+        token = (request.cookies.get(f"access-token-{app.cookie_id}")
+                 or request.cookies.get(f"access-token-unsecure-{app.cookie_id}"))
+        return app.tokens.get(token) if token else None
+    except Exception:
+        return None
+
+
+def basic_user(request: Request, credentials: dict) -> Optional[str]:
+    """
+    The user whose Basic credentials match --api-auth's, decoded as FastAPI's
+    HTTPBasic decodes them, the password compared in constant time on its
+    UTF-8 bytes; None for none.
+    """
+    scheme, _, param = (request.headers.get("authorization") or "").partition(" ")
+    if scheme.lower() != "basic":
+        return None
+    try:
+        data = base64.b64decode(param).decode("ascii")
+    except (ValueError, UnicodeDecodeError, binascii.Error):
+        return None
+    user, separator, password = data.partition(":")
+    if not separator:
+        return None
+    stored = credentials.get(user)
+    matches = hmac.compare_digest(password.encode("utf-8"), (stored if stored is not None else "").encode("utf-8"))
+    return user if stored is not None and matches else None
 
 
 # The names a WebUI listening on this computer alone is reached by, as the

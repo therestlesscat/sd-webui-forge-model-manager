@@ -303,6 +303,36 @@ def listens_on_this_computer_alone() -> bool:
         return False
 
 
+def no_web_ui() -> bool:
+    """Whether the WebUI runs as an API alone (--nowebui): no page, no Gradio login."""
+    options, _ = model_folders()
+    return bool(getattr(options, "nowebui", False))
+
+
+def gradio_login_named() -> bool:
+    """Whether the command line names a Gradio login: --gradio-auth or --gradio-auth-path."""
+    options, _ = model_folders()
+    return bool(getattr(options, "gradio_auth", None) or getattr(options, "gradio_auth_path", None))
+
+
+def api_credentials() -> Dict[str, str]:
+    """
+    --api-auth's users and passwords, where it counts: while Forge's API is
+    on (--api or --nowebui), as Forge reads it only then. Split on commas,
+    each on its first colon, spaces kept as Forge keeps them; an entry with no
+    colon is skipped - Forge's own split raises on it. Empty outside the WebUI.
+    """
+    options, _ = model_folders()
+    if not (getattr(options, "api", False) or getattr(options, "nowebui", False)):
+        return {}
+    pairs = {}
+    for entry in str(getattr(options, "api_auth", None) or "").split(","):
+        user, separator, password = entry.partition(":")
+        if separator:
+            pairs[user] = password
+    return pairs
+
+
 def refuses_unknown_names() -> bool:
     """Whether the user's switch for the name check is on; it is by default."""
     return bool(setting("model_manager_refuse_unknown_names"))
