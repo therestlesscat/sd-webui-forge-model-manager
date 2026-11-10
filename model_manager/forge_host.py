@@ -251,6 +251,18 @@ def model_folders():
         return None, ""
 
 
+def cors_origins() -> Tuple[List[str], Optional[str]]:
+    """
+    The origins the WebUI lets read its answers, as it reads them: the
+    --cors-allow-origins list split on commas with nothing stripped, and the
+    --cors-allow-origins-regex pattern; none outside the WebUI.
+    """
+    options, _ = model_folders()
+    listed = getattr(options, "cors_allow_origins", None)
+    pattern = getattr(options, "cors_allow_origins_regex", None)
+    return (listed.split(",") if listed else []), (pattern or None)
+
+
 def webui_root() -> str:
     """The WebUI's own folder, which the pages show paths from; empty outside it."""
     try:
