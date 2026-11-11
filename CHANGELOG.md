@@ -15,6 +15,7 @@ Easy Diffusion and others - where it read only Forge's infotext. They are stored
 NSFW level is judged from them, and Send sends them with a checkpoint you pick. ComfyUI's own workflow is
 not read yet (#232).
 
+- **0.77.8** (build 671) - The Queue tab's bar and its % now follow the whole running task, and no longer fall back within it. They showed Forge's figure for the current run, which drops when ADetailer adds the work for the faces it finds, and starts again from 0 at each checkpoint of a task of several. Each run is now an equal share of the bar, 100% shows once the last run is done, and Forge's time left says "in this run" when there are several.
 - **0.77.7** (build 669) - The server asks Civitai's image server only for plainly written addresses.
 - **0.77.6** (build 668) - When the WebUI is started with a login - --gradio-auth, or --api-auth for its API - the extension's routes ask for it too: the page's own session, or the credentials from a script.
 - **0.77.5** (build 667) - A page the extension refuses, reached by a name it does not know, now says so on each of its tabs, with where to let the name through, rather than leaving its tabs to fail one by one. A request refused as another website's page now also says where to name a proxy of your own.

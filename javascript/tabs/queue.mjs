@@ -7,8 +7,8 @@
  * run, and History, newest first, each a page at a time. A row says what its
  * task asks for, and how many images its run made: Show images opens the
  * Generations tab on them (task:<id>), as this tab shows none. The running
- * task's row has a bar along its bottom edge, as far along as Forge is with
- * it, read with the status line. A click on a
+ * task's row has a bar along its bottom edge, as far along as the whole task
+ * is - never falling back within it (#337) - read with the status line. A click on a
  * row opens its details: everything the task holds, and Load to UI, which
  * sets txt2img or img2img up with it (shared/send.mjs).
  *
@@ -34,7 +34,7 @@
  * Generate itself asks before making more images than a setting says - batch
  * count times batch size - whether to generate, queue the run instead, or
  * cancel (#166). A browser can be told not to ask again. The server is api/scheduler.py;
- * how far along a task is, Forge's own progress, asked by the task's job id.
+ * how far along a task's run is, Forge's own progress, asked by the run's job id.
  */
 
 // The shared modules, under the version this script was asked for under: the
@@ -159,17 +159,19 @@ function countsText(counts = {}) {
     return parts.join(' · ');
 }
 
-/** The task the queue is on, and how far along Forge says it is - or that it waits for the person's own run (#170). */
+/**
+ * The task the queue is on and how far along it is, as its bar shows it - or
+ * that it waits for the person's own run (#170), between two of its runs too.
+ * Forge's time left is its current run's: it starts its clock at each Generate.
+ */
 function nowText(progress, forge) {
-    if (progress?.holding) return 'Waiting for your own generation to end';
-    if (!progress?.task_id) return '';
+    if (!progress?.task_id) return progress?.holding ? 'Waiting for your own generation to end' : '';
     let text = `Task #${progress.task_id}`;
     if (progress.runs > 1 && progress.run) text += ` · run ${progress.run} of ${progress.runs}`;
-    if (forge?.queued) text += ' · waiting for Forge';
-    else if (forge?.active && typeof forge.progress === 'number') {
-        text += ` · ${Math.round(forge.progress * 100)}%`;
-        if (forge.eta) text += ` · ${Math.round(forge.eta)} s left`;
-    }
+    if (along.task === progress.task_id) text += ` · ${along.percent}%`;
+    if (progress.holding) text += ' · waiting for your own generation to end';
+    else if (forge?.queued) text += ' · waiting for Forge';
+    else if (forge?.active && forge.eta) text += ` · ${Math.round(forge.eta)} s left${progress.runs > 1 ? ' in this run' : ''}`;
     return text;
 }
 
@@ -181,15 +183,36 @@ function messageText(progress) {
 }
 
 /**
- * The running task's bar: Forge's progress while the run is Forge's, empty
- * while it waits for Forge's lock - the person's own Generate holds it. In
- * between, Forge done with the run and the queue not yet, it stays as it was.
+ * How far along the running task is, 0 to 100 (#337): the runs it has
+ * finished and Forge's figure for the current one, over its runs - each run
+ * an equal share - and never lower than `held`, what its bar showed so far.
+ * Forge's figure falls within a run when a script adds jobs as it goes
+ * (ADetailer, once it has found faces), and starts from 0 at each run of a
+ * task of several checkpoints (#400). A run Forge has finished counts whole.
+ * 100 waits for Forge to finish the last run: it counts a run's last image
+ * done before ADetailer looks at it, and says 100% for a while before then.
+ */
+function taskPercent(progress, forge, held) {
+    const runs = Math.max(Number(progress?.runs) || 1, 1);
+    const finished = Math.min(Math.max((Number(progress?.run) || 0) - 1, 0), runs - 1);
+    let current = null;
+    if (forge?.completed) current = 1;
+    else if (forge?.active && typeof forge.progress === 'number') current = Math.min(Math.max(forge.progress, 0), 1);
+    else if (forge?.queued) current = 0;
+    // The cap is the new figure's alone: a 100 shown stays.
+    const now = Math.max(Math.round(finished / runs * 100),
+                         current === null ? 0 : Math.round((finished + current) / runs * 100));
+    return Math.max(held, Math.min(now, forge?.completed && finished === runs - 1 ? 100 : 99));
+}
+
+/**
+ * The running task's bar: how far along the whole task is (`taskPercent`).
+ * It starts from 0 with each task, and never moves back within one.
  */
 function drawProgress(progress, forge) {
     const taskId = progress?.task_id ?? null;
     if (taskId !== along.task) Object.assign(along, { task: taskId, percent: 0 });
-    if (forge?.active && typeof forge.progress === 'number') along.percent = Math.round(forge.progress * 100);
-    else if (forge?.queued) along.percent = 0;
+    if (taskId !== null) along.percent = taskPercent(progress, forge, along.percent);
     const bar = taskId === null ? null : document.querySelector(`.queue-task[data-task="${taskId}"] .queue-progress`);
     const value = String(along.percent);
     if (!bar || bar.getAttribute('aria-valuenow') === value) return;
@@ -228,8 +251,9 @@ function drawStatus(answer, forge = null) {
     const shown = byId('queue_state');
     setText(shown, STATES[state] || state);
     if (shown && shown.getAttribute('data-state') !== state) shown.setAttribute('data-state', state);
-    setText(byId('queue_task'), answer?.running ? nowText(progress, forge) : '');
+    // The bar first: the status line says the same figure.
     drawProgress(answer?.running ? progress : null, forge);
+    setText(byId('queue_task'), answer?.running ? nowText(progress, forge) : '');
     drawRun(answer?.running ? progress : null);
     setText(byId('queue_counts'), countsText(answer?.counts));
     const message = messageText(progress);

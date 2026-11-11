@@ -7,8 +7,9 @@
 // are drawn again (#172). A row says what its task asks
 // for, and how many images its run made - never the images: Show images
 // opens the Generations tab on them. The running task's row has a bar, as
-// far along as Forge says, kept when Forge is done with the run and the queue
-// not yet, empty while the run waits for Forge. A click on a row opens its details,
+// far along as Forge says, never falling back within the task when Forge's
+// figure does (#337), at 99 until Forge has finished the run and at 100 once
+// it has; the status line says the same. A click on a row opens its details,
 // everything it holds, escaped; Load to UI asks the Queue tab's hidden
 // button for the task, after its send plan, and says what kept its value.
 // Start that finds tasks whose extensions are gone asks first: Cancel starts
@@ -180,12 +181,28 @@ await tick('queue.selecting', true, { list: 'active' });
 check('drawn again with its list, it keeps how far along it is', [row(15) !== drawn, ...along(15)], [true, '80', '80%']);
 await tick('queue.selecting', false, { list: 'active' });
 tabButton.classList.add('selected');
+// ADetailer adds jobs once it has found faces, and Forge's figure falls (#337).
+FORGE = { ...FORGE, progress: 0.6 };
+asked.length = 0;
+await waitFor('two reads of Forge at 60%', () => asked.filter((a) => a.includes('/internal/progress')).length >= 2);
+check("Forge's figure falls: the bar and the status line stay where they were",
+      [...along(15), text('queue_task')], ['80', '80%', 'Task #15 · 80% · 12 s left']);
+// Forge counts the run's last image done before ADetailer looks at it.
+FORGE = { active: true, queued: false, progress: 1, eta: null, textinfo: null };
+await waitFor('the bar at 99', () => along(15)[0] === '99');
+check('Forge says 100% while it still runs the run: 99, until it has finished it',
+      [...along(15), text('queue_task')], ['99', '99%', 'Task #15 · 99%']);
 FORGE = { active: false, queued: false, completed: true, textinfo: 'Waiting...' };
-await new Promise((resolve) => setTimeout(resolve, 150));
-check('Forge done with the run, the queue not yet: it stays', along(15), ['80', '80%']);
-FORGE = { active: false, queued: true, completed: false, textinfo: 'In queue: 2/2' };
-await waitFor('the bar to empty', () => along(15)[0] === '0');
-check("waiting for Forge's lock: empty", along(15), ['0', '0%']);
+asked.length = 0;
+await waitFor('two reads of Forge done', () => asked.filter((a) => a.includes('/internal/progress')).length >= 2);
+check('Forge done with the run, the queue not yet: 100, and the status line says so',
+      [...along(15), text('queue_task')], ['100', '100%', 'Task #15 · 100%']);
+// A read after it that says less - Forge no longer naming the job done - before the queue moves on.
+FORGE = { active: false, queued: false, completed: false, textinfo: 'Waiting...' };
+asked.length = 0;
+await waitFor('two reads of Forge after it', () => asked.filter((a) => a.includes('/internal/progress')).length >= 2);
+check('a 100 shown stays, whatever Forge says after it', [...along(15), text('queue_task')],
+      ['100', '100%', 'Task #15 · 100%']);
 FORGE = { active: true, queued: false, progress: 0.45, eta: 12.4, textinfo: null };
 
 // ------------------------------------------------------ following the queue
