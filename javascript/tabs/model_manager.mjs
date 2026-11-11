@@ -107,8 +107,15 @@ const DOWNLOAD_CONTROLS = { prefix: 'mm', download: 'modelManager.download', sel
 
 // State
 let currentModels = [];
-let selectedModelIndex = null;
+// The model the details panel opened, as its card said then: the model, the
+// version shown, its file. Every panel action reads it, and a grid load
+// never replaces it (#388): after Next page the card at its place is another
+// model, and a fresh card can name a newer version than the one on screen.
+// Only opening another model, or closing the panel, changes it.
+let openModel = null;
 let isLoading = false;
+// The grid load under way: one asked for meanwhile returns at once.
+let modelsLoad = Promise.resolve();
 
 // Version grouping state
 let currentVersions = [];  // All versions for currently selected model
@@ -507,11 +514,14 @@ function setStatus(message, isError = false) {
     }
 }
 
-// Load models from API
+// Load models from API. True once the page asked for is drawn.
 async function loadModels(page = 1) {
-    if (isLoading) return;
+    if (isLoading) return false;
 
     isLoading = true;
+    let loaded;
+    let drawn = false;
+    modelsLoad = new Promise((resolve) => { loaded = resolve; });
     setStatus('Loading models...');
 
     const loadBtn = document.getElementById('mm_load_btn');
@@ -556,7 +566,11 @@ async function loadModels(page = 1) {
             gridLoaded = true;
             updateGridTabs();
             renderModelGrid(data.models);
+            // The panel stays on what it opened; its card is marked again
+            // when the new page holds it (#388).
+            markOpenCard();
             updatePaginationStatus();
+            drawn = true;
         } else {
             setStatus('Error: ' + (data.error || 'Unknown error'), true);
         }
@@ -566,7 +580,9 @@ async function loadModels(page = 1) {
     } finally {
         isLoading = false;
         if (loadBtn) loadBtn.disabled = false;
+        loaded();
     }
+    return drawn;
 }
 
 async function ensureFilterDefaults() {
@@ -651,7 +667,7 @@ function mmCard(model, index) {
         media: { src, video: isVideoUrl({ url: src }), original: originalMediaUrl(model.preview_url),
                  play: cardVideos().play, poster: videoPosterUrl(src) },
         classes: [model.has_civitai_data ? 'has-civitai' : 'no-civitai', nsfwCardClass(model.nsfw_level || 1)],
-        data: { 'model-id': model.civitai_model_id || '' },
+        data: { 'model-id': model.model_id || '' },
         overlays: [
             ...(model.has_civitai_data ? [] : [{ cls: 'no-data-overlay', text: 'No Civitai Data' }]),
             ...(model.is_bookmarked ? [{ cls: 'mm-bookmark-indicator', text: '★', title: 'Bookmarked' }] : []),
@@ -722,11 +738,48 @@ function renderModelGrid(models) {
     });
 }
 
-// Select a model
+/**
+ * Which model a card is: its Civitai model, else its file - as the server
+ * groups a card, and a pin is set. Only ever used to find the open model's
+ * card on the page drawn; the panel itself acts on its own copy (#388).
+ */
+function modelKey(model) {
+    if (!model) return null;
+    return model.model_id ? `model:${model.model_id}` : `file:${model.file_path}`;
+}
+
+/** The records of a model: the panel's copy, if it is the one open, and its card's on the page drawn. */
+function copiesOf(model) {
+    const key = modelKey(model);
+    const copies = new Set(currentModels.filter((m) => modelKey(m) === key));
+    if (key !== null && modelKey(openModel) === key) copies.add(openModel);
+    if (model) copies.add(model);
+    return [...copies];
+}
+
+/**
+ * Mark the open model's card, in this tab's grid alone: the Civitai Browser
+ * marks its own open card the same way, and clearing every card on the page
+ * cleared it (#388).
+ */
+function markOpenCard() {
+    const key = modelKey(openModel);
+    document.querySelectorAll('#mm_grid .model-card').forEach((card) => {
+        const shown = currentModels[Number(card.dataset.index)];
+        card.classList.toggle('selected', key !== null && modelKey(shown) === key);
+    });
+}
+
+// Select a model: the card at that place in the page drawn.
 async function selectModel(index) {
-    selectedModelIndex = index;
     const model = currentModels[index];
     if (!model) return;
+    await openRecord(model);
+}
+
+/** Open a model in the details panel: the copy every panel action reads until another is opened. */
+async function openRecord(model) {
+    openModel = model;
 
     // Reset image state
     imageGallery.images = [];
@@ -752,17 +805,14 @@ async function selectModel(index) {
     remoteFileIndex = null;
     modelDescription = '';
 
-    // Highlight selected card
-    document.querySelectorAll('.model-card').forEach(card => card.classList.remove('selected'));
-    const selectedCard = document.querySelector(`.model-card[data-index="${index}"]`);
-    if (selectedCard) selectedCard.classList.add('selected');
+    markOpenCard();
 
     // The model's versions: the local ones when there are several, and every
     // one Civitai lists. Neither asks Civitai.
     if (model.model_id) {
         try {
             const versionsData = await apiCall({ endpoint: '/model-manager/models/versions', params: { model_id: model.model_id } });
-            if (selectedModelIndex !== index) return;  // another model was opened meanwhile
+            if (openModel !== model) return;  // another model was opened meanwhile
             if (versionsData.success && versionsData.versions) {
                 if (versionsData.versions.length > 1) {
                     currentVersions = versionsData.versions;
@@ -1018,7 +1068,7 @@ function filePathCell(file) {
 function renderFilesSection(shown) {
     const files = versionFiles(shown);
     if (files.length < 2) return '';
-    const model = currentModels[selectedModelIndex] || {};
+    const model = openModel || {};
     const rows = files.map((f) => {
         const folder = shortenFilePath((f.file_path || '').replace(/[\\/][^\\/]*$/, ''));
         return `<tr>
@@ -1063,18 +1113,19 @@ function updateFileFacts(version) {
 /**
  * One file of a version of several, deleted: its row goes and nothing else
  * changes - the version, its galleries, the card and the panel stay open.
- * Shown, its sibling is shown instead; the grid's entry, if it named it,
- * names the sibling, so the card's actions find a file there.
+ * Shown, its sibling is shown instead; the panel's copy and the grid's
+ * card, each that named it, name the sibling, so their actions find a file
+ * there.
  */
 function forgetFile(file) {
-    const model = currentModels[selectedModelIndex];
+    const model = openModel;
     const sibling = currentVersions.find((f) => f !== file && sameVersion(f, file));
     if (!model || !sibling) return false;
     const shown = shownVersion(model);
     currentVersions = currentVersions.filter((f) => f !== file);
-    if (model.file_path === file.file_path) {
+    for (const copy of copiesOf(model).filter((c) => c.file_path === file.file_path)) {
         for (const key of ['file_path', 'file_name', 'file_size', 'file_modified', 'file_extension', 'file_hashes',
-                           'file_type', 'identified_by', 'architecture']) model[key] = sibling[key];
+                           'file_type', 'identified_by', 'architecture']) copy[key] = sibling[key];
     }
     if (currentVersions.length < 2) currentVersions = [];
     const now = shown === file ? sibling : shown;
@@ -1143,7 +1194,7 @@ function updateVersionInfo(version) {
     // One Civitai model can hold a VAE version and a text encoder version.
     const typeCell = document.querySelector('.mm-type-cell');
     if (typeCell) {
-        const model = currentModels[selectedModelIndex] || {};
+        const model = openModel || {};
         typeCell.innerHTML = typeText(version, model.civitai_type);
         if (version.identified_by) typeCell.title = 'Read from the file: ' + version.identified_by;
         else typeCell.removeAttribute('title');
@@ -1179,7 +1230,7 @@ function shortenFilePath(path) {
 
 /** The model's files here: currentVersions, or the grid's entry when it has one. */
 function localFiles() {
-    return currentVersions.length ? currentVersions : [currentModels[selectedModelIndex] || {}];
+    return currentVersions.length ? currentVersions : [openModel || {}];
 }
 
 /** Two files of one version: the same file, or two of one Civitai version (#133). */
@@ -1309,7 +1360,7 @@ async function selectPill(index) {
         // The remote view replaced the panel and hid the gallery: draw the
         // local one again, then select the version in it.
         remoteVersionId = null;
-        const model = currentModels[selectedModelIndex];
+        const model = openModel;
         if (!currentVersions.length) {
             currentModelPath = model.file_path;
             resetImageState();
@@ -1346,7 +1397,12 @@ function resetImageState() {
  */
 function pinButton(model, index, cls) {
     const pinned = !!model?.is_pinned;
-    return { cls: `${cls}${pinned ? ' pinned' : ''}`, text: '📌', action: 'modelManager.togglePin', data: { index: Number(index) },
+    // The panel's own pin, `index` null, names no place in the grid: it pins
+    // the model the panel opened, whatever the grid shows now (#388).
+    const panel = index === null;
+    return { cls: `${cls}${pinned ? ' pinned' : ''}`, text: '📌',
+             action: panel ? 'modelManager.togglePanelPin' : 'modelManager.togglePin',
+             data: panel ? {} : { index: Number(index) },
              title: pinned ? 'Pinned: first whenever it matches the filters. Click to unpin.'
                            : 'Pin: show first whenever it matches the filters' };
 }
@@ -1369,9 +1425,9 @@ function renderDetailHeader(model, { deletable = true, versionId = null } = {}) 
     const bookmarkBtn = modelId
         ? `<button class="mm-bookmark-btn ${isBookmarked ? 'bookmarked' : ''}" data-action="modelManager.toggleBookmark"${dataAttributes({ modelId: safeId(modelId) })} title="${isBookmarked ? 'Remove bookmark' : 'Bookmark this model'}">${isBookmarked ? '★' : '☆'}</button>`
         : '';
-    // The card's pin: the grid's model, whichever version the panel shows.
-    const pin = pinButton(currentModels[selectedModelIndex], selectedModelIndex, 'mm-bookmark-btn mm-pin-toggle');
-    const pinBtn = currentModels[selectedModelIndex]
+    // The model's pin, whichever version the panel shows.
+    const pin = pinButton(openModel, null, 'mm-bookmark-btn mm-pin-toggle');
+    const pinBtn = openModel
         ? `<button class="${pin.cls}" data-action="${pin.action}"${dataAttributes(pin.data)} title="${escapeHtml(pin.title)}">${pin.text}</button>` : '';
 
     // Deleting sits with the other actions on the model, in the header. With
@@ -1405,7 +1461,7 @@ function renderDetailHeader(model, { deletable = true, versionId = null } = {}) 
  */
 function renderRemoteVersion() {
     const container = document.getElementById('mm_details');
-    const model = currentModels[selectedModelIndex];
+    const model = openModel;
     const version = civitaiVersions.find((v) => v.id === remoteVersionId);
     if (!container || !model || !version) return;
 
@@ -1488,7 +1544,7 @@ function selectFile(fileIndex) {
     const file = (version?.files || [])[index];
     if (!file) return;
     remoteFileIndex = index;
-    showChosenFile(DOWNLOAD_CONTROLS, currentModels[selectedModelIndex]?.model_id, version, file);
+    showChosenFile(DOWNLOAD_CONTROLS, openModel?.model_id, version, file);
 }
 
 // The list and its panel are shared with the Civitai Browser: see
@@ -1513,9 +1569,8 @@ async function startDownload(modelId, versionId, fileId, file = {}) {
  * otherwise mark its pill.
  */
 async function versionDownloaded(dl) {
-    const model = currentModels[selectedModelIndex];
+    const model = openModel;
     if (!model || !model.model_id || !civitaiVersions.some((v) => v.id === dl.version_id)) return;
-    const index = selectedModelIndex;
     let data;
     try {
         data = await apiCall({ endpoint: '/model-manager/models/versions', params: { model_id: model.model_id } });
@@ -1523,7 +1578,7 @@ async function versionDownloaded(dl) {
         console.error('[ModelManager] Failed to reload versions:', error);
         return;
     }
-    if (selectedModelIndex !== index || !data.success) return;
+    if (openModel !== model || !data.success) return;  // another model was opened meanwhile
 
     const shown = remoteVersionId;
     const previous = shownVersion(model);
@@ -1704,7 +1759,7 @@ function hideSyncOverlay() {
 
 // Force sync model and all versions
 async function forceSyncModel() {
-    const model = currentModels[selectedModelIndex];
+    const model = openModel;
     if (!model) {
         setStatus('No model selected', true);
         return;
@@ -1750,11 +1805,20 @@ async function forceSyncModel() {
             // Which failed, and why: it said "successfully" whatever the count (#208).
             const failed = total - synced;
             const why = (data.errors || []).join('; ');
+            // The panel draws from the card's record, which the sync made
+            // stale (#388): the grid's page again - after any load already
+            // under way, which would make this one return at once - then the
+            // model from its fresh card, while it is still the one open.
+            while (isLoading) await modelsLoad;
+            const reloaded = await loadModels(currentPage);
+            // Said after the page's own count, which would replace it (#208).
             setStatus(`Synced ${synced} of ${total} files from Civitai`
-                + (failed > 0 ? `; ${failed} failed${why ? `: ${why}` : ''}` : ''));
-            // Reload the current model to show updated data
-            if (selectedModelIndex >= 0) {
-                selectModel(selectedModelIndex);
+                + (failed > 0 ? `; ${failed} failed${why ? `: ${why}` : ''}` : '')
+                + (reloaded ? '' : '; the grid could not be loaded again'), !reloaded);
+            // A page that no longer holds its card - another page, another
+            // tab of the grid - leaves the panel the record it had.
+            if (openModel === model) {
+                await openRecord(currentModels.find((m) => modelKey(m) === modelKey(model)) || model);
             }
         } else {
             setStatus('Sync failed: ' + (data.error || 'Unknown error'), true);
@@ -1772,8 +1836,16 @@ async function forceSyncModel() {
  * Civitai does not know by its path. The card stays where it is until the
  * grid loads again - moving it now would take it from under the pointer.
  */
-async function togglePin(index) {
-    const model = currentModels[index];
+function togglePin(index) {
+    return pinModel(currentModels[index]);
+}
+
+/** The panel's pin: the model the panel opened, whatever the grid shows now (#388). */
+function togglePanelPin() {
+    return pinModel(openModel);
+}
+
+async function pinModel(model) {
     if (!model) return;
     const pinned = !model.is_pinned;
     const form = new URLSearchParams({ pinned: String(pinned) });
@@ -1791,21 +1863,27 @@ async function togglePin(index) {
         setStatus('Pin error: ' + error.message, true);
         return;
     }
-    model.is_pinned = pinned;
+    // The panel's copy and the card's are two records of one model: both
+    // take it, so either pin presses from the state shown (#388).
+    for (const copy of copiesOf(model)) copy.is_pinned = pinned;
     if (gridTabCounts) {
         gridTabCounts.pinned += pinned ? 1 : -1;
         gridTabCounts.others += pinned ? -1 : 1;
         updateGridTabs();
     }
-    const redraw = (button, cls) => {
+    const redraw = (button, fresh) => {
         if (!button) return;
-        const fresh = pinButton(model, index, cls);
         button.className = fresh.cls;
         button.title = fresh.title;
     };
-    redraw(document.querySelector(`#mm_grid .model-card[data-index="${Number(index)}"] .mm-pin-btn`), 'mm-pin-btn');
-    if (index === selectedModelIndex) {
-        redraw(document.querySelector('#mm_details .mm-pin-toggle'), 'mm-bookmark-btn mm-pin-toggle');
+    currentModels.forEach((shown, index) => {
+        if (modelKey(shown) !== modelKey(model)) return;
+        redraw(document.querySelector(`#mm_grid .model-card[data-index="${index}"] .mm-pin-btn`),
+               pinButton(shown, index, 'mm-pin-btn'));
+    });
+    if (modelKey(openModel) === modelKey(model)) {
+        redraw(document.querySelector('#mm_details .mm-pin-toggle'),
+               pinButton(openModel, null, 'mm-bookmark-btn mm-pin-toggle'));
     }
     setStatus(pinned ? 'Pinned: it comes first whenever it matches the filters, from the next load'
                      : 'Unpinned');
@@ -1818,7 +1896,7 @@ async function toggleBookmark(modelId) {
         return;
     }
 
-    const model = currentModels[selectedModelIndex];
+    const model = openModel;
     if (!model) return;
 
     const currentState = model.is_bookmarked || false;
@@ -1834,8 +1912,8 @@ async function toggleBookmark(modelId) {
         const data = await response.json();
 
         if (data.success) {
-            // Update model in memory
-            model.is_bookmarked = newState;
+            // The panel's copy and its card's, if the page shows it (#388).
+            for (const copy of copiesOf(model)) copy.is_bookmarked = newState;
 
             // Update bookmark button in details panel
             const bookmarkBtn = document.querySelector('.mm-bookmark-btn');
@@ -1845,8 +1923,9 @@ async function toggleBookmark(modelId) {
                 bookmarkBtn.title = newState ? 'Remove bookmark' : 'Bookmark this model';
             }
 
-            // Update card indicator
-            const card = document.querySelector(`.model-card[data-model-id="${modelId}"]`);
+            // Its card, in this tab's grid: it carried no model id until #399,
+            // so the star there changed only at the next load.
+            const card = document.querySelector(`#mm_grid .model-card[data-model-id="${modelId}"]`);
             if (card) {
                 let indicator = card.querySelector('.mm-bookmark-indicator');
                 if (newState && !indicator) {
@@ -1880,7 +1959,7 @@ async function toggleBookmark(modelId) {
 // picking another version in the details panel was a different file from
 // the one on screen.
 async function deleteModel(scope = 'version', file = null) {
-    const model = currentModels[selectedModelIndex];
+    const model = openModel;
     if (!model) return;
 
     const shown = file || shownVersion(model);
@@ -2761,7 +2840,7 @@ let galleryWidth = null;
 const IMAGE_ACTIONS = { send: 'modelManager.sendImage', sendAs: 'modelManager.sendImageAs',
                         showAll: 'modelManager.showImageMeta', resources: 'modelManager.showResources' };
 function renderImageCard(img, index) {
-    const model = currentModels[selectedModelIndex];
+    const model = openModel;
     const sendBlocked = cannotSend(img, model, model ? sentFile(shownVersion(model)) : null);
     return sharedImageCard(img, index, { width: galleryWidth, exclude: currentVersionId, actions: IMAGE_ACTIONS,
                                          sendBlocked, asUploaded: asUploaded().gallery });
@@ -2801,7 +2880,7 @@ function refreshResourceButtons(images = [...imageGallery.images, ...generationC
 // Show the resources behind an image, resolved and merged
 function showResources(imageIndex) {
     const img = imageGallery.images[imageIndex];
-    const model = currentModels[selectedModelIndex];
+    const model = openModel;
     const send = img ? gallerySendLine({ img, model, version: model ? sentFile(shownVersion(model)) : null }) : null;
     return showImageResources(img, currentVersionId, { leaving: () => previousPlace.remember(
         `#mm_images .mm-image-card[data-index="${Number(imageIndex)}"]`), send });
@@ -2872,7 +2951,7 @@ async function sendToTxt2img(imageIndex, { choose = false } = {}) {
     // Save current scroll position before navigating away
     previousPlace.remember(`#mm_images .mm-image-card[data-index="${Number(imageIndex)}"]`);
 
-    const model = currentModels[selectedModelIndex];
+    const model = openModel;
     await sendGalleryImage({ img, model, version: model ? sentFile(shownVersion(model)) : null, choose });
 }
 
@@ -2997,7 +3076,7 @@ function showInCivitaiRow() {
 
 /** The query that shows the version on screen in the Civitai Browser. */
 function civitaiBrowserQuery() {
-    const model = currentModels[selectedModelIndex];
+    const model = openModel;
     const modelId = safeId(model?.model_id);
     if (!modelId) return null;
     const versionId = safeId(remoteVersionId !== null ? remoteVersionId : shownVersion(model).id);
@@ -3022,8 +3101,8 @@ function closeDetails() {
     if (detailsContainer) detailsContainer.style.display = 'none';
     if (imagesContainer) imagesContainer.style.display = 'none';
 
-    document.querySelectorAll('.model-card').forEach(card => card.classList.remove('selected'));
-    selectedModelIndex = null;
+    openModel = null;
+    markOpenCard();
 }
 
 // Utility functions
@@ -3434,6 +3513,7 @@ work.provide('modelManager.goToPage', ({ page }) => goToPage(Number(page)));
 work.provide('modelManager.prevPage', () => prevPage());
 work.provide('modelManager.nextPage', () => nextPage());
 work.provide('modelManager.togglePin', ({ index }) => togglePin(Number(index)));
+work.provide('modelManager.togglePanelPin', () => togglePanelPin());
 work.provide('modelManager.nsfwMode', (data, box) => setNsfwMode(box.value));
 work.provide('modelManager.showPromptless', (data, box) => toggleShowPromptless(box.checked));
 work.provide('modelManager.loadMoreImages', () => loadMoreImages());

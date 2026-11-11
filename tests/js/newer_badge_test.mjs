@@ -12,7 +12,7 @@ const { check, waitFor, done } = checker();
 
 const v = (id, name, extra = {}) => ({ id, name, base_model: 'SDXL 1.0', paid: null, on_site_only: null, ...extra });
 const CARD = (id, newer, synced = '2026-10-12T09:00:00') => ({
-    id: id * 10, model_id: id, civitai_model_id: id, display_name: `M${id}`, model_type: 'LORA', base_model: 'SDXL 1.0',
+    id: id * 10, model_id: id, display_name: `M${id}`, model_type: 'LORA', base_model: 'SDXL 1.0',
     has_civitai_data: true, local_version_count: 1, nsfw_level: 1, newer_versions: newer, versions_synced_at: synced,
 });
 const MODELS = [

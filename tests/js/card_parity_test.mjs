@@ -23,20 +23,20 @@ const [mode, tab] = process.argv.slice(2);
 
 // ---------------------------------------------------------------- the models
 const MM_MODELS = [
-    { id: 1, civitai_model_id: 11, display_name: 'Plain Model', model_type: 'LORA', base_model: 'SDXL 1.0',
+    { id: 1, model_id: 11, display_name: 'Plain Model', model_type: 'LORA', base_model: 'SDXL 1.0',
       preview_url: 'https://image.civitai.com/x/abc/original=true/1.jpeg', has_civitai_data: true,
       nsfw_level: 1, thumbs_up: 10, thumbs_down: 1, download_count: 1234, file_size: 1024 * 1024 * 50,
       local_version_count: 1, file_path: 'C:/m/1.safetensors' },
-    { id: 2, civitai_model_id: 12, display_name: 'A name that is well over thirty characters long', model_type: 'Checkpoint',
+    { id: 2, model_id: 12, display_name: 'A name that is well over thirty characters long', model_type: 'Checkpoint',
       base_model: '', preview_url: 'https://image.civitai.com/x/abc/original=true/2.mp4', has_civitai_data: true,
       nsfw_level: 8, thumbs_up: 0, thumbs_down: 0, download_count: 0, file_size: 1024 * 1024 * 1024 * 6,
       local_version_count: 3, is_bookmarked: true, file_path: 'C:/m/2.safetensors' },
-    { id: 3, civitai_model_id: null, display_name: 'Local only', model_type: 'VAE', preview_url: '',
+    { id: 3, model_id: null, display_name: 'Local only', model_type: 'VAE', preview_url: '',
       has_civitai_data: false, nsfw_level: 0, file_size: 3000, file_path: 'C:/m/3.safetensors' },
-    { id: 4, civitai_model_id: 14, display_name: 'Level R', model_type: 'LORA', base_model: 'Pony',
+    { id: 4, model_id: 14, display_name: 'Level R', model_type: 'LORA', base_model: 'Pony',
       preview_url: 'https://image.civitai.com/x/abc/original=true/4.jpeg', has_civitai_data: true,
       nsfw_level: 4, thumbs_up: 2, thumbs_down: 0, download_count: 5, file_size: 10, file_path: 'C:/m/4.safetensors' },
-    { id: 5, civitai_model_id: 15, display_name: 'Level PG-13 and XXX', model_type: 'LORA', base_model: 'Flux.1 D',
+    { id: 5, model_id: 15, display_name: 'Level PG-13 and XXX', model_type: 'LORA', base_model: 'Flux.1 D',
       preview_url: 'https://image.civitai.com/x/abc/original=true/5.jpeg', has_civitai_data: true,
       nsfw_level: 18, download_count: 1500000, file_size: 10, file_path: 'C:/m/5.safetensors' },
 ];

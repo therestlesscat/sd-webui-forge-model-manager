@@ -8,7 +8,7 @@ const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 const { check, done } = checker();
 const { call } = await import(`file:///${ROOT}/javascript/shared/calls.mjs`);
 
-const model = (id, preview) => ({ id, civitai_model_id: id + 10, display_name: `Model ${id}`, model_type: 'LORA',
+const model = (id, preview) => ({ id, model_id: id + 10, display_name: `Model ${id}`, model_type: 'LORA',
                                   preview_url: preview, has_civitai_data: true, nsfw_level: 1, local_version_count: 1,
                                   file_path: `C:/m/${id}.safetensors` });
 globalThis.fetch = async (url) => {

@@ -103,9 +103,11 @@ await act('modelManager.togglePin', { index: 0 });
 await act('modelManager.selectModel', { index: 0 });
 await waitFor('the details', () => document.querySelector('#mm_details .detail-header'));
 const detailsPin = () => document.querySelector('#mm_details .mm-pin-toggle');
+// The panel's pin names no place in the grid: it pins the model the panel
+// opened, whatever the grid shows after a reload (#388).
 check('the details panel has the pin beside the bookmark, as the card shows it',
-      [detailsPin()?.classList.contains('pinned'), detailsPin()?.dataset.action, detailsPin()?.dataset.index],
-      [true, 'modelManager.togglePin', '0']);
+      [detailsPin()?.classList.contains('pinned'), detailsPin()?.dataset.action, 'index' in (detailsPin()?.dataset || {})],
+      [true, 'modelManager.togglePanelPin', false]);
 await press(detailsPin());
 check('which unpins it there and on the card together',
       [detailsPin()?.classList.contains('pinned'), cardPin(0)?.className, pins.at(-1)],
