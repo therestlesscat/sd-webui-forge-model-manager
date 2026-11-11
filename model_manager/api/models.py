@@ -187,6 +187,52 @@ def filter_files(db, grid: GridQuery) -> Tuple[List[str], int]:
     return sorted(paths), total_count
 
 
+
+def _why(error: OSError) -> str:
+    """Why a removal was refused, without the path the message would add: the page names the file."""
+    if getattr(error, "winerror", None):
+        return f"[WinError {error.winerror}] {error.strerror}"
+    return error.strerror or str(error)
+
+
+def _clear_beside(path: str, made: List[str], deleted_files: List[str], not_removed: List[dict]) -> None:
+    """
+    What lies beside a deleted model file under its name - the side files a
+    move takes with it (model_dirs.COMPANIONS) - and the folders its download
+    made, deepest first, each only once empty: one still holding anything
+    keeps every folder above it. A refusal is kept in `not_removed`.
+    """
+    base_path = os.path.splitext(path)[0]
+    for side in [base_path + suffix for suffix in COMPANIONS]:
+        if not os.path.exists(side):
+            continue
+        try:
+            os.remove(side)
+            deleted_files.append(os.path.basename(side))
+            say(f"Deleted: {side}")
+        except OSError as e:
+            say(f"Failed to delete {side}: {e}")
+            not_removed.append({"file": os.path.basename(side), "reason": _why(e)})
+
+    for folder in made:
+        try:
+            remaining = os.listdir(folder)
+        except OSError as e:
+            say(f"Failed to read folder {folder}: {e}")
+            not_removed.append({"file": f"{os.path.basename(folder)}/", "reason": _why(e)})
+            break
+        if remaining:
+            say(f"Folder not empty, keeping: {folder} ({len(remaining)} files remaining)")
+            break
+        try:
+            os.rmdir(folder)
+        except OSError as e:
+            say(f"Failed to delete folder {folder}: {e}")
+            not_removed.append({"file": f"{os.path.basename(folder)}/", "reason": _why(e)})
+            break
+        deleted_files.append(f"[folder] {os.path.basename(folder)}/")
+        say(f"Deleted empty folder: {folder}")
+
 def register(app: FastAPI):
     """Attach this module's endpoints to the app.
 
@@ -539,7 +585,9 @@ def register(app: FastAPI):
             path: Full path to the model file.
 
         Returns:
-            Success status and list of deleted files.
+            Success status and the files deleted, with what stayed and why
+            (`not_removed`, `notes`); a 409, nothing removed, when the model
+            file itself could not be.
         """
         try:
             # Only ever a file the library itself recorded. This used to delete
@@ -564,52 +612,65 @@ def register(app: FastAPI):
                 )
 
             deleted_files = []
+            # What stayed, each with why, for the page to say (#388).
+            not_removed = []
+            notes = []
             # The folders its download made (#196), read before the row goes:
             # deleting it can take the model's row with it.
             model = db.get_civitai_model(row["model_id"]) if row.get("model_id") else None
             made = template_folders(path, folder_of(path)[1], model, row,
                                     setting('model_manager_civitai_folder_template'))
 
-            # Find all related files (same base name, different extensions)
-            base_path = os.path.splitext(path)[0]
-            # The file and what lies beside it under its name - the same
-            # side files a move takes with it (model_dirs.COMPANIONS).
-            related_patterns = [path] + [base_path + suffix for suffix in COMPANIONS]
+            # The model file first, alone (#388). Refused - Windows will not
+            # delete a file another program holds or a read-only one - and
+            # nothing else is touched: its side files, its folder and its
+            # rows stay with it, where they went before whatever happened.
+            try:
+                os.remove(path)
+            except OSError as e:
+                say(f"Failed to delete {path}: {e}")
+                return JSONResponse(
+                    {"success": False,
+                     "error": f"Could not delete {os.path.basename(path)}: {_why(e)}. Nothing was removed."},
+                    status_code=409
+                )
+            deleted_files.append(os.path.basename(path))
+            say(f"Deleted: {path}")
 
-            # Delete all related files
-            for file_path in related_patterns:
-                if os.path.exists(file_path):
-                    try:
-                        os.remove(file_path)
-                        deleted_files.append(os.path.basename(file_path))
-                        say(f"Deleted: {file_path}")
-                    except Exception as e:
-                        say(f"Failed to delete {file_path}: {e}")
-
-            # Only the folders we made, deepest first, and each only once
-            # empty: one still holding anything keeps every folder above it.
-            for folder in made:
-                remaining = os.listdir(folder)
-                if remaining:
-                    say(f"Folder not empty, keeping: {folder} ({len(remaining)} files remaining)")
-                    break
+            # From here the file is gone, and the answer is a success: what
+            # cannot follow it is said, never a failure for a file deleted.
+            # Its rows next, at once, even if a side file or a folder below
+            # cannot go; its version, model and gallery too, if no other
+            # file names them (#200).
+            try:
+                db.delete_version(path)
+            except Exception as e:
+                say(f"Failed to forget {path}: {e}")
+                notes.append(f"The library's record of {os.path.basename(path)} could not be removed ({e}); "
+                             "the next sync forgets it")
+            else:
                 try:
-                    os.rmdir(folder)
+                    forget_orphans(db)
                 except Exception as e:
-                    say(f"Failed to delete folder {folder}: {e}")
-                    break
-                deleted_files.append(f"[folder] {os.path.basename(folder)}/")
-                say(f"Deleted empty folder: {folder}")
+                    say(f"Failed to forget what only {path} named: {e}")
+                    notes.append(f"The details of {os.path.basename(path)}'s model could not be cleared "
+                                 f"from the library ({e}); the next sync clears them")
+            try:
+                _clear_beside(path, made, deleted_files, not_removed)
+            except Exception as e:
+                say(f"Failed to clear what lay beside {path}: {e}")
+                notes.append(f"What lay beside {os.path.basename(path)} could not all be checked ({e})")
 
-            db.delete_version(path)
-            # Its version, model and gallery, if no other file names them (#200).
-            forget_orphans(db)
-
-            return JSONResponse({
+            answer = {
                 "success": True,
                 "deleted": deleted_files,
                 "message": f"Deleted {len(deleted_files)} files"
-            })
+            }
+            if not_removed:
+                answer["not_removed"] = not_removed
+            if notes:
+                answer["notes"] = notes
+            return JSONResponse(answer)
 
         except Exception as e:
             return failed(e, "Delete error")

@@ -287,13 +287,43 @@ question().querySelector('[data-value="true"]').dispatchEvent(new window.Event('
 await waitFor('the sync', () => syncs.length > syncsBefore);
 // The held load is counted once released; the Sync's own reload after it.
 const asked = gridAsked.length;
-release();
+release?.();
 release = null;
 await settled('the sync to end', syncing);
 afterSync = null;
 await waitFor('the reopen', () => title() === 'Model X renamed again', 100);
 check('a Sync ending while another load runs waits for it, then loads the page again',
       [gridAsked.length - asked, title()], [2, 'Model X renamed again']);
+
+// A Delete ending while another grid load runs: its own reload waits for
+// that one, where it returned at once and left the deleted card drawn.
+await openFirst();
+holdNextGrid = true;
+document.getElementById('mm_load_btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+await waitFor('the held load', () => release !== null);
+const askedBeforeDelete = gridAsked.length;
+const deleting = pressLabelled('Delete Model');
+await waitFor('the delete', () => deleted.length === 1);
+release?.();
+release = null;
+await settled('the delete to end', deleting);
+check('a Delete ending while another load runs waits for it, then loads the page again',
+      gridAsked.length - askedBeforeDelete, 2);
+
+// Next page under way as a Delete ends: its reload is of the page the grid
+// is on once that one is drawn, page 2, not the page Delete was pressed on.
+await openFirst();
+holdNextGrid = true;
+act('modelManager.nextPage');
+await waitFor('the held Next page', () => release !== null);
+const askedBeforeNext = gridAsked.length;
+const deletingOnNext = pressLabelled('Delete Model');
+await waitFor('the delete', () => deleted.length === 1);
+release?.();
+release = null;
+await settled('the delete to end', deletingOnNext);
+check('a Delete ending while Next page loads reloads page 2 after it',
+      [gridAsked.length - askedBeforeNext, gridAsked.at(-1)?.get('page')], [2, '2']);
 
 // ------------------------------------------------- a download landing
 // X's other version, started from the panel, lands after a page change.

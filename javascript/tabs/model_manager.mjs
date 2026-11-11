@@ -514,6 +514,17 @@ function setStatus(message, isError = false) {
     }
 }
 
+/**
+ * The grid's page loaded, once any load under way has ended: one asked for
+ * meanwhile returns at once, and the grid would keep what that one drew.
+ * With no page, the one the grid is on once that load is drawn: read
+ * before, it was the page the person had just left with Next.
+ */
+async function loadModelsNow(page = null) {
+    while (isLoading) await modelsLoad;
+    return loadModels(page ?? currentPage);
+}
+
 // Load models from API. True once the page asked for is drawn.
 async function loadModels(page = 1) {
     if (isLoading) return false;
@@ -1809,8 +1820,7 @@ async function forceSyncModel() {
             // stale (#388): the grid's page again - after any load already
             // under way, which would make this one return at once - then the
             // model from its fresh card, while it is still the one open.
-            while (isLoading) await modelsLoad;
-            const reloaded = await loadModels(currentPage);
+            const reloaded = await loadModelsNow();
             // Said after the page's own count, which would replace it (#208).
             setStatus(`Synced ${synced} of ${total} files from Civitai`
                 + (failed > 0 ? `; ${failed} failed${why ? `: ${why}` : ''}` : '')
@@ -1986,6 +1996,10 @@ async function deleteModel(scope = 'version', file = null) {
 
     setStatus(all ? `Deleting ${targets.length} files...` : 'Deleting model...');
     const failed = [];
+    // What a delete left behind, and why: a side file or a folder Windows
+    // refused, the library's record (#388). Said after whichever line ends
+    // the press.
+    const left = [];
     for (const version of targets) {
         try {
             const response = await fetch('/model-manager/models/delete', {
@@ -1995,6 +2009,8 @@ async function deleteModel(scope = 'version', file = null) {
             });
             const data = await response.json();
             if (!data.success) failed.push(`${name(version)}: ${data.error || 'Unknown error'}`);
+            for (const item of data.not_removed || []) left.push(`Could not remove ${item.file}: ${item.reason}`);
+            left.push(...(data.notes || []));
         } catch (error) {
             console.error('[ModelManager] Delete error:', error);
             failed.push(`${name(version)}: ${error.message}`);
@@ -2005,22 +2021,25 @@ async function deleteModel(scope = 'version', file = null) {
     if (failed.length < targets.length) refreshWebUiModelLists();
 
     const deletedName = versions > 1 && scope !== 'all' ? ` (${name(shown)})` : '';
+    // After the line that ends the press, its own closing period or not.
+    const withLeft = (line) => (left.length ? `${line.replace(/\.$/, '')}. ${left.join('; ')}` : line);
     // One file of several: its row goes, and the rest stays as it is.
     if (scope === 'file' && !failed.length && forgetFile(shown)) {
-        setStatus(`Deleted: ${shown.file_name}`);
+        setStatus(withLeft(`Deleted: ${shown.file_name}`), !!left.length);
         return;
     }
     // The grid reloads first: its own status line would otherwise replace
-    // this one, and a failure would go unsaid.
+    // this one, and a failure would go unsaid. After any load under way,
+    // which would make this one return at once and keep the deleted card.
     if (failed.length < targets.length) {
         closeDetails();
-        await loadModels(currentPage);
+        await loadModelsNow();
     }
     if (failed.length) {
-        setStatus(`Delete failed for ${failed.join('; ')}`, true);
+        setStatus(withLeft(`Delete failed for ${failed.join('; ')}`), true);
     } else {
-        setStatus(all ? `Deleted ${targets.length} files of ${model.display_name}${deletedName}`
-                      : `Deleted: ${model.display_name}${deletedName}`);
+        setStatus(withLeft(all ? `Deleted ${targets.length} files of ${model.display_name}${deletedName}`
+                               : `Deleted: ${model.display_name}${deletedName}`), !!left.length);
     }
 }
 
@@ -3000,7 +3019,7 @@ async function showModel(query) {
 
     setValue('mm_search', query);
 
-    await loadModels(1);
+    await loadModelsNow(1);
     // The model asked for is in whichever tab holds it: a pinned one is not
     // in Unpinned.
     if (!currentModels.length && gridTabCounts) {
@@ -3008,7 +3027,7 @@ async function showModel(query) {
         if (gridTabCounts[other] > 0) {
             gridTab = other;
             updateGridTabs();
-            await loadModels(1);
+            await loadModelsNow(1);
         }
     }
 

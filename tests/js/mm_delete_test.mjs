@@ -20,6 +20,10 @@ const version = (id, name) => ({
 let versions = [version(501, 'v1'), version(502, 'v2')];
 const deleted = [];
 let refuse = null;
+let refuseError = 'Not a model in the library';
+// What the route answers it left behind, as it does once the model file is
+// gone (#388): a side file or folder refused, and notes.
+let leftBehind = null;
 let gridAsked = 0;
 
 globalThis.fetch = async (url, init = {}) => {
@@ -28,9 +32,9 @@ globalThis.fetch = async (url, init = {}) => {
     const reply = (body) => ({ ok: true, json: async () => structuredClone(body) });
     if (href.includes('/model-manager/models/delete')) {
         const path = new URLSearchParams(String(init.body || '')).get('path');
-        if (path === refuse) return reply({ success: false, error: 'Not a model in the library' });
+        if (path === refuse) return reply({ success: false, error: refuseError });
         deleted.push(path);
-        return reply({ success: true, deleted: [path] });
+        return reply({ success: true, deleted: [path], ...(leftBehind || {}) });
     }
     if (href.includes('/model-manager/models/versions')) return reply({ success: true, versions });
     if (href.includes('/model-manager/models/details')) return reply({ success: true, model: { images: [] } });
@@ -156,5 +160,44 @@ deleted.length = 0;
 await open();
 await pressLabelled('Delete Model');
 check('the model, both its files', deleted, ['C:/models/v1.safetensors', 'C:/models/v1_fp32.safetensors']);
+
+// ------------------------------------------------- what a delete left (#388)
+const statusText = () => document.getElementById('mm_status')?.textContent.trim();
+versions = [version(501, 'v1')];
+leftBehind = { not_removed: [{ file: 'v1.preview.png', reason: '[WinError 5] Access is denied' }],
+               notes: ['The library\'s record of it could not be removed (database is locked); the next sync forgets it'] };
+await open();
+await pressLabelled('Delete Model');
+check('Deleted names what stayed, and why, after it',
+      statusText(), 'Deleted: A Model. Could not remove v1.preview.png: [WinError 5] Access is denied; '
+                    + 'The library\'s record of it could not be removed (database is locked); the next sync forgets it');
+versions = [version(501, 'v1'), version(502, 'v2')];
+refuse = 'C:/models/v1.safetensors';
+leftBehind = { not_removed: [{ file: 'v2.preview.png', reason: '[WinError 32] in use' }] };
+await open();
+await pressLabelled('Delete All Model Versions');
+check('and after Delete failed too',
+      statusText(), 'Delete failed for v1: Not a model in the library. Could not remove v2.preview.png: [WinError 32] in use');
+// The route's own refusal ends with a period: no second one before what stayed.
+refuseError = 'Could not delete v1.safetensors: [WinError 5] Access is denied. Nothing was removed.';
+await open();
+await pressLabelled('Delete All Model Versions');
+check('the refusal\'s own period is not doubled',
+      statusText(), 'Delete failed for v1: Could not delete v1.safetensors: [WinError 5] Access is denied. '
+                    + 'Nothing was removed. Could not remove v2.preview.png: [WinError 32] in use');
+refuseError = 'Not a model in the library';
+refuse = null;
+
+// One file of several, from the Files list: what stayed is said there too,
+// and the line is styled as the error it is.
+versions = [version(501, 'v1'), { ...version(501, 'v1'), file_path: 'C:/models/v1_fp32.safetensors',
+                                  file_name: 'v1_fp32.safetensors' }];
+leftBehind = { not_removed: [{ file: 'v1_fp32.preview.png', reason: '[WinError 5] Access is denied' }] };
+await open();
+await press(fileBins()[1]);
+check('a file of several: Deleted names what stayed, as an error',
+      [statusText(), document.getElementById('mm_status')?.classList.contains('error')],
+      ['Deleted: v1_fp32.safetensors. Could not remove v1_fp32.preview.png: [WinError 5] Access is denied', true]);
+leftBehind = null;
 
 done();
