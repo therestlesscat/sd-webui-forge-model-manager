@@ -68,8 +68,8 @@ the code (2026-10-16).
   way and approved; 0.54.1 was built from an older read without it, and
   0.54.2 followed (2026-10-08).
 - **A plan round is read by a fresh agent before it goes to the owner.**
-  One agent - or two at once where the plan has two halves, server and
-  page - handed the doc and pointed at the code and the AGENTS.md files -
+  One agent, or two or more by "A sub-task goes to two agents or more where
+  that is faster" below, handed the doc and pointed at the code and the AGENTS.md files -
   never the conversation, nor the plan's author's conclusions - looks for
   what the plan assumes without saying. What it finds is surveyed, and
   dealt with in the round's one write; the message to the owner names it,
@@ -95,9 +95,10 @@ the code (2026-10-16).
   to be read against, and skips it. Every such fault in this file was caught
   by a side agent asked for by chance: #259's moved reads, v37's subset
   check, #269's replaced check, #287's rule changed mid-build (2026-11-02).
-  Two read it at once, split by halves or by question (against the plan;
-  what it reads and writes), where the diff has two halves or passes about
-  400 lines - the owner: "make it the default" (2026-11-07). #406's commit 2,
+  Two or more read it at once, split by halves or by question (against the
+  plan; what it reads and writes), by "A sub-task goes to two agents or more
+  where that is faster" below - the owner: "make it the default"
+  (2026-11-07), when two halves or about 400 lines of diff were the measure. #406's commit 2,
   split by question, took 140,414 and 138,027 tokens, under 4 minutes each;
   #408's five took 131,667 to 174,794 tokens, 4 min 36 s to 7 min 7 s.
   Asked first, with the cost, as any two agents are.
@@ -202,14 +203,28 @@ the code (2026-10-16).
   rebinding unasked in round 1; it became rounds 2 to 5 and 2 of its 4
   commits, each round finding a hole after building, and still only "made
   harder" - the owner: "feels like wild goose chase" (2026-11-10).
-- **A sub-task that splits goes to two agents or more, to save time - asked
-  first.** A survey, an analysis or a review that divides cleanly - by area,
-  by half, by question - is proposed as agents in parallel, not run as one;
-  one agent alone is said so, with why. #408's plan review (one agent,
+- **A sub-task goes to two agents or more where that is faster - asked
+  first.** An agent's own time is about 76 s to start, 3.7 s a turn and 6.5
+  s per 1,000 tokens it writes, thinking included; its tools take about a
+  tenth of it (115 runs of 108 agents, fit R² 0.86, 2026-11-10). Agents side
+  by side are waited on for the slowest, and each pays the start and any
+  reading the others do as well. So a survey, an analysis or a review is
+  split - by area, by half, by question, any way that divides it - when one
+  agent would take over about 7 minutes and the parts read mostly different
+  things, in about equal shares. Under that it runs as one agent, and the
+  message says so, with why. How long one agent would take is judged from
+  past runs of the kind: a plan or commit review 4 to 8 minutes, a path of
+  the whole analysis 20 to 35. Of 15 batches run side by side, the 10 whose
+  one agent was estimated at over 7.5 minutes waited 1.3 to 2.6 times less;
+  of the 5 at 7.5 minutes or under, two short commit reviews waited longer
+  than one agent would have (0.7 and 0.9 times), and the rest 1.0 to 1.8
+  times less. #408's plan review (one agent,
   168,079 tokens, 7 min 37 s) and its survey of other tools' image formats
   each ran as one agent, though both split; the owner: "i want to use 2+
-  agents for sub tasks to save time in future. ask me before hand before
-  using 2+ agents, on approval, you can proceed" (2026-11-08).
+  agents for sub tasks to save time in future" (2026-11-08), and, asking
+  for this measure: "split to 2+ agents when possible ... multiple not
+  necessarily means faster. so, we need to have base for this" (2026-11-10).
+  Scripts and data: `tests/work/agent-timing/`.
 - **Two agents or more: ask first, with the reason and the cost.** Before
   starting or resuming two or more agents for one step - side agents, a
   fan-out, a workflow - say what each will do, why it needs an agent of its
