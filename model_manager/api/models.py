@@ -9,7 +9,7 @@ import json
 import os
 import time
 from dataclasses import replace
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 from fastapi import Depends, FastAPI, Form
 from fastapi.responses import JSONResponse
 
@@ -21,7 +21,7 @@ from ..civitai import CivitaiClient, paid_access_info
 from ..civitai.licensing import on_site_only
 from .images import gallery_state, gallery_switches
 from .common import card_size, failed, gate
-from ..model_dirs import COMPANIONS, file_modified, folder_of, ignored_because
+from ..model_dirs import companions, file_modified, folder_of, ignored_because
 from ..download_service import template_folders
 from .. import resources
 from ..console import say
@@ -195,17 +195,20 @@ def _why(error: OSError) -> str:
     return error.strerror or str(error)
 
 
-def _clear_beside(path: str, made: List[str], deleted_files: List[str], not_removed: List[dict]) -> None:
+def _clear_beside(path: str, made: List[str], deleted_files: List[str], not_removed: List[dict],
+                  kept: Dict[str, List[str]]) -> None:
     """
-    What lies beside a deleted model file under its name - the side files a
-    move takes with it (model_dirs.COMPANIONS) - and the folders its download
-    made, deepest first, each only once empty: one still holding anything
-    keeps every folder above it. A refusal is kept in `not_removed`.
+    What lies beside a deleted model file under its name - its own side
+    files, the ones a move takes with it (model_dirs.companions) - and the
+    folders its download made, deepest first, each only once empty: one
+    still holding anything keeps every folder above it. A refusal is kept in
+    `not_removed`; a side file another model file shares, or an embedding,
+    is left, by why, in `kept` (#388).
     """
-    base_path = os.path.splitext(path)[0]
-    for side in [base_path + suffix for suffix in COMPANIONS]:
-        if not os.path.exists(side):
-            continue
+    sides = companions(path)
+    for side, why in sides.kept:
+        kept.setdefault(why, []).append(os.path.basename(side))
+    for side in sides.own:
         try:
             os.remove(side)
             deleted_files.append(os.path.basename(side))
@@ -615,6 +618,7 @@ def register(app: FastAPI):
             # What stayed, each with why, for the page to say (#388).
             not_removed = []
             notes = []
+            kept = {}
             # The folders its download made (#196), read before the row goes:
             # deleting it can take the model's row with it.
             model = db.get_civitai_model(row["model_id"]) if row.get("model_id") else None
@@ -656,7 +660,7 @@ def register(app: FastAPI):
                     notes.append(f"The details of {os.path.basename(path)}'s model could not be cleared "
                                  f"from the library ({e}); the next sync clears them")
             try:
-                _clear_beside(path, made, deleted_files, not_removed)
+                _clear_beside(path, made, deleted_files, not_removed, kept)
             except Exception as e:
                 say(f"Failed to clear what lay beside {path}: {e}")
                 notes.append(f"What lay beside {os.path.basename(path)} could not all be checked ({e})")
@@ -670,6 +674,12 @@ def register(app: FastAPI):
                 answer["not_removed"] = not_removed
             if notes:
                 answer["notes"] = notes
+            # Left where they are, and not refused: the page says nothing of
+            # a side file another model file uses, and names an embedding.
+            if kept.get("shared"):
+                answer["shared"] = kept["shared"]
+            if kept.get("embedding"):
+                answer["embeddings"] = kept["embedding"]
             return JSONResponse(answer)
 
         except Exception as e:

@@ -164,6 +164,51 @@ def rows_failing():
     check('and the side files went too', sides(rows_fail), [False, False])
 
 
+def side_files_shared():
+    """Two model files of one name in one folder: their side files are both's (#388)."""
+    pt = model_file('demo.pt', 900701)
+    safetensors = model_file('demo.safetensors', 900702)
+    code, body = delete(pt)
+    check('deleting demo.pt beside demo.safetensors keeps the side files they share',
+          [code, os.path.exists(pt), sides(safetensors)], [200, False, [True, True]])
+    check('named as shared, not as refused', [sorted(body.get('shared', [])), 'not_removed' in body],
+          [['demo.civitai.info', 'demo.preview.png'], False])
+    code, body = delete(safetensors)
+    check('then deleting demo.safetensors takes them: no other demo.* model file is left',
+          [code, sides(safetensors), 'shared' in body], [200, [False, False], False])
+
+    if os.path.normcase('A') == os.path.normcase('a'):
+        lower = model_file('cased.safetensors', 900801)
+        upper = os.path.join(LORA, 'CASED.PT')
+        with open(upper, 'wb') as f:
+            f.write(b'x' * 64)
+        code, body = delete(lower)
+        check('where case is ignored, CASED.PT beside it keeps the side files', [code, sides(lower)], [200, [True, True]])
+    else:
+        print('Names are told apart by case here: the CASED.PT check is skipped.')
+
+
+def embedding_image():
+    """A .png the original Forge loads as an embedding is not a preview (#388)."""
+    from PIL import Image
+    from PIL.PngImagePlugin import PngInfo
+    holder = model_file('holder.pt', 900901)
+    png = os.path.splitext(holder)[0] + '.png'
+    info = PngInfo()
+    info.add_text('sd-ti-embedding', 'made-up data')
+    Image.new('RGB', (4, 4)).save(png, pnginfo=info)
+    code, body = delete(holder)
+    check('a .png carrying sd-ti-embedding stays, named as an embedding',
+          [code, os.path.exists(png), body.get('embeddings')], [200, True, ['holder.png']])
+
+    plain_holder = model_file('plain_holder.pt', 901001)
+    plain_png = os.path.splitext(plain_holder)[0] + '.png'
+    Image.new('RGB', (4, 4)).save(plain_png)
+    code, body = delete(plain_holder)
+    check('a plain .png beside it goes', [code, os.path.exists(plain_png), 'embeddings' in body],
+          [200, False, False])
+
+
 def guards():
     plain = model_file('plain.safetensors', 900401)
     code, body = delete(plain)
@@ -186,6 +231,8 @@ try:
         model_file_refused()
         side_file_refused()
     rows_failing()
+    side_files_shared()
+    embedding_image()
     guards()
 finally:
     # Each on its own: one that cannot be made writable leaves the rest to clear.

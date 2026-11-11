@@ -149,7 +149,8 @@ let filterDefaultsPromise = null;
 // Sync with Civitai (shared/jobs.mjs), connected to this tab's
 // status line and grid - and disconnected when it stops.
 work.run((scope) => scope.onStop(
-    connectJobs({ setStatus, loadModels, loadBaseModelOptions, getFilters, gridTotal: () => totalModels })));
+    // A sync's end loads the grid's first page again: after any load under way (#388).
+    connectJobs({ setStatus, loadModels: () => loadModelsNow(1), loadBaseModelOptions, getFilters, gridTotal: () => totalModels })));
 
 // Image gallery state
 let currentVersionId = null;
@@ -2000,6 +2001,10 @@ async function deleteModel(scope = 'version', file = null) {
     // refused, the library's record (#388). Said after whichever line ends
     // the press.
     const left = [];
+    // And what it left on purpose that the person should know of: a .png
+    // the original Forge loads as an embedding. Information, not an error;
+    // a side file another model file uses goes unsaid.
+    const kept = [];
     for (const version of targets) {
         try {
             const response = await fetch('/model-manager/models/delete', {
@@ -2011,6 +2016,7 @@ async function deleteModel(scope = 'version', file = null) {
             if (!data.success) failed.push(`${name(version)}: ${data.error || 'Unknown error'}`);
             for (const item of data.not_removed || []) left.push(`Could not remove ${item.file}: ${item.reason}`);
             left.push(...(data.notes || []));
+            for (const png of data.embeddings || []) kept.push(`Kept ${png}: it holds an embedding the original Forge can load`);
         } catch (error) {
             console.error('[ModelManager] Delete error:', error);
             failed.push(`${name(version)}: ${error.message}`);
@@ -2022,7 +2028,8 @@ async function deleteModel(scope = 'version', file = null) {
 
     const deletedName = versions > 1 && scope !== 'all' ? ` (${name(shown)})` : '';
     // After the line that ends the press, its own closing period or not.
-    const withLeft = (line) => (left.length ? `${line.replace(/\.$/, '')}. ${left.join('; ')}` : line);
+    const said = [...left, ...kept];
+    const withLeft = (line) => (said.length ? `${line.replace(/\.$/, '')}. ${said.join('; ')}` : line);
     // One file of several: its row goes, and the rest stays as it is.
     if (scope === 'file' && !failed.length && forgetFile(shown)) {
         setStatus(withLeft(`Deleted: ${shown.file_name}`), !!left.length);

@@ -200,4 +200,15 @@ check('a file of several: Deleted names what stayed, as an error',
       ['Deleted: v1_fp32.safetensors. Could not remove v1_fp32.preview.png: [WinError 5] Access is denied', true]);
 leftBehind = null;
 
+// Left on purpose: a side file another model file uses goes unsaid; a .png
+// the original Forge loads as an embedding is named, as information.
+versions = [version(501, 'v1')];
+leftBehind = { shared: ['v1.civitai.info'], embeddings: ['v1.png'] };
+await open();
+await pressLabelled('Delete Model');
+check('a kept embedding is named, a shared side file is not, and nothing is an error',
+      [statusText(), document.getElementById('mm_status')?.classList.contains('error')],
+      ['Deleted: A Model. Kept v1.png: it holds an embedding the original Forge can load', false]);
+leftBehind = null;
+
 done();

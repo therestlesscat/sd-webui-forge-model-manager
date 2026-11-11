@@ -387,26 +387,109 @@ def proper_place(path: str, file_type: Optional[str], cmd_opts=None,
     return os.path.join(download_dir(belongs, cmd_opts, models_path), os.path.relpath(path, root))
 
 
-def companions(path: str) -> List[str]:
-    """The files beside this one, under its name, that are there."""
-    stem = os.path.splitext(path)[0]
-    return [stem + suffix for suffix in COMPANIONS if os.path.exists(stem + suffix)]
+class SideFiles(NamedTuple):
+    """The side files beside a model file under its name: its own, and those it leaves, each with why."""
+    own: List[str]
+    # (path, "shared" | "embedding"): another model file in the folder has
+    # the same name, so they are its too; or a .png that is an embedding.
+    kept: List[Tuple[str, str]]
 
 
-def relocate(path: str, to: str) -> bool:
+def shares_stem(path: str) -> bool:
     """
-    Move a file, and the companions beside it, to `to`. Nothing is moved -
-    and False returned - when the file or any companion would land on
-    something already there: nothing is ever written over.
+    Whether another model file in the folder has this one's name, its
+    extension aside: `demo.pt` beside `demo.safetensors`, whose side files
+    are found by that name too (#388). The folder is listed once; names are
+    compared as the system compares them (on Windows `DEMO.PT` counts), the
+    extension in lower case. The file itself is left out by name. A folder
+    that cannot be listed raises: nothing tells its side files are this
+    file's alone, and a delete keeps them rather than guess.
     """
-    stem, new_stem = os.path.splitext(path)[0], os.path.splitext(to)[0]
-    moves = [(path, to)] + [(c, new_stem + c[len(stem):]) for c in companions(path)]
-    if any(os.path.exists(destination) for _, destination in moves):
+    folder, name = os.path.split(path)
+    own = os.path.normcase(name)
+    stem = os.path.normcase(os.path.splitext(name)[0])
+    for other in os.listdir(folder or "."):
+        if os.path.normcase(other) == own:
+            continue
+        other_stem, extension = os.path.splitext(other)
+        if extension.lower() in MODEL_EXTENSIONS and os.path.normcase(other_stem) == stem:
+            return True
+    return False
+
+
+def is_embedding_image(path: str) -> bool:
+    """
+    Whether a .png is a textual inversion, as the original Forge reads one
+    (its `textual_inversion.load_from_file`: the `sd-ti-embedding` text) -
+    not a preview. Neo loads none from a picture. One that cannot be read
+    is no embedding, and a side file as before.
+    """
+    try:
+        # Here, not at the top: every module asks model_dirs about folders,
+        # and only a delete or a move asks this.
+        from PIL import Image
+        with Image.open(path) as image:      # closed: Windows would not delete it open
+            return "sd-ti-embedding" in (getattr(image, "text", None) or {})
+    except Exception:
         return False
-    os.makedirs(os.path.dirname(to), exist_ok=True)
+
+
+def companions(path: str) -> SideFiles:
+    """
+    The files beside this one, under its name, that are there - its own,
+    which a delete removes and a move takes, and those it leaves (#388): all
+    of them while another model file shares its name, and its `.png` when
+    that is an embedding. The file itself may be gone by then: a delete asks
+    once the model file is removed.
+    """
+    stem = os.path.splitext(path)[0]
+    present = [stem + suffix for suffix in COMPANIONS if os.path.exists(stem + suffix)]
+    if present and shares_stem(path):
+        return SideFiles([], [(side, "shared") for side in present])
+    own, kept = [], []
+    for side in present:
+        if side == stem + ".png" and is_embedding_image(side):
+            kept.append((side, "embedding"))
+        else:
+            own.append(side)
+    return SideFiles(own, kept)
+
+
+def _move_all(moves: List[Tuple[str, str]]) -> Tuple[Optional[List[Tuple[str, str]]], Optional[str]]:
+    """
+    These moves, none of them when any would land on something already
+    there - nothing is ever written over - answering what is in the way.
+    Else the moves made. A move that fails partway raises with those
+    before it made, as a move always has.
+    """
+    for _, destination in moves:
+        if os.path.exists(destination):
+            return None, destination
+    os.makedirs(os.path.dirname(moves[0][1]), exist_ok=True)
     for source, destination in moves:
         shutil.move(source, destination)   # a rename, or a copy across drives
-    return True
+    return moves, None
+
+
+def relocate(path: str, to: str) -> Tuple[Optional[List[Tuple[str, str]]], Optional[str]]:
+    """
+    Move a file, and its own side files (`companions`), to `to`: the moves
+    made, for a put-back to undo exactly. Nothing is moved - None, and the
+    path in the way - when the file or a side file would land on something
+    already there. Side files another model file shares stay with it, and
+    an embedding stays where it is loaded from.
+    """
+    stem, new_stem = os.path.splitext(path)[0], os.path.splitext(to)[0]
+    moves = [(path, to)] + [(c, new_stem + c[len(stem):]) for c in companions(path).own]
+    return _move_all(moves)
+
+
+def put_back(moves: List[Tuple[str, str]]) -> Tuple[Optional[List[Tuple[str, str]]], Optional[str]]:
+    """
+    Moves undone, exactly as `relocate` made them: worked out again, a file
+    moved beside another of its name would leave its side files there.
+    """
+    return _move_all([(destination, source) for source, destination in moves])
 
 
 def misplaced_files(db) -> List[Dict[str, Any]]:
@@ -450,13 +533,16 @@ def move_misplaced_files(db) -> Moves:
     moved, not_moved, errors = 0, [], []
     for item in misplaced_files(db):
         path, to = item["path"], item["to"]
-        relocated = False
+        relocated = None
         try:
-            if item["clash"] or not relocate(path, to):
+            in_the_way = to if item["clash"] else None
+            if in_the_way is None:
+                relocated, in_the_way = relocate(path, to)
+            if relocated is None:
                 not_moved.append(path)
-                say(f"Not moved: {path} - {to} is already there")
+                # Which file: one of its side files' names can be the one taken.
+                say(f"Not moved: {path} - {in_the_way} is already there")
                 continue
-            relocated = True
             db.move_version(path, to)
             moved += 1
             say(f"Moved, as a {item['file_type']}: {path} -> {to}")
@@ -468,8 +554,9 @@ def move_misplaced_files(db) -> Moves:
             # generations, and take it for a new file. So it goes back.
             if relocated:
                 try:
-                    if not relocate(to, path):
-                        problem += f"; left at {to}"
+                    back, in_the_way = put_back(relocated)
+                    if back is None:
+                        problem += f"; left at {to} - {in_the_way} is in the way"
                 except OSError as back:
                     problem += f"; left at {to}: {back}"
             errors.append(f"{os.path.basename(path)}: could not move it: {problem}")

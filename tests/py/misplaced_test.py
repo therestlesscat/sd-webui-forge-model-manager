@@ -216,5 +216,56 @@ check('its row never left', (bool(db.get_version(locked)), db.get_version(locked
 check('and the walk says it could not move it',
       [e for e in progress.error_messages if 'could not move' in e], ['locked.safetensors: could not move it: database is locked'])
 
+# ------------------------------------------------------------ side files another file shares (#388)
+# demo.pt (a VAE) and demo.safetensors (a LoRA) in the LoRA folder share
+# demo.civitai.info and demo.preview.png: moving the VAE leaves them with
+# the LoRA that stays.
+pair_lora = place('Lora', 'demo.safetensors', 'LORA', sidecars=('.civitai.info', '.preview.png'))
+pair_vae = place('Lora', 'demo.pt', 'VAE')
+pair_to = os.path.join(models, 'VAE', 'demo.pt')
+progress = walk(move_misplaced=True)
+check('the VAE is moved', (os.path.exists(pair_to), os.path.exists(pair_vae)), (True, False))
+check('and the side files it shares stay beside the LoRA',
+      [os.path.exists(os.path.splitext(pair_lora)[0] + s) for s in ('.civitai.info', '.preview.png')]
+      + [os.path.exists(os.path.splitext(pair_to)[0] + s) for s in ('.civitai.info', '.preview.png')],
+      [True, True, False, False])
+
+# A file moved beside another file of its name, whose row cannot follow:
+# the put-back takes back exactly what it moved. Worked out again, its side
+# files would read as the other file's, and stay there beside it.
+back_from = place('Stable-diffusion', 'back.pt', 'VAE', sidecars=('.preview.png',))
+io.open(os.path.join(models, 'VAE', 'back.safetensors'), 'wb').write(b'another file of that name')
+back_to = os.path.join(models, 'VAE', 'back.pt')
+
+
+def refuse_back(old_path, new_path):
+    if old_path == back_from:
+        raise sqlite3.OperationalError('database is locked')
+    return type(db).move_version(db, old_path, new_path)
+
+
+db.move_version = refuse_back
+try:
+    progress = walk(move_misplaced=True)
+finally:
+    del db.move_version
+check('the put-back brings its preview back with it, from beside the file of its name',
+      [os.path.exists(back_from), os.path.exists(os.path.splitext(back_from)[0] + '.preview.png'),
+       os.path.exists(back_to), os.path.exists(os.path.splitext(back_to)[0] + '.preview.png')],
+      [True, True, False, False])
+
+# A move refused because a side file's name is taken where it would go: the
+# line says which file is in the way, not the model file's place.
+from model_manager import console                         # noqa: E402
+taken_from = place('Stable-diffusion', 'taken.pt', 'VAE', sidecars=('.preview.png',))
+taken_preview = os.path.join(models, 'VAE', 'taken.preview.png')
+io.open(taken_preview, 'w').write('a stray preview')
+mark = console.said()
+progress = walk(move_misplaced=True)
+lines = [line['text'] for line in console.since(mark)[0] if 'Not moved' in line['text'] and 'taken.pt' in line['text']]
+check('a side file in the way is named as what is in the way',
+      [os.path.exists(taken_from), len(lines), lines and lines[0].endswith(f'{taken_preview} is already there')],
+      [True, 1, True])
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)
