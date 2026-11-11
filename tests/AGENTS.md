@@ -202,6 +202,14 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   the selected one's family, so the press's bug for such a file of another
   family - no VAE or text encoder, no refusal - never showed from #400 to
   #406 (0.76.17).
+- **A stand-in for a failure fails as the system does.** #388's check of a
+  move failing partway raised before anything moved. A file another program
+  holds does not fail that way on Windows: `shutil.move`'s rename is
+  refused, it copies the file, then cannot remove the original, and the
+  file is in both places. A reviewer's probe on a really held file, under
+  Neo's 3.13.15 and the original Forge's 3.10.6, found it: the fix's first
+  version left that copy in the new folder. The stand-in now copies, then
+  raises.
 - **A suite's subject is in its docstring, not its name.** #363's plan put
   NSFW checks in `generations_switch_test` (the Your generations on/off
   switch, #27) and `gallery_count_test` (a refresh's size, #103), going by

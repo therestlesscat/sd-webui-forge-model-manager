@@ -85,6 +85,17 @@ the code (2026-10-16).
   halves - a route's input and answer - so the seam is read from both sides:
   #406's two took 4 min 20 s and 5 min 53 s (144,551 and 174,344 tokens),
   12 findings each.
+- **A reviewer's fix is read for what it newly allows before it enters the
+  plan.** #388's first plan review asked that the details panel take the
+  grid's fresh copy of the open model after each reload, so a pin pressed
+  on the card and in the panel would agree. It entered the plan, and with it
+  an open count against the race that swap made. While building, a fresh
+  card turned out to name the model's newest version: after a v2 arrived
+  from a sync, Delete would have deleted v2 under a panel showing v1 - the
+  fault #388 fixes. The owner: "i feel like we are adding patches on
+  paches. how come we simply dont remember currently open model, version
+  and file ids". The panel now keeps the copy it opened, and both mechanisms
+  went (2026-11-11).
 - **A build is read against its plan by a fresh agent before the commit.**
   Once `--all` passes, one agent is handed the plan as posted - the Final
   tab, and any later comment on its issue - and the staged diff, never the
