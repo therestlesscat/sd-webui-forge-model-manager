@@ -267,5 +267,179 @@ check('a side file in the way is named as what is in the way',
       [os.path.exists(taken_from), len(lines), lines and lines[0].endswith(f'{taken_preview} is already there')],
       [True, 1, True])
 
+# A move that fails partway - here a rename refused with nothing copied -
+# takes back what it had moved: the file and its other side files are where
+# they were, its row still names them, and the walk says it could not move it.
+partway = place('Stable-diffusion', 'partway.pt', 'VAE', sidecars=('.civitai.info', '.preview.png'))
+partway_to = os.path.join(models, 'VAE', 'partway.pt')
+real_move = model_dirs.shutil.move
+
+
+def held_preview(source, destination):
+    if source.endswith('partway.preview.png'):
+        raise PermissionError(32, 'The process cannot access the file because it is being used by another process')
+    return real_move(source, destination)
+
+
+model_dirs.shutil.move = held_preview
+try:
+    progress = walk(move_misplaced=True)
+finally:
+    model_dirs.shutil.move = real_move
+check('the file and its side files are back where they were, none left in the new folder',
+      [os.path.exists(partway)] + [os.path.exists(os.path.splitext(partway)[0] + s) for s in ('.civitai.info', '.preview.png')]
+      + [os.path.exists(partway_to), os.path.exists(os.path.splitext(partway_to)[0] + '.civitai.info')],
+      [True, True, True, False, False])
+check('its row still names it', (bool(db.get_version(partway)), db.get_version(partway_to)), (True, None))
+check('and the walk says it could not move it',
+      [e.startswith('partway.pt: could not move it:') for e in progress.error_messages if 'partway' in e], [True])
+
+import shutil                                             # noqa: E402
+
+# A side file another program holds, as Windows does it: the rename is
+# refused, shutil.move copies the file, then cannot remove the original. The
+# copy left in the new folder was in the way of every later move.
+held = place('Stable-diffusion', 'held.pt', 'VAE', sidecars=('.civitai.info', '.preview.png'))
+held_to = os.path.join(models, 'VAE', 'held.pt')
+
+
+def copied_then_held(source, destination):
+    if source.endswith('held.preview.png'):
+        shutil.copy2(source, destination)
+        raise PermissionError(32, 'The process cannot access the file because it is being used by another process')
+    return real_move(source, destination)
+
+
+model_dirs.shutil.move = copied_then_held
+try:
+    progress = walk(move_misplaced=True)
+finally:
+    model_dirs.shutil.move = real_move
+check('a held side file: everything is back, and no copy of it is left in the new folder',
+      [os.path.exists(held), os.path.exists(os.path.splitext(held)[0] + '.preview.png'), os.path.exists(held_to),
+       os.path.exists(os.path.splitext(held_to)[0] + '.civitai.info'),
+       os.path.exists(os.path.splitext(held_to)[0] + '.preview.png')],
+      [True, True, False, False, False])
+
+# A put-back that fails partway - the row could not follow, and one side
+# file cannot go back - takes the model file back first and leaves only that
+# side file, named: rolled back as a whole, the model file went to where no
+# row names it.
+pb = place('Stable-diffusion', 'pb.pt', 'VAE', sidecars=('.civitai.info', '.preview.png'))
+pb_to = os.path.join(models, 'VAE', 'pb.pt')
+pb_to_preview = os.path.splitext(pb_to)[0] + '.preview.png'
+
+
+def refuse_pb(old_path, new_path):
+    if old_path == pb:
+        raise sqlite3.OperationalError('database is locked')
+    return type(db).move_version(db, old_path, new_path)
+
+
+def preview_stuck(source, destination):
+    if source == pb_to_preview:
+        raise PermissionError(32, 'in use')
+    return real_move(source, destination)
+
+
+db.move_version = refuse_pb
+model_dirs.shutil.move = preview_stuck
+try:
+    progress = walk(move_misplaced=True)
+finally:
+    model_dirs.shutil.move = real_move
+    del db.move_version
+check('the model file is back where its row names it, the stuck preview left and named',
+      [os.path.exists(pb), os.path.exists(os.path.splitext(pb)[0] + '.civitai.info'), os.path.exists(pb_to),
+       os.path.exists(pb_to_preview), bool(db.get_version(pb)),
+       [e.endswith(f'left at {pb_to_preview}') for e in progress.error_messages if e.startswith('pb.pt')]],
+      [True, True, False, True, True, [True]])
+
+# A move that fails partway and cannot take one file back says where it is.
+mb = place('Stable-diffusion', 'mb.pt', 'VAE', sidecars=('.preview.png',))
+mb_to = os.path.join(models, 'VAE', 'mb.pt')
+
+
+def nothing_back(source, destination):
+    if source.endswith('mb.preview.png') or source == mb_to:
+        raise PermissionError(32, 'in use')
+    return real_move(source, destination)
+
+
+model_dirs.shutil.move = nothing_back
+try:
+    progress = walk(move_misplaced=True)
+finally:
+    model_dirs.shutil.move = real_move
+check('a file it cannot take back is named in the walk\'s error',
+      [os.path.exists(mb_to), [e.endswith(f'left at {mb_to}') for e in progress.error_messages if e.startswith('mb.pt')]],
+      [True, [True]])
+
+# A move into folders it had to make, failing partway, removes them again.
+deep = place(os.path.join('Stable-diffusion', '_gone'), 'deep.pt', 'VAE', sidecars=('.preview.png',))
+deep_folder = os.path.join(models, 'VAE', '_gone')
+
+
+def deep_preview_refused(source, destination):
+    if source.endswith('deep.preview.png'):
+        raise PermissionError(32, 'in use')
+    return real_move(source, destination)
+
+
+model_dirs.shutil.move = deep_preview_refused
+try:
+    progress = walk(move_misplaced=True)
+finally:
+    model_dirs.shutil.move = real_move
+check('a failed move removes the folders it made', [os.path.exists(deep), os.path.isdir(deep_folder)], [True, False])
+
+# The model file itself held: copied, its removal refused - the copy goes,
+# and nothing is left in the new folder.
+held_model = place('Stable-diffusion', 'heldmodel.pt', 'VAE', sidecars=('.preview.png',))
+held_model_to = os.path.join(models, 'VAE', 'heldmodel.pt')
+
+
+def model_copied_then_held(source, destination):
+    if source == held_model:
+        shutil.copy2(source, destination)
+        raise PermissionError(32, 'in use')
+    return real_move(source, destination)
+
+
+model_dirs.shutil.move = model_copied_then_held
+try:
+    progress = walk(move_misplaced=True)
+finally:
+    model_dirs.shutil.move = real_move
+check('a held model file: no copy of it is left in the new folder',
+      [os.path.exists(held_model), os.path.exists(held_model_to)], [True, False])
+
+# The model file's old place taken before the put-back: it stays at the new
+# place, and its side files stay with it rather than go back beside the file
+# that now holds its old name.
+taken_old = place('Stable-diffusion', 'takenold.pt', 'VAE', sidecars=('.civitai.info',))
+taken_old_to = os.path.join(models, 'VAE', 'takenold.pt')
+
+
+def refuse_and_take(old_path, new_path):
+    if old_path == taken_old:
+        io.open(taken_old, 'wb').write(b'another file, put there meanwhile')
+        raise sqlite3.OperationalError('database is locked')
+    return type(db).move_version(db, old_path, new_path)
+
+
+db.move_version = refuse_and_take
+try:
+    progress = walk(move_misplaced=True)
+finally:
+    del db.move_version
+taken_old_info = os.path.splitext(taken_old_to)[0] + '.civitai.info'
+check('the model file stays at the new place with its side file, both named',
+      [os.path.exists(taken_old_to), os.path.exists(taken_old_info),
+       os.path.exists(os.path.splitext(taken_old)[0] + '.civitai.info'),
+       [e.endswith(f'left at {taken_old_to}, {taken_old_info}') for e in progress.error_messages
+        if e.startswith('takenold.pt')]],
+      [True, True, False, [True]])
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

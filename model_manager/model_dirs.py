@@ -455,19 +455,77 @@ def companions(path: str) -> SideFiles:
     return SideFiles(own, kept)
 
 
+class MoveFailed(Exception):
+    """A move that failed partway and could not take back all it had moved: what was left, and where."""
+
+
+def _move_one(source: str, destination: str) -> None:
+    """
+    One file moved, or left where it was - never in both places. Where the
+    rename is refused - a file another program holds - shutil.move copies
+    it and then removes the original; a refused removal left the copy
+    beside it, which every later move found in its way (#388). One that
+    cannot be removed either is named in the error.
+    """
+    # Checked again at the move itself: a file put there since the check
+    # of every destination would be written over by the copy, then removed.
+    if os.path.exists(destination):
+        raise FileExistsError(f"{destination} is already there")
+    try:
+        shutil.move(source, destination)   # a rename, or a copy across drives
+    except Exception as error:
+        if os.path.exists(source) and os.path.exists(destination):
+            try:
+                os.remove(destination)
+            except OSError as e:
+                say(f"Could not remove the copy {destination}: {e}")
+                raise MoveFailed(f"{error}; a copy is left at {destination}") from error
+        raise
+
+
 def _move_all(moves: List[Tuple[str, str]]) -> Tuple[Optional[List[Tuple[str, str]]], Optional[str]]:
     """
-    These moves, none of them when any would land on something already
-    there - nothing is ever written over - answering what is in the way.
-    Else the moves made. A move that fails partway raises with those
-    before it made, as a move always has.
+    These moves, all or none: none when any would land on something
+    already there - nothing is ever written over - answering what is in
+    the way. Else the moves made. One that fails partway takes back those
+    made before it, last first, and the folders it made, and raises: the
+    model file never sits where its row does not name it, half its side
+    files left behind (#388). One it cannot take back is named in the error.
     """
     for _, destination in moves:
         if os.path.exists(destination):
             return None, destination
-    os.makedirs(os.path.dirname(moves[0][1]), exist_ok=True)
-    for source, destination in moves:
-        shutil.move(source, destination)   # a rename, or a copy across drives
+    folder = os.path.dirname(moves[0][1])
+    created = []                            # the folders this makes, deepest first
+    probe = folder
+    while probe and not os.path.exists(probe):
+        created.append(probe)
+        parent = os.path.dirname(probe)
+        if parent == probe:
+            break
+        probe = parent
+    os.makedirs(folder, exist_ok=True)
+    made = []
+    try:
+        for source, destination in moves:
+            _move_one(source, destination)
+            made.append((source, destination))
+    except Exception as error:
+        left = []
+        for source, destination in reversed(made):
+            try:
+                _move_one(destination, source)
+            except Exception as back:
+                say(f"Could not move {destination} back to {source}: {back}")
+                left.append(destination)
+        if left:
+            raise MoveFailed(f"{error}; left at {', '.join(left)}") from error
+        for empty in created:
+            try:
+                os.rmdir(empty)
+            except OSError:
+                break
+        raise
     return moves, None
 
 
@@ -484,12 +542,31 @@ def relocate(path: str, to: str) -> Tuple[Optional[List[Tuple[str, str]]], Optio
     return _move_all(moves)
 
 
-def put_back(moves: List[Tuple[str, str]]) -> Tuple[Optional[List[Tuple[str, str]]], Optional[str]]:
+def put_back(moves: List[Tuple[str, str]]) -> List[str]:
     """
-    Moves undone, exactly as `relocate` made them: worked out again, a file
-    moved beside another of its name would leave its side files there.
+    Moves undone, exactly as `relocate` made them - worked out again, a
+    file moved beside another of its name would leave its side files there
+    - the model file first, and each on its own: one that cannot go back,
+    or whose old place is taken meanwhile, is left where it is and named,
+    rather than take the model file back to where its row does not name it.
+    A model file that stays keeps its side files with it: sent back alone,
+    they would read as whatever now holds its old name. Answers where each
+    file left behind is.
     """
-    return _move_all([(destination, source) for source, destination in moves])
+    left = []
+    for index, (source, destination) in enumerate(moves):
+        if index > 0 and moves[0][1] in left:
+            left.append(destination)
+            continue
+        if os.path.exists(source):
+            left.append(destination)
+            continue
+        try:
+            _move_one(destination, source)
+        except Exception as e:
+            say(f"Could not move {destination} back to {source}: {e}")
+            left.append(destination)
+    return left
 
 
 def misplaced_files(db) -> List[Dict[str, Any]]:
@@ -553,12 +630,9 @@ def move_misplaced_files(db) -> Moves:
             # names it, the next walk would forget its row, pin and
             # generations, and take it for a new file. So it goes back.
             if relocated:
-                try:
-                    back, in_the_way = put_back(relocated)
-                    if back is None:
-                        problem += f"; left at {to} - {in_the_way} is in the way"
-                except OSError as back:
-                    problem += f"; left at {to}: {back}"
+                left = put_back(relocated)
+                if left:
+                    problem += f"; left at {', '.join(left)}"
             errors.append(f"{os.path.basename(path)}: could not move it: {problem}")
             say(f"Could not move {path}: {problem}")
     return Moves(moved, not_moved, errors)
