@@ -69,6 +69,17 @@ setting may still be kept.
 
 ## The WebUI's rules, which are not obvious
 
+- **Both WebUIs tell their page to send no Referer**
+  (`<meta name="referrer" content="no-referrer">`, Neo's
+  `modules/ui_gradio_extensions.py:60`, the original Forge's `:58`), and
+  browsers send Sec-Fetch-Site only to https and this computer's own
+  addresses. So the page's GETs carry no Origin, no Referer, and over a
+  plain-http network address no Sec-Fetch-Site either; its `fetch` POSTs
+  keep their own Origin (a Chromium probe, 2026-11-10). S1's round-3 name
+  check looked for an https Origin or Referer, and refused all 18 of the
+  page's requests through an https tunnel, seen on 7880. A rule about where
+  a request came from is read against these headers as the page really
+  sends them, probed first.
 - **Esc that reaches the page interrupts a generation.** The WebUI's
   `script.js` (line ~199) listens for Esc on the document and presses
   Interrupt while one runs - on 7870 it logs "Cannot read properties of null

@@ -196,6 +196,12 @@ the code (2026-10-16).
   would it be called?", show the code shape before changing anything; R29 was
   narrowed twice that way, to what is actually shared. A behaviour change
   found inside a refactor becomes its own issue unless the owner folds it in.
+- **A plan stays on its own finding.** Something a reviewer or a side agent
+  raises beyond it goes to the owner as a question of its own, with its
+  cost, before it enters the plan. S1 (cross-site requests) folded in DNS
+  rebinding unasked in round 1; it became rounds 2 to 5 and 2 of its 4
+  commits, each round finding a hole after building, and still only "made
+  harder" - the owner: "feels like wild goose chase" (2026-11-10).
 - **A sub-task that splits goes to two agents or more, to save time - asked
   first.** A survey, an analysis or a review that divides cleanly - by area,
   by half, by question - is proposed as agents in parallel, not run as one;
@@ -1086,7 +1092,10 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   variable is a modifier: `"refs/tags/$t:refs/tags/$t"` read `$t:r`, mangled
   318 refspecs, and aborted a push - write `${t}:`. A glob that matches
   nothing is an error, not a word: `grep -r --include=*.md` fails with "no
-  matches found" and runs nothing. Quote it: `--include='*.md'`.
+  matches found" and runs nothing. Quote it: `--include='*.md'`. A word of
+  the form `${h:+-H "$h"}` is one argument: S1's check 2 handed `curl.exe`
+  `-H Origin: ...` as one word, no header was sent, and 0.77.2's "200"s
+  tested nothing. Pass a flag and its value as two words.
 - **7880's copy of the extension is its own**: a git clone with files copied
   over it - not a link to this working tree - so its version is the last
   copy's (0.61.0 on 2026-10-16, its database at v43). A change reaches it

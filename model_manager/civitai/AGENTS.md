@@ -17,6 +17,12 @@ because that would mean the assumption no longer holds.
 
 ### The data
 
+- **`image.civitai.com` answers each address with one redirect**: a 301 to
+  an absolute `https://blobs-b2.civitai.com/...`, no query, no `%` (18 of 18
+  real images and videos, 2026-11-10). A fetch that stops following
+  redirects breaks the video stills and the img2img sends; a rule held to
+  today's host names breaks the day Civitai moves its storage - the owner
+  turned one down for S4 for that reason.
 - **Civitai's search has no random order, and pages by cursor alone** - `page`
   is ignored. A fair random draw goes by model ids (`random_draw.py`): `ids`
   takes about 4,000 in one request, bounded by the URL's length (some 32 KB),

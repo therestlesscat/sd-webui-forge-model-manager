@@ -55,7 +55,10 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   A break runner puts each file back in a `finally`: #321's, stopped at its
   time limit, left a break in the copy's `forge.mjs` - `cmp` showed it - and
   the next run would have taken the break for the fix. From WSL, `timeout`
-  stops neither a Windows `node.exe` nor a `python.exe`.
+  stops neither a Windows `node.exe` nor a `python.exe`. A break runner
+  reads a Windows Python's output as UTF-8 with `errors='replace'`: S3's
+  crashed on a byte a suite printed (0xe9), and the break's result was lost
+  until a rerun.
 - **Two kinds of id equal in a fixture cannot tell which one the code
   reads.** Before #374 the download suites gave every test version file id
   1; once downloads were found by file, their downloads merged. Giving each
