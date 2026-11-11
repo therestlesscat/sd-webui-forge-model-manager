@@ -15,6 +15,7 @@ Easy Diffusion and others - where it read only Forge's infotext. They are stored
 NSFW level is judged from them, and Send sends them with a checkpoint you pick. ComfyUI's own workflow is
 not read yet (#232).
 
+- **0.77.7** (build 669) - The server asks Civitai's image server only for plainly written addresses.
 - **0.77.6** (build 668) - When the WebUI is started with a login - --gradio-auth, or --api-auth for its API - the extension's routes ask for it too: the page's own session, or the credentials from a script.
 - **0.77.5** (build 667) - A page the extension refuses, reached by a name it does not know, now says so on each of its tabs, with where to let the name through, rather than leaving its tabs to fail one by one. A request refused as another website's page now also says where to name a proxy of your own.
 - **0.77.4** (build 666) - While the WebUI listens on this computer alone, the extension also refuses plain-http requests addressed to it by a name it does not know, as another website can point a name of its own at your computer. A proxy or tunnel of your own reached that way is let through once its name is in Settings -> Model Manager -> Access -> Other names this computer is reached by over plain http, or with Refuse requests sent to a name this computer does not know turned off there. A name in that list also lets through the page of a proxy in front of a WebUI started for your network, when the proxy passes the WebUI on under another name or address.

@@ -69,6 +69,30 @@ for bad in ('http://image.civitai.com/x/anim=false/a.mp4', 'https://evil.example
     check(f'not Civitai\'s image server ({bad!r}): refused', still_answer(bad, head=civitai('image/jpeg')).status_code, 400)
 check('and nothing asked of it', asked, [])
 
+# An address the check's parser and the request's read as two hosts: written
+# with a character an address may not hold, a user part, another port.
+from model_manager.civitai import images as civitai_images   # noqa: E402
+from model_manager.civitai.images import is_image_address   # noqa: E402
+plain = getattr(civitai_images, 'PLAIN_ADDRESS', None)
+check('the plain-character rule alone refuses a backslash, a tab, a newline, a space, a non-ASCII letter',
+      [bool(plain and plain.match(u)) for u in ('https://a\\b', 'https://a\tb', 'https://a\nb', 'https://a b',
+                                                 'https://\u00e9')], [False] * 5)
+check('and lets a plain address through', bool(plain and plain.match(STILL)), True)
+asked.clear()
+for bad in ('https://other.example\\@image.civitai.com/a.jpeg', 'https://image.civi\ttai.com/a.jpeg',
+            'https://image.civi\ntai.com/a.jpeg', 'https://user@image.civitai.com/a.jpeg',
+            'https://image.civitai.com:8443/a.jpeg'):
+    check(f'not plainly Civitai\'s image server ({bad!r}): refused', is_image_address(bad), False)
+check('the backslash form asked of the still route: 400, and nothing asked',
+      [still_answer('https://other.example\\@image.civitai.com/a.jpeg', head=civitai('image/jpeg')).status_code, asked],
+      [400, []])
+for bad in ('https://image.civitai.com\\@other.example/a.jpeg', 'https://image.civitai.com./a.jpeg',
+            'https://imag\u00e9.civitai.com/a.jpeg', 'http://image.civitai.com/a.jpeg'):
+    check(f'refused, as before ({bad!r})', is_image_address(bad), False)
+for good in (STILL, 'https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/0e2a/width=450/123456.jpeg',
+             'https://image.civitai.com:443/x/original=true/a.jpeg', 'https://IMAGE.civitai.com/x/a.jpeg'):
+    check(f'Civitai\'s image server as it writes its addresses ({good!r}): passes', is_image_address(good), True)
+
 try:
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
