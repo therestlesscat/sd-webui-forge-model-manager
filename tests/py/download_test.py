@@ -1469,6 +1469,53 @@ check('a different file of that name in VAE: left alone, and the download stays 
       ('complete', in_ckpt, b'someone else'))
 check('saying why', (getattr(namesake, 'filed', None) or '').startswith('Left in'), True)
 
+# Held by another program while it is moved (#422): Windows refuses the
+# move's rename, and shutil.move copies the file, then cannot remove the
+# original. Held here for real, by the stand-in for the file's header, with
+# open(), which refuses rename and delete as another program's does; let go
+# as soon as the download returns.
+filing_held = []
+
+
+def identify_holding(path, *a, **k):
+    filing_held.append(io.open(path, 'rb'))
+    return Architecture(None, None, False, False, 'VAE', 'the test')
+
+
+clear()
+synced_before = len(synced)
+file_identity.identify = identify_holding
+civitai_says(FakeResponse([b'weights']))
+try:
+    held_move = service.download_version(534, CHECKPOINT, version(id=534))
+finally:
+    while filing_held:
+        filing_held.pop().close()
+check('#422: held while moved to its type\'s folder: complete, left where it landed, no copy in VAE',
+      (held_move.status, held_move.file_path, os.path.exists(in_ckpt), os.path.exists(in_vae)),
+      ('complete', in_ckpt, True, False))
+check('its .civitai.info beside it, added to the library there, saying why it was not moved',
+      (os.path.exists(os.path.splitext(in_ckpt)[0] + '.civitai.info'), synced[synced_before:],
+       (getattr(held_move, 'filed', None) or '').startswith('Left in') and 'could not be moved' in held_move.filed),
+      (True, [in_ckpt], True))
+
+clear()
+io.open(in_vae, 'wb').write(b'weights')
+synced_before = len(synced)
+file_identity.identify = identify_holding
+civitai_says(FakeResponse([b'weights']))
+try:
+    held_twin = service.download_version(535, CHECKPOINT, version(id=535))
+finally:
+    while filing_held:
+        filing_held.pop().close()
+check('the same file already in VAE, this copy held: complete, the one there is the library\'s, this copy '
+      'left, saying so',
+      (held_twin.status, held_twin.file_path, os.path.exists(in_ckpt),
+       'could not be removed' in (getattr(held_twin, 'filed', None) or ''), synced[synced_before:],
+       os.path.exists(os.path.splitext(in_vae)[0] + '.civitai.info')),
+      ('complete', in_vae, True, True, [in_vae], True))
+
 # What the file cannot say about itself keeps Civitai's folder.
 clear()
 file_identity.identify = lambda path, *a, **k: Architecture(None, None, False, False, 'Unknown', '')

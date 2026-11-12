@@ -1084,7 +1084,9 @@ class DownloadService:
         checkpoint. Its header says what it is; a file of another type goes
         to that type's folder, keeping its subfolders. Never over a file:
         the same file already there is kept and this copy - made moments
-        ago - removed; a different one leaves this where it landed.
+        ago - removed; a different one leaves this where it landed. A move
+        Windows refuses - another program holding the file - leaves it where
+        it landed too, saying why (#422).
 
         Returns where the file is now.
         """
@@ -1095,21 +1097,48 @@ class DownloadService:
         except Exception as e:
             say(f"Could not read what {os.path.basename(path)} is: {e}")
             return path
-        to = proper_place(path, filed_as(file_type, found.model_class))
-        if not to:
+        # A file another program holds - an antivirus scan, the search
+        # indexer - cannot be moved: shutil.move's rename is refused, it
+        # copies the file, then cannot remove the original, and raised, the
+        # download in Error with the file in both folders (#422). So a move
+        # that fails leaves the file where it landed, the copy it made gone,
+        # and the download goes on to its library row.
+        to = None
+        made = False
+        try:
+            to = proper_place(path, filed_as(file_type, found.model_class))
+            if not to:
+                return path
+            if os.path.exists(to):
+                from .hashing import file_sha256
+                mine = progress.sha256 or file_sha256(path) or ""
+                if mine and (file_sha256(to) or "").upper() == mine.upper():
+                    try:
+                        os.remove(path)
+                    except OSError as e:
+                        progress.filed = (f"Already in {os.path.dirname(to)}, where a {file_type} goes; this "
+                                          f"copy, in {os.path.dirname(path)}, could not be removed: {e}")
+                        say(progress.filed)
+                        return to
+                    progress.filed = f"Already in {os.path.dirname(to)}, where a {file_type} goes"
+                    return to
+                progress.filed = (f"Left in {os.path.dirname(path)}: it is a {file_type}, and "
+                                  f"{os.path.dirname(to)} has a different file named {os.path.basename(to)}")
+                return path
+            os.makedirs(os.path.dirname(to), exist_ok=True)
+            made = not os.path.exists(to)        # what the clean-up below may remove: only a copy of ours
+            shutil.move(path, to)
+        except OSError as e:
+            where = os.path.dirname(to) if to else "its type's folder"
+            progress.filed = (f"Left in {os.path.dirname(path)}: it is a {file_type}, and it could not be "
+                              f"moved to {where}: {e}")
+            if made and os.path.exists(path) and os.path.exists(to):
+                try:
+                    os.remove(to)
+                except OSError as gone:
+                    progress.filed += f". A copy is in {where} too, and could not be removed: {gone}"
+            say(progress.filed)
             return path
-        if os.path.exists(to):
-            from .hashing import file_sha256
-            mine = progress.sha256 or file_sha256(path) or ""
-            if mine and (file_sha256(to) or "").upper() == mine.upper():
-                os.remove(path)
-                progress.filed = f"Already in {os.path.dirname(to)}, where a {file_type} goes"
-                return to
-            progress.filed = (f"Left in {os.path.dirname(path)}: it is a {file_type}, and "
-                              f"{os.path.dirname(to)} has a different file named {os.path.basename(to)}")
-            return path
-        os.makedirs(os.path.dirname(to), exist_ok=True)
-        shutil.move(path, to)
         progress.filed = f"Filed in {os.path.dirname(to)}: the file is a {file_type}"
         say(f"{progress.filed}")
         return to
