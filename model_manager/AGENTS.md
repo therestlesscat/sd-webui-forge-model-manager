@@ -20,7 +20,7 @@ have files of their own; read them too before working there.
 | `model_dirs.py` | where models live: one table of the folders a sync walks and a download files into, the walk itself (`find_model_files`), when a walk may forget a row, and where a file of each type belongs - with the files in another type's folder, and moving them (`misplaced_files`, `move_misplaced_files`); and what "held" means (`held_here`): a library file on disk, in a folder this WebUI loads from - Owned in the Civitai Browser, left out of a draw, not downloaded again (#188) |
 | `jobs.py` | the long jobs - a sync, a restamp of image levels - one of each kind at a time: which runs, its progress, and a failure reported on it |
 | `download_service.py` | fetching a model and filing it: its own queue, pause and resume, and what to resume after a restart |
-| `repairs/` | one-off fixes of rows an earlier version wrote wrong (#241), a module each, with its page script in `javascript/repairs/<name>.mjs`: a light check (`needed`), the review, its own routes - handed the API's gate (`register(app, common)`): importing `api.common` would close a cycle through `api/__init__`. `GET /model-manager/repairs` names those with work; the page asks once its tabs have started, not in ui-options, which every tab waits on. The settings window keeps an empty slot for their lines (`mm-upkeep-drawn`) and no repair code: the owner's rule, as is that none deletes without the user (root `AGENTS.md`) |
+| `repairs/` | one-off fixes of rows an earlier version wrote wrong (#241), a module each, with its page script in `javascript/repairs/<name>.mjs`: a light check (`needed`), the review, its own routes - handed the API's gate (`register(app, common)`): importing `api.common` would close a cycle through `api/__init__`. `GET /model-manager/repairs` names those with work; the page asks once its tabs have started, not in ui-options, which every tab waits on. The settings window keeps an empty slot for their lines (`mm-upkeep-drawn`) and no repair code: the owner's rule, as is that none deletes without the user (root `AGENTS.md`). Its `needed` is asked about 21 times a page load - the repairs' list once, and each tab's notes twice over for every note naming a repair (`release_notes._holds` runs every repair's check) - so it is kept cheap: #392's reads one library's recorded LoRAs once per WebUI start (1,133 ms cold, 113 to 121 ms warm) and keeps its answer, reading only newer generations after. A repair is listed in `REPAIRS` only with its page script: listed alone, the page imports a script that is not there |
 | `scheduler/` | the generation queue (#17): `capture` (the Queue button beside Generate: what Generate would be sent, named and kept as a task), `values` (a value as a task keeps it - images, arrays, objects - and back) |
 | `install.py` | which install of the extension this is, one per WebUI (`INSTALL_KEY`): what only one of two WebUIs sharing a database can act on - a download it was making, a task it queued - is kept under its key |
 | `hashing.py` | the hashes that tell Civitai which file this is, and how stored ones are read: `read_hashes` / `hash_key` fold either case, and `tests/tools/check_hash_access.py` keeps every reader on them; when stored ones are the file's own (`fingerprint`, kept as `hashes_checked`) |
@@ -528,7 +528,15 @@ LoRAs from); anything that shows one says whose it is (a whole path).
   start, a checkpoint's own gallery Send would have selected it, and the
   Resources dialog pre-picked it ("The image comes out as made"). Send asks
   the file first (`send.away_here`); the dialog's list shows it but never
-  picks it to begin with (0.78.8).
+  picks it to begin with (0.78.8). With "Add network to prompt" (`sd_lora`)
+  set, Neo's LoRA activation raises on a batch whose list lacks its tag - it
+  appends the setting's weight as a number where its schedule check (`"@"
+  in`) expects text, `extra_networks_lora.py` - and the previous run's LoRAs
+  stay loaded and applied; the original Forge's has no such check. Forge
+  appends that tag to a list built for the call, not to
+  `p.extra_network_data`, and writes it into `p.all_prompts`, so what a
+  batch loaded is read from its first prompt (#392). Read in the code, not
+  seen.
 - **"Leave as is" is not nothing in Gradio 4.** For each output an event
   answers with `gr.update()`, Gradio swaps into the session a copy of that
   component, rebuilt from its constructor arguments. In Neo a ForgeCanvas

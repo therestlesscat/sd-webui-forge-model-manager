@@ -154,6 +154,10 @@ that the WebUI does not - and ask a real browser ("Probes").
 
 ## Traps suites fell into
 
+- **A tab's notes are a pile, one drawn at a time:** a second note's button
+  is in the page only once the pile is stepped to it (`[data-note-step="1"]`,
+  `notes.mjs`'s `drawNotes`). #392's suite waited for the second repair's
+  Review until it stepped.
 - **A suite that finds a stylesheet rule by its text takes the first
   match.** `toolbar_test.py` slices from `CSS.index('.mm-dialog-select {')`;
   #415's `.mm-pick-sort > .mm-dialog-select {`, earlier in the file, matched

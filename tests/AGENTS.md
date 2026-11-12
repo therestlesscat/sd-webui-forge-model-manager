@@ -95,6 +95,12 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   returned the window's opening, an async function hands a returned promise
   on unresolved, and `await openHeld()` waited for the very answer it held.
   The suite hung, three `node.exe` copies running on until stopped by hand.
+  Nor run out of time: each `waitFor` gives up and records a failure, but a
+  break that leaves a window unusable makes every later wait run its full
+  length - #392's Select-all break summed past the runner's 55 s and ended
+  with no FAIL line. After a check whose failure would stall what follows,
+  the suite puts the state back itself (the boxes ticked by hand), or ends
+  with `done()` when it cannot (a window Esc closed).
 - **A break that fails nothing is a finding.** Of 0.58.3's breaks, two failed
   nothing: one removed a line that turned out redundant - the line went -
   and one hit a guard a second layer covers (the walk never hands a recorded
