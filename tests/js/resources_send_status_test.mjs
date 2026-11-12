@@ -22,6 +22,7 @@ const CHECKPOINT = 111;
 const GONE = 333;
 const installed = new Set([222]);
 let listed = [];                          // the downloads list, as the server keeps it
+let away = {};                            // version id -> why its file is not there (#418)
 globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
     const reply = (body, status = 200) => ({ ok: status < 400, status, json: async () => structuredClone(body) });
@@ -36,7 +37,7 @@ globalThis.fetch = async (url, init = {}) => {
     }
     if (href.includes('/image-resources')) {
         return reply({ success: true, versions: Object.fromEntries([...installed].map((id) => [id, { version_id: id }])),
-                       hashes: {}, other_files: {}, names: {}, embeddings: [] });
+                       hashes: {}, other_files: {}, names: {}, embeddings: [], away });
     }
     if (href.includes('/missing-resources')) {
         const asked = JSON.parse(new URLSearchParams(String(init.body)).get('versions'));
@@ -59,6 +60,7 @@ const WAITS = {
     elsewhere: 'The checkpoint is in a folder this WebUI does not load.',
     not_listed: 'Forge does not list the checkpoint yet.',
     not_checkpoint: 'The image names no checkpoint.',
+    unseen: 'The checkpoint\'s drive or folder is not there now.',
 };
 let answer = 'missing';
 let asks = 0;
@@ -159,6 +161,46 @@ await waitFor('the gone checkpoint\'s row', () => modal()?.querySelector(`[data-
 await waitFor('the line', () => line());
 check('no Download offered for it: the line does not point at one',
       line(), 'The checkpoint is not in your library yet.');
+close();
+
+// ------------------------------- in the library, its drive away (#418)
+// Its row has nothing to download - the file is there once its drive is -
+// and the line offers Check again from the start.
+// A checkpoint of its own: the one above was downloaded here, and its row says so.
+const AWAY_ID = 444;
+answer = 'unseen';
+away = { [AWAY_ID]: 'unseen' };
+await showImageResources(image(AWAY_ID), null, { note: 'Its drive is not there.', send: stoppedSend('unseen') });
+await tick('resources.chooseTick', false);
+const cell = () => (modal()?.querySelector(`[data-res-download="${AWAY_ID}"]`)?.textContent || '').trim();
+await waitFor('the row', () => cell().startsWith('In your library'));
+check('its row: in the library, its drive or folder not there, no Download',
+      [cell(), Boolean(modal()?.querySelector(`[data-action="resources.download"][data-version-id="${AWAY_ID}"]`))],
+      ['In your library - its drive or folder is not there now', false]);
+await waitFor('the line', () => line());
+check('the line says why, with Check again at once', [line(), Boolean(checkAgain())], [WAITS.unseen, true]);
+close();
+
+// Opened by the Resources button, its box unticked: the line says what the row says.
+await showImageResources(image(AWAY_ID), null, { send: { opened: 'resources', waits: WAITS, run: () => sent.push('box') } });
+await tick('resources.chooseTick', false);
+await waitFor('the row', () => cell().startsWith('In your library'));
+await waitFor('the line', () => line());
+check('the Resources button\'s line, its checkpoint away: not "not in your library"',
+      line(), 'The checkpoint\'s drive or folder is not there now: pick one of yours.');
+close();
+
+// Installed earlier in this page, then its drive away: the row follows the newer answer.
+away = { 222: 'unseen' };
+await showImageResources(image(AWAY_ID), null, { note: 'x', send: stoppedSend('unseen') });
+const lora = () => (modal()?.querySelector('[data-res-download="222"]')?.textContent || '').trim();
+await waitFor('the LoRA\'s row', () => lora() && lora() !== 'Installed');
+check('a row Installed earlier, named away now: it says so', lora(), 'In your library - its drive or folder is not there now');
+close();
+away = {};
+await showImageResources(image(AWAY_ID), null, { note: 'x', send: stoppedSend('unseen') });
+await waitFor('the LoRA\'s row again', () => lora() === 'Installed');
+check('and back: Installed again', lora(), 'Installed');
 close();
 
 check('nothing was sent', sent, []);

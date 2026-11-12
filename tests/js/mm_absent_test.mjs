@@ -91,8 +91,9 @@ check('the line says the drive or folder is not there, with the path',
                   + 'is what the library kept. Connect the drive, and everything works again.');
 check('the description comes, from the library',
       document.querySelector('#mm_details .mm-description')?.textContent.trim(), 'From the library');
-const FORGET = 'To forget it, tick "Also forget files whose drive or folder is not there" in the Sync dialog; '
-               + 'a sync that finds no file at all forgets nothing.';
+const FORGET = 'To forget it, tick "Also forget files whose drive or folder is not there" in the Sync dialog, '
+               + 'with your other drives and shares connected: it forgets every file not there at that moment. '
+               + 'A sync that finds no file at all forgets nothing.';
 check('Delete greyed, saying why and where to forget it', greyed('Delete Model'),
       [true, `This file's drive or folder is not there: nothing to delete. ${FORGET}`]);
 check('Sync greyed, titled as Delete', greyed('Sync'),

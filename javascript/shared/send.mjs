@@ -30,7 +30,7 @@ const {
     showResourceChips, lookUpMissingChips, updateResourceChipStates,
 } = await shared('chips.mjs');
 const { videoFrames } = await shared('wan.mjs');
-const { showImageResources } = await shared('resources.mjs');
+const { showImageResources, isAway } = await shared('resources.mjs');
 const { refreshWebUiModelList, forgeCalls } = await shared('forge.mjs');
 const { showProgress } = await shared('dialog.mjs');
 const { ready, call } = await shared('calls.mjs');
@@ -1005,6 +1005,7 @@ const CHECKPOINT_WAITS = {
     not_checkpoint: 'The image names no checkpoint.',
     not_named: 'This image names no checkpoint.',
     gone: 'The checkpoint is no longer on disk.',
+    unseen: 'The checkpoint\'s drive or folder is not there now.',
     unsupported: 'No UI preset of Forge\'s is for the checkpoint\'s family.',
 };
 
@@ -1092,6 +1093,9 @@ function checkpointNote(problem) {
             elsewhere: `${own}, is in your library at ${problem.path}, a folder this WebUI does not load. `
                        + 'Move it into this WebUI\'s models folder, then Sync and press Send again.',
             gone: `${own}, is no longer at ${problem.path}. Sync with Civitai to bring your library up to date.`,
+            // Its drive or folder away (#418): no sync brings it back.
+            unseen: `${own}, is on a drive or in a folder that is not there now: ${problem.path}. `
+                    + 'Connect it, then press Send again.',
         }[problem.reason];
     }
     const made = `The checkpoint this image was made with, ${problem.name}`;
@@ -1110,6 +1114,11 @@ function checkpointNote(problem) {
         not_checkpoint: 'This image does not say which checkpoint it was made with: what it names as one is '
                         + 'not a checkpoint, in your library or on Civitai.',
         not_named: 'This image names no checkpoint: pick one of yours to send it with.',
+        // In the library, not there (#418): nothing to download - it is there once its drive is.
+        unseen: `${made}, is in your library at ${problem.path}, on a drive or in a folder that is not there now. `
+                + 'Connect it, or pick one of yours below.',
+        gone: `${made}, is in your library at ${problem.path}, but no longer on disk; the next sync from the dialog `
+              + 'forgets it. Pick one of yours below.',
     }[problem.reason];
 }
 
@@ -1127,6 +1136,16 @@ async function stopForCheckpoint(img, model, version, problem) {
 function sendButtonLabel(into, tab = 'txt2img') {
     if (into) return IMG2IMG_SENDS.find((s) => s.mode === Number(into.mode))?.label || 'Send to img2img';
     return `Send to ${tab}`;
+}
+
+// A checkpoint the library has, not there (#418): the answer to ask again
+// once its drive is back is "not listed" - Forge has not listed it since -
+// so a check then refreshes Forge's list, once, and asks again.
+async function askAfterAway(last, ask) {
+    const problem = await ask();
+    if (!isAway(last) || problem?.reason !== 'not_listed') return problem;
+    await refreshWebUiModelList();
+    return ask();
 }
 
 /**
@@ -1147,6 +1166,7 @@ const checkable = (problem) => Boolean(problem) && !['not_checkpoint', 'unsuppor
  * own checkpoint or the one picked, and never opens the dialog again.
  */
 function civitaiSendLine({ img, model, version, into = null }, { opened, problem = null, goesOn = false } = {}) {
+    let last = problem?.reason;
     const named = imageCheckpoint(img);
     return {
         opened, goesOn,
@@ -1156,8 +1176,12 @@ function civitaiSendLine({ img, model, version, into = null }, { opened, problem
         why: problem ? CHECKPOINT_WAITS[problem.reason] || checkpointNote(problem) || CHECKPOINT_WAITS.missing : '',
         reason: problem ? waitReason(problem) : '', waits: CHECKPOINT_WAITS,
         check: checkable(problem)
-            ? async () => waitReason((await fetchSendPlan(model, version, img)
-                                      || { checkpoint_problem: problem }).checkpoint_problem)
+            ? async () => {
+                const asked = await askAfterAway(last, async () => (await fetchSendPlan(model, version, img)
+                                                                    || { checkpoint_problem: problem }).checkpoint_problem);
+                last = asked?.reason;
+                return waitReason(asked);
+            }
             : null,
         run: () => sendGalleryImage({ img, model, version, into }),
         pick: (name, imageModel, usual = null) => sendGalleryImage({ img, model, version, into, useCheckpoint: name,
@@ -1178,6 +1202,7 @@ function civitaiSendLine({ img, model, version, into = null }, { opened, problem
 
 /** The same for one of your generations: `args` as sendInfotext takes them. */
 function generationSendLine(args, { opened, problem = null, goesOn = false } = {}) {
+    let last = problem?.reason;
     return {
         opened, goesOn,
         ready: opened === 'resources' ? undefined : !problem,
@@ -1185,9 +1210,17 @@ function generationSendLine(args, { opened, problem = null, goesOn = false } = {
         reason: problem ? waitReason(problem) : '', waits: CHECKPOINT_WAITS,
         check: checkable(problem)
             ? async () => {
-                const answer = await fetchGenerationPlan(args.generationId);
-                if (answer && !answer.checkpoint_missing) return '';
-                return waitReason(answer?.checkpoint_problem || { reason: 'missing' });
+                // The reason, not only a name missing: a checkpoint not there
+                // has a name, and is no checkpoint to send with (#418).
+                const asked = await askAfterAway(last, async () => {
+                    const answer = await fetchGenerationPlan(args.generationId);
+                    // No answer: the stop's own problem, so a drive back still refreshes Forge's list.
+                    if (!answer) return problem || { reason: 'missing' };
+                    if (!answer.checkpoint_missing && !answer.checkpoint_problem) return null;
+                    return answer.checkpoint_problem || { reason: 'missing' };
+                });
+                last = asked?.reason;
+                return asked ? waitReason(asked) : '';
             }
             : null,
         run: () => sendInfotext(args),

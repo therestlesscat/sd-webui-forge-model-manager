@@ -710,6 +710,12 @@ function sendLineStatus() {
     if (line.opened === 'resources' && !line.check) {
         if (line.ready === undefined) return { text: '' };
         if (line.ready) return { text: 'Sends with the image\'s own checkpoint.' };
+        // In the library, not there (#418): said so, as its row says it.
+        const away = resourcesRows.filter((r) => isCheckpoint(r.type)).map(rowAway).find(Boolean);
+        if (away) {
+            return { text: away === 'unseen' ? 'The checkpoint\'s drive or folder is not there now: pick one of yours.'
+                                             : 'The checkpoint is no longer on disk: pick one of yours.' };
+        }
         // "Download it above" only where a Download is drawn: a checkpoint Civitai does not know has none.
         const offered = resourcesRows.some((r) => isCheckpoint(r.type)
                                                 && resourceDownloadCell(r).includes('data-action="resources.download"'));
@@ -738,6 +744,9 @@ function sendStatus() {
     if (reason === 'not_listed' || landing) {
         return gaveUp ? { text: why, again: true } : { text: 'Waiting for Forge to list the checkpoint…' };
     }
+    // In the library, not there (#418): Check again from the start, hidden
+    // only while its own press asks.
+    if (isAway(reason)) return { text: why, again: !resourcesSend.checking };
     if (reason === 'missing') {
         const offered = checkpoint && resourceDownloadCell(checkpoint).includes('data-action="resources.download"');
         if (offered) return { text: `${why.replace(/\.$/, '')}: download it above.` };
@@ -1396,7 +1405,8 @@ async function askUsual(line, name) {
  * TIMING.sendRecheckMax - Forge lists a download only once its refresh is
  * done. Stops when the dialog closes or is opened for another image; stopped
  * by the time with the checkpoint not ready, it has given up (`gaveUp`) until
- * asked again - Check again, or a download landing.
+ * asked again - Check again, or a download landing. A checkpoint the library
+ * has whose file is not there (isAway) is asked once a press.
  */
 async function recheckSend() {
     const wanted = resourcesSend;
@@ -1417,7 +1427,9 @@ async function recheckSend() {
             }
             if (resourcesSend !== wanted) return;
             const why = reason ? wanted.waits?.[reason] || wanted.waits?.missing || wanted.why : '';
-            Object.assign(wanted, { reason, why, ready: !reason, gaveUp: Boolean(reason) && Date.now() >= until });
+            // A checkpoint not there is asked once a press (#418).
+            Object.assign(wanted, { reason, why, ready: !reason,
+                                    gaveUp: Boolean(reason) && (isAway(reason) || Date.now() >= until) });
             // Ready: Forge lists it now, and the list's answer names it the image's own (#377).
             if (!reason) askPickList({ again: true });
             redrawSendBar();
@@ -1426,6 +1438,8 @@ async function recheckSend() {
         }
     } finally {
         wanted.checking = false;
+        // Check again back, for a checkpoint not there (#418): it hid while asking.
+        if (resourcesSend === wanted) redrawSendBar();
     }
 }
 
@@ -1679,7 +1693,21 @@ async function viewResource(versionId, modelId) {
 // model's newest if that version is gone from Civitai.
 
 // Version ids of the dialog's resources that are in the library.
+/**
+ * Whether a send's reason is a checkpoint the library has, whose file is not
+ * there (#418): its drive or folder away ("unseen"), or deleted and not yet
+ * forgotten ("gone"). Nothing changes until its drive is back, so it is
+ * asked once a press, and Check again is there from the start.
+ */
+export function isAway(reason) {
+    return reason === 'unseen' || reason === 'gone';
+}
+
 const installedResourceVersions = new Set();
+// The library's files of versions it holds, not there (#418): version id
+// or hash -> "unseen" or "gone". Asked again with each answer.
+const awayResourceVersions = new Map();
+const awayResourceHashes = new Map();
 // The hashes of the files the library holds, of the dialog's resources named by one;
 // of those it holds another file of the version of, provably, that file (#233);
 // and the image's own file by its hash, as Civitai lists it.
@@ -1723,6 +1751,12 @@ function onItsWayText({ status, percent }) {
     return percent ? `${percent}%` : 'Downloading...';
 }
 
+/** Why a row's file, in the library, is not there - "unseen" or "gone" - or undefined (#418). */
+function rowAway(resource) {
+    const hash = resource.hash || resourceDownloads[resource.versionId]?.hash || '';
+    return (hash && awayResourceHashes.get(hash)) || awayResourceVersions.get(resource.versionId);
+}
+
 function resourceDownloadCell(resource) {
     const id = resource.versionId;
     const job = resourceDownload(id);
@@ -1735,6 +1769,13 @@ function resourceDownloadCell(resource) {
     const held = !other && ((hash && installedResourceHashes.has(hash)) || installedResourceVersions.has(id));
     if (!job && held) {
         return '<span class="mm-res-state installed">Installed</span>';
+    }
+    // In the library, its file not there: nothing to download - it is
+    // there again once its drive is (#418).
+    const away = !job && !other && rowAway(resource);
+    if (away) {
+        return `<span class="mm-res-state">${away === 'unseen' ? 'In your library - its drive or folder is not there now'
+                                                               : 'In your library - no longer on disk'}</span>`;
     }
     // Deleted from Civitai: nothing to download, and the row says so (#260).
     if (!job && civitaiModels.get(id)?.gone) return '';
@@ -1791,6 +1832,17 @@ async function checkInstalledResources(resources, unresolved = []) {
             const data = await apiCall({ endpoint: '/model-manager/image-resources',
                                          params: { version_ids: ids.join(','), hashes: hashes.join(',') } });
             for (const id of Object.keys((data && data.versions) || {})) installedResourceVersions.add(Number(id));
+            ids.forEach((id) => awayResourceVersions.delete(Number(id)));
+            hashes.forEach((hash) => awayResourceHashes.delete(hash.toLowerCase()));
+            // Named away, it is not Installed, whatever an earlier answer in this page said.
+            for (const [id, why] of Object.entries((data && data.away) || {})) {
+                awayResourceVersions.set(Number(id), why);
+                installedResourceVersions.delete(Number(id));
+            }
+            for (const [hash, why] of Object.entries((data && data.away_hashes) || {})) {
+                awayResourceHashes.set(hash.toLowerCase(), why);
+                installedResourceHashes.delete(hash.toLowerCase());
+            }
             for (const hash of Object.keys((data && data.hashes) || {})) installedResourceHashes.add(hash.toLowerCase());
             for (const [hash, held] of Object.entries((data && data.other_files) || {})) {
                 otherFileHashes.set(hash.toLowerCase(), held);

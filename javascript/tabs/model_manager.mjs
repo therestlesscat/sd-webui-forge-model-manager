@@ -1487,8 +1487,11 @@ function whyAbsent(file) {
 }
 
 // The titles of Delete, Sync and a file's own delete where none of their files is there.
-const FORGET_BOX = 'To forget it, tick "Also forget files whose drive or folder is not there" in the Sync dialog; '
-                   + 'a sync that finds no file at all forgets nothing.';
+// The box forgets every file not there at that moment, on every drive (#389):
+// said, so a drive asleep elsewhere is connected first.
+const FORGET_BOX = 'To forget it, tick "Also forget files whose drive or folder is not there" in the Sync dialog, '
+                   + 'with your other drives and shares connected: it forgets every file not there at that moment. '
+                   + 'A sync that finds no file at all forgets nothing.';
 const ABSENT_TITLES = {
     unseen: `This file's drive or folder is not there: nothing to delete. ${FORGET_BOX}`,
     gone: 'This file is no longer on disk: nothing to delete. The next sync from the dialog forgets it.',
