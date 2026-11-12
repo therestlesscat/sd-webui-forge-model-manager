@@ -137,6 +137,7 @@ class SyncService:
         # folders, as a Sight the metadata sync's own check asks too, and
         # the paths kept, each once however many checks keep it.
         self._sight = Sight([])
+        self._forget_asked = False
         self._missing_dirs: List[str] = []
         self._kept: Set[str] = set()
 
@@ -787,6 +788,7 @@ class SyncService:
             self._progress.current_model = "Reading your model folders..."
         walked = library_dirs()
         self._sight = Sight(walked, everywhere=forget_unseen)
+        self._forget_asked = forget_unseen
         self._missing_dirs = missing_library_dirs()
         found = find_model_files(walked)
         self._progress.added = self._record_found_files(found)
@@ -810,15 +812,21 @@ class SyncService:
         # A cancelled walk forgets nothing: it has not looked everywhere.
         if self._cancel_requested:
             say("Cancelled while reading your model folders: nothing is forgotten")
+        # Nothing found: the Sync dialog's box is set aside for the metadata
+        # sync's own check after the walk, cancelled or not, which forgets
+        # only what it can see, as unticked - a tick meant for one drive, with
+        # the others asleep, forgot every identified row (#389).
+        if not found:
+            self._sight = Sight(walked)
         if found and not self._cancel_requested:
             self._progress.removed = self._forget_missing_files(found)
             forget_orphans(db)
         elif not self._cancel_requested:
-            # Nothing found, nothing forgotten; but what is kept is said (#389).
-            self._keep(kept_unseen(db.get_all_version_paths(), [], self._sight))
+            # Nothing found, nothing forgotten here. What is kept is said.
             if forget_unseen:
-                say("The walk found no model files, so it forgot nothing, though forgetting files"
-                    " whose drive or folder is not there was asked for.")
+                say("The walk found no model files, so no file whose drive or folder is not there"
+                    " is forgotten, though that was asked for.")
+            self._keep(kept_unseen(db.get_all_version_paths(), [], self._sight))
         return found
 
     #: Files whose header is read at once: a header is small, and the walk
@@ -912,11 +920,14 @@ class SyncService:
                 if where.startswith(os.path.normcase(folder).rstrip("\\/") + os.sep):
                     held[folder] = held.get(folder, 0) + 1
                     break
+        # Pointing to the box only where it was not ticked.
+        hint = ("" if self._forget_asked else
+                " If it is gone for good, tick \"Also forget files whose drive or folder is not there\""
+                " in the Sync dialog to forget them.")
         for folder in self._missing_dirs:
             if held.get(folder):
-                say(f"Not there: {folder} - its {held[folder]} file(s) in the library are kept until it is back."
-                    " If it is gone for good, tick \"Also forget files whose drive or folder is not there\""
-                    " in the Sync dialog to forget them.")
+                say(f"Not there: {folder} - its {held[folder]} file(s) in the library are kept"
+                    f" until it is back.{hint}")
 
     def _filter_by_identification(self, model_paths: List[str], targets: str) -> List[str]:
         """

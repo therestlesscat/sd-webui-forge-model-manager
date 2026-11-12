@@ -63,7 +63,7 @@ def rows():
 svc = ss.SyncService.__new__(ss.SyncService)
 svc._progress = ss.SyncProgress()   # the forget step counts on it (#348)
 # And reads what the walk saw, as a fresh service holds it (#389).
-svc._sight, svc._missing_dirs, svc._kept = ss.Sight([]), [], set()
+svc._sight, svc._missing_dirs, svc._kept, svc._forget_asked = ss.Sight([]), [], set(), False
 
 # --- recording ---------------------------------------------------------------
 before = rows()

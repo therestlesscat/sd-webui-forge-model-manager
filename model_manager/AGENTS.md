@@ -133,7 +133,12 @@ its library folder named in the log, and left out of Move
 (`misplaced_files`). The way out for a drive gone for good is the Sync
 dialog's own box, "Also forget files whose drive or folder is not there"
 (`forget_unseen`, unticked at each opening): the user decides what goes, as
-with every deletion of user data (the root `AGENTS.md`).
+with every deletion of user data (the root `AGENTS.md`). A walk that found
+no file forgets nothing, ticked or not, and the metadata sync's check after
+it forgets only what it can see, as unticked: a tick meant for one drive,
+with the others asleep, would have forgotten every identified row (0.78.5).
+A library folder there but emptied by hand still loses its rows to that
+check, ticked or not.
 
 ### Civitai: sync and downloads
 

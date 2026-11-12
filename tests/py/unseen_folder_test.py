@@ -18,7 +18,8 @@ WebUI's file deleted from a folder that is there - each forgotten, as
 before; a metadata sync with every library folder away, over every scope,
 keeps every row; a kept file is not offered to Move. And the Sync dialog's
 box, "Also forget files whose drive or folder is not there", forgets them as
-before - but a walk that found nothing still forgets nothing.
+before - but a walk that found nothing still forgets nothing, nor does the
+metadata sync's check after it.
 
 The headers are stood in for: what a file "is" comes from its folder, or
 "vae" in its name.
@@ -299,18 +300,40 @@ check('ticked, a full sync forgets the files on the drive away, behind the link,
 check('and keeps none', getattr(progress, 'kept_unseen', None), 0)
 check('nor names a folder', 'Not there:' in said_since(mark), False)
 
-# Everything away, ticked: the walk finds nothing and forgets nothing; the
-# metadata sync's own check forgets the identified rows, as before.
+# Everything away, ticked: the walk finds nothing and forgets nothing, and
+# neither does the metadata sync's own check after it - a tick meant for one
+# drive, with the others asleep, must not empty the library.
 os.rename(models, models + '_away')
 rows_before = rows()
 mark = console.said()
 progress = SyncService(client=Client()).sync_all(forget_unseen=True)
 check('ticked, a walk that found nothing still forgets nothing', rows(), rows_before)
-check('and says so', 'The walk found no model files, so it forgot nothing' in said_since(mark), True)
+check('and says so', 'The walk found no model files, so no file whose drive or folder is not there'
+      ' is forgotten' in said_since(mark), True)
 linked_now = [v['file_path'] for v in db.get_linked_versions()]
+away_now = [p for p in db.get_all_version_paths() if not os.path.exists(p)]
+
+# A cancel pressed while that walk reads nothing: the metadata sync's check
+# still runs after it, and still must not take the box's word.
+cancelled = SyncService(client=Client())
+walk_files = sync_module.find_model_files
+def cancel_during_walk(folders):
+    cancelled.cancel()
+    return walk_files(folders)
+sync_module.find_model_files = cancel_during_walk
+try:
+    cancelled.sync_metadata(forget_unseen=True)
+finally:
+    sync_module.find_model_files = walk_files
+check('ticked, a metadata sync cancelled during a walk that found nothing forgets no identified row',
+      [has(p) for p in linked_now], [True] * len(linked_now))
+mark = console.said()
 progress = SyncService(client=Client()).sync_metadata(forget_unseen=True)
-check('ticked, the metadata sync forgets every identified row away', [has(p) for p in linked_now],
-      [False] * len(linked_now))
+check('ticked, a metadata sync whose walk found nothing forgets no identified row either',
+      [has(p) for p in linked_now], [True] * len(linked_now))
+check('and counts them kept, every row away', getattr(progress, 'kept_unseen', None), len(away_now))
+check('naming the folders away without pointing to the box already ticked',
+      ['Not there:' in said_since(mark), 'tick "Also forget' in said_since(mark)], [True, False])
 os.rename(models + '_away', models)
 
 try:
