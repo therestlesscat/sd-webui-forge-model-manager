@@ -394,6 +394,8 @@ use()?.click();
 // ---------------- a name Forge does not list, a family this WebUI cannot run
 await loadTask(32);
 check('the setting off: Load to UI of a task of several enters the mode all the same', severalList()?.names.length, 3);
+// #415: the Sort box as the Resources dialog left it in the browser - one key for both windows.
+localStorage.setItem('mm-pick-sort', 'base');
 // Pressed only where the strip offers it: a mode not entered fails the checks after, not the suite.
 if (strip()) act('several.change');
 await waitFor('the list in the window', () => inputs().length);
@@ -403,11 +405,35 @@ check('a ticked name Forge does not list: a row of its own, first, ticked, sayin
 check('a ticked row of a family this WebUI cannot run: greyed, ticked, open to untick',
       [inputOf(QWEN)?.closest('.mm-pick-row')?.classList.contains('mm-pick-greyed'), inputOf(QWEN)?.checked,
        inputOf(QWEN)?.disabled], [true, true, false]);
+const sortBox = () => win()?.querySelector('.mm-pick-line [data-action="resources.pickSort"]');
+/** The Sort box set, as a person picks an order: its change. */
+function sortTo(value) {
+    const box = sortBox();
+    if (!box) return false;
+    box.value = value;
+    press(box);
+    return true;
+}
+const activeTab = () => win()?.querySelector('.mm-pick-tab.active')?.textContent.trim();
+check('#415: the window opens on the order the dialog kept - by base model, the name Forge does not list still first',
+      [sortBox()?.value, sortBox()?.disabled, inputs().map((i) => i.value)],
+      ['base', false, [GONE, FLUX, QWEN, DREAM, ANIME, PHOTO]]);
+search('dev');
+sortTo('file');
+check('    another order chosen here: kept for both, the search, the tab and the ticks as they were',
+      [localStorage.getItem('mm-pick-sort'), win()?.querySelector('.mm-pick-search')?.value, activeTab(),
+       inputs().map((i) => i.value)], ['file', 'dev', 'All 1', [FLUX]]);
+search('');
+check('    the rows by file name, the ticks on the same rows', [inputs().map((i) => i.value), ticked()],
+      [[GONE, ANIME, DREAM, FLUX, PHOTO, QWEN], [GONE, ANIME, QWEN]]);
+// By base model again, Dream shows before Anime: the run order below is the ticks', not the rows'.
+sortTo('base');
 tick(GONE, false);
 tick(QWEN, false);
 tick(DREAM, true);
 use()?.click();
 check('both let go, the list is what is ticked', severalList()?.names, [ANIME, DREAM]);
+localStorage.removeItem('mm-pick-sort');
 
 // ------------------------------------- Several checkpoints…, outside the mode
 const entry = () => byId('mm_several_entry');

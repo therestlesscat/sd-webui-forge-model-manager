@@ -6,6 +6,16 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.78 - Sort your checkpoints, and tick them all at once
+
+*11 November 2026*
+
+The list of your checkpoints - in the Resources dialog under Choose the checkpoint to send with, and in
+txt2img's Checkpoints to queue with window - can be sorted, and the choice is kept. Select all, Untick all
+and a tab of the ticked ones, in the order they run, come in a later 0.78 release (#415).
+
+- **0.78.0** (build 678) - The list of your checkpoints has a Sort box beside its search: by the name each row shows, as before, by file name, or by base model, a checkpoint with none last. It orders All and each family's tab, the image's base model still first there; Suggested keeps its closest-first order, and a ticked checkpoint Forge no longer lists stays first. The choice is kept in the browser, for the Resources dialog and txt2img's Checkpoints to queue with window alike (#415).
+
 ## 0.77 - Prompts from other tools' images
 
 *9 November 2026*

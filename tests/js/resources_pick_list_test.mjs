@@ -114,6 +114,9 @@ check('24. while the list is read: the search, a tab strip and the rows\' box al
       [modal()?.querySelector('.mm-pick-search')?.disabled, Boolean(modal()?.querySelector('.mm-pick-tabs .mm-pick-tab')),
        modal()?.querySelector('.mm-pick-rows .mm-pick-wait')?.textContent],
       [true, true, 'Reading your checkpoints…']);
+check('#415: the Sort box on the search\'s line, there and disabled while the list is read',
+      [Boolean(modal()?.querySelector('.mm-pick-line > .mm-pick-search')),
+       modal()?.querySelector('.mm-pick-line [data-action="resources.pickSort"]')?.disabled], [true, true]);
 letListGo();
 listHeld = null;
 await waitFor('the list', () => rows().length);
@@ -347,6 +350,90 @@ check('    All: by the name each row shows, case aside, v2 before v12', shownNam
 pickTab('xl');
 check('    a family\'s tab the same', shownNames(), [LOWER.name, B2.name, B12.name, XL3.name]);
 close();
+list = savedList;
+
+// The Sort box (#415): Name, A to Z, as the rows were; File name; Base model - a row with no
+// value last, a tie by the name shown. It orders All and a family's tab, the image's base model
+// first there, each part on its own; Suggested keeps its order. Kept in the browser, for both
+// windows that draw the list; one the box does not offer shows Name, and stays kept.
+const S_A = row('zeta.safetensors [s1]', 'xl', 'Alpha', 'v1', 'SDXL 1.0');
+const S_B = row('alpha.safetensors [s2]', 'xl', 'Beta', 'v1', 'Pony');
+const S_C = row('mid.safetensors [s3]', 'xl', null, null, null);
+const S_D = row('beta.safetensors [s4]', 'xl', 'Gamma', 'v1', 'Illustrious');
+const S_F = row('aaa.safetensors [s5]', 'xl', 'Omega', 'v1', 'Illustrious');
+const S_E = row('delta.safetensors [s6]', 'sd', 'Delta', 'v1', 'SD 1.5');
+list = { success: true, checkpoints: [S_C, S_A, S_E, S_F, S_B, S_D], picked: null, loaded: null, family: 'xl',
+         same_base: { base_model: 'Illustrious', names: [S_D.name, S_F.name] },
+         // Closest first, and not in file order: sorted by file, Suggested would read Gamma, then Alpha.
+         suggested: [{ name: S_A.name, why: ['same model'] }, { name: S_D.name, why: ['same base model'] }] };
+const sortBox = () => modal()?.querySelector('.mm-pick-line [data-action="resources.pickSort"]');
+/** The Sort box set, as a person picks an order: its change. Pressed only where drawn. */
+function sortTo(value) {
+    const box = sortBox();
+    if (!box) return false;
+    box.value = value;
+    press(box);
+    return true;
+}
+const names = (...picked) => picked.map((r) => r.name);
+await showImageResources(image(8003), null, { send: stopped() });
+await waitFor('the list', () => rows().length);
+check('the Sort box: three orders, Name first and chosen, as nothing was kept, usable once the list is read',
+      [[...(sortBox()?.querySelectorAll('option') || [])].map((o) => o.textContent), sortBox()?.value, sortBox()?.disabled],
+      [['Name, A to Z', 'File name, A to Z', 'Base model, A to Z'], 'name', false]);
+pickTab('all');
+check('    Name, A to Z: All as before, by the name each row shows', shownNames(), names(S_A, S_B, S_E, S_D, S_C, S_F));
+search('v1');
+sortTo('file');
+check('    another order: kept in the browser; the search and the tab as they were, the rows in its order',
+      [localStorage.getItem('mm-pick-sort'), modal()?.querySelector('.mm-pick-search')?.value, active(), shownNames()],
+      ['file', 'v1', 'All 5', names(S_F, S_B, S_D, S_E, S_A)]);
+search('');
+check('    File name, A to Z: All by file', shownNames(), names(S_F, S_B, S_D, S_E, S_C, S_A));
+pickTab('xl');
+check('    a family\'s tab: the image\'s base model first, each part by file',
+      [heads(), shownNames()], [['Illustrious, like the image 2', 'Other SDXL 3'], names(S_F, S_D, S_B, S_C, S_A)]);
+pickTab('suggested');
+check('    Suggested keeps its order, closest first', shownNames(), names(S_A, S_D));
+pickTab('all');
+sortTo('base');
+check('    Base model, A to Z: then by name, a row with no base model last', shownNames(), names(S_D, S_F, S_B, S_E, S_A, S_C));
+pickTab('xl');
+check('    and in a family\'s tab, each part by base model, then by name',
+      [heads(), shownNames()], [['Illustrious, like the image 2', 'Other SDXL 3'], names(S_D, S_F, S_B, S_A, S_C)]);
+close();
+await showImageResources(image(8003), null, { send: stopped() });
+await waitFor('the list', () => rows().length);
+pickTab('all');
+check('    kept: a dialog opened again opens on it', [sortBox()?.value, shownNames()],
+      ['base', names(S_D, S_F, S_B, S_E, S_A, S_C)]);
+close();
+localStorage.setItem('mm-pick-sort', 'an-order-not-offered');
+await showImageResources(image(8003), null, { send: stopped() });
+await waitFor('the list', () => rows().length);
+pickTab('all');
+check('    an order the box does not offer: Name shown, and still kept for when it is',
+      [sortBox()?.value, shownNames(), localStorage.getItem('mm-pick-sort')],
+      ['name', names(S_A, S_B, S_E, S_D, S_C, S_F), 'an-order-not-offered']);
+close();
+// A browser that keeps nothing - its storage full, or refused: the order chosen still holds in this page.
+const setItem = localStorage.setItem;
+localStorage.setItem = () => { throw new Error('QuotaExceededError'); };
+await showImageResources(image(8003), null, { send: stopped() });
+await waitFor('the list', () => rows().length);
+pickTab('all');
+sortTo('file');
+check('    the browser keeping nothing: the order chosen still orders the rows, and the box says it',
+      [sortBox()?.value, shownNames()], ['file', names(S_F, S_B, S_D, S_E, S_C, S_A)]);
+close();
+await showImageResources(image(8003), null, { send: stopped() });
+await waitFor('the list', () => rows().length);
+pickTab('all');
+check('    and in this page, the next dialog opens on it', [sortBox()?.value, shownNames()],
+      ['file', names(S_F, S_B, S_D, S_E, S_C, S_A)]);
+close();
+localStorage.setItem = setItem;
+localStorage.removeItem('mm-pick-sort');
 list = savedList;
 
 done();

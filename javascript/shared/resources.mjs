@@ -846,20 +846,24 @@ export function pickListHtml(holder, name) {
     return `<div class="mm-pick" data-pick-list="${escapeHtml(name)}">${pickListInner(holder, name)}</div>`;
 }
 
-/** What the list's element holds. */
+/**
+ * What the list's element holds: its line - the search and the Sort box, in one wrapper the
+ * list's grid places as one cell (#415) - then its body.
+ */
 function pickListInner(holder, name) {
     const list = holder?.pickList;
-    const search = (disabled) => `<input type="search" class="mm-pick-search" placeholder="Search your checkpoints"
-                   aria-label="Search your checkpoints" value="${escapeHtml(list?.search || '')}"${disabled ? ' disabled' : ''}>`;
+    const line = (disabled) => `<div class="mm-pick-line"><input type="search" class="mm-pick-search"
+                   placeholder="Search your checkpoints" aria-label="Search your checkpoints"
+                   value="${escapeHtml(list?.search || '')}"${disabled ? ' disabled' : ''}>${sortBoxHtml(disabled)}</div>`;
     if (!list || list.loading || list.error) {
-        // Read or failed, the list takes the room it will take once read - a tab's height, the
-        // rows' box - so the dialog does not change height when it comes (#377, R4).
+        // Read or failed, the list takes the room it will take once read - its line, a tab's
+        // height, the rows' box - so the dialog does not change height when it comes (#377, R4).
         const text = list?.error || 'Reading your checkpoints…';
-        return `${search(true)}<div class="mm-pick-body"><div class="mm-pick-tabs">`
+        return `${line(true)}<div class="mm-pick-body"><div class="mm-pick-tabs">`
             + '<button type="button" class="mm-pick-tab mm-pick-tab-held" disabled tabindex="-1" aria-hidden="true">'
             + `&nbsp;</button></div><div class="mm-pick-rows"><div class="mm-pick-wait">${escapeHtml(text)}</div></div></div>`;
     }
-    return `${search(false)}<div class="mm-pick-body">${pickBodyHtml(holder, name)}</div>`;
+    return `${line(false)}<div class="mm-pick-body">${pickBodyHtml(holder, name)}</div>`;
 }
 
 /**
@@ -873,6 +877,58 @@ function byShownName(a, b) {
         || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
 }
 
+// ------------------------------------------- the Sort box (#415)
+// The orders the list's Sort box offers, each with its direction in its name, and how two rows
+// compare under it; a tie, and a row with no value, which comes last, go by the name shown. One
+// choice for both windows that draw the list, kept in the browser: the box has no setting
+// (javascript/AGENTS.md, "A box with a setting starts from it").
+
+const SORT_KEY = 'mm-pick-sort';
+// The order chosen in this page when the browser would not keep it - its storage full, or refused:
+// followed here all the same. Null while the browser keeps the choice.
+let sortThisPage = null;
+
+/** Text, A to Z as the names are - case aside, a number read as one - a row with none last. */
+const byText = (value) => (a, b) => {
+    const x = value(a) || '';
+    const y = value(b) || '';
+    if (Boolean(x) !== Boolean(y)) return x ? -1 : 1;
+    return x.localeCompare(y, undefined, { sensitivity: 'base', numeric: true });
+};
+
+const PICK_SORTS = [
+    { id: 'name', label: 'Name, A to Z', compare: () => 0 },
+    { id: 'file', label: 'File name, A to Z', compare: byText((row) => row.file) },
+    { id: 'base', label: 'Base model, A to Z', compare: byText((row) => row.base_model) },
+];
+
+/** The order chosen, as kept; one the box does not offer is Name, and stays kept for when it is. */
+function pickSort() {
+    let kept = sortThisPage;
+    if (kept === null) {
+        try {
+            kept = localStorage.getItem(SORT_KEY);
+        } catch (e) { /* no storage: the default */ }
+    }
+    return PICK_SORTS.find((sort) => sort.id === kept) || PICK_SORTS[0];
+}
+
+/** Rows as the Sort box says: one Forge no longer lists still first, a tie by the name shown. */
+function sortedRows(rows) {
+    const sort = pickSort();
+    return rows.sort((a, b) => (Boolean(a.unlisted) !== Boolean(b.unlisted) ? (a.unlisted ? -1 : 1) : 0)
+        || sort.compare(a, b) || byShownName(a, b));
+}
+
+/** The Sort box, set to the order chosen; disabled while the list is read. */
+function sortBoxHtml(disabled) {
+    const chosen = pickSort().id;
+    const options = PICK_SORTS.map((sort) => `<option value="${sort.id}"${sort.id === chosen ? ' selected' : ''}>${
+        escapeHtml(sort.label)}</option>`).join('');
+    return `<label class="mm-pick-sort">Sort <select class="mm-dialog-select" data-action="resources.pickSort"
+                   aria-label="Sort your checkpoints"${disabled ? ' disabled' : ''}>${options}</select></label>`;
+}
+
 /**
  * The tabs and the rows, redrawn as the search narrows them - the search box kept, focus and all.
  * Suggested is a tab of its own, first (#377, R4): the suggestions sat on top of every tab. A
@@ -881,7 +937,7 @@ function byShownName(a, b) {
 function pickBodyHtml(holder, name) {
     const list = holder.pickList;
     const data = list.data;
-    const rows = pickRows(holder).sort(byShownName);
+    const rows = sortedRows(pickRows(holder));
     const words = String(list.search || '').toLowerCase().split(/\s+/).filter(Boolean);
     const shown = rows.filter((r) => matches(r, words));
     // By the name each tab shows: in the order Forge listed them, the tabs moved as files were added or read.
@@ -1788,6 +1844,21 @@ export function start(scope) {
         const list = listOf(button);
         if (!list?.state.pickList?.data) return;
         list.state.pickList.tab = String(family || 'all');
+        redrawListBody(list.root, list.state);
+        list.redrawn?.();
+    });
+    // The Sort box: kept for both windows, and the rows of the list it is in drawn again, from
+    // the top - the search, the tab and the ticks as they were.
+    scope.provide('resources.pickSort', (data, select) => {
+        const chosen = String(select?.value || 'name');
+        try {
+            localStorage.setItem(SORT_KEY, chosen);
+            sortThisPage = null;
+        } catch (e) {
+            sortThisPage = chosen;
+        }
+        const list = listOf(select);
+        if (!list?.state.pickList?.data) return;
         redrawListBody(list.root, list.state);
         list.redrawn?.();
     });

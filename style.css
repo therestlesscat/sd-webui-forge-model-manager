@@ -2536,6 +2536,41 @@ body.mm-modal-open {
     border-color: var(--primary-500, #3b82f6);
 }
 
+/* The list's line (#415): the search, then the Sort box, one row that never wraps - the search
+   gives up its width, down to a minimum, and the line never gains a second one. Wrapped, it would
+   push Use these off the Change window's foot under 900 px of room, as #406 found of a column. */
+.mm-pick-line {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    gap: 8px;
+}
+
+.mm-pick-line > .mm-pick-search {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 10em;
+}
+
+/* "Sort" and its box - the dialogs' select - its text the search's size: the dialogs' select is
+   12 px, against the search's 14.4. The search decides the line's height: at its own 1.4 line
+   height the box came out 28.2 px beside the search's 28, and every window that draws the list
+   0.2 px taller; at 1.25 it is shorter, and stretched to the search. */
+.mm-pick-sort {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.9em;
+    white-space: nowrap;
+}
+
+.mm-pick-sort > select {
+    align-self: stretch;
+    font-size: inherit;
+    line-height: 1.25;
+}
+
 /* The tabs (#377, R4): Suggested, a family each, All - an underlined strip, each its name and a
    count; the preset key is in the tab's tooltip. */
 .mm-pick-tabs {
@@ -2849,13 +2884,13 @@ body.mm-modal-open {
     display: contents;
 }
 
-.mm-pick-area .mm-pick-search,
+.mm-pick-area .mm-pick-line,
 .mm-pick-area .mm-pick-tabs {
     grid-column: 1 / -1;
 }
 
-/* The list's own gap, which it had only under the search: the tabs sit on the rows. */
-.mm-pick-area .mm-pick-search {
+/* The list's own gap, which it had only under its line: the tabs sit on the rows. */
+.mm-pick-area .mm-pick-line {
     margin-bottom: 6px;
 }
 
