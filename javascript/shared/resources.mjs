@@ -773,11 +773,12 @@ const pickLists = new Map();
 /**
  * Offer a list by name: `holder()` answers what it is drawn from now -
  * null while there is none - `picked(name, input)` does a pick, and
- * `redrawn()`, if given, follows its rows drawn again. Answers how to take
- * it back.
+ * `redrawn()`, if given, follows its rows drawn again. A list of tick boxes
+ * gives `setTicked(names)`, which sets every tick at once and does what
+ * follows a tick once (#415: Untick all). Answers how to take it back.
  */
-export function addPickList(name, { holder, picked, redrawn = null }) {
-    const list = { holder, picked, redrawn };
+export function addPickList(name, { holder, picked, redrawn = null, setTicked = null }) {
+    const list = { holder, picked, redrawn, setTicked };
     pickLists.set(name, list);
     return () => {
         if (pickLists.get(name) === list) pickLists.delete(name);
@@ -854,7 +855,8 @@ function pickListInner(holder, name) {
     const list = holder?.pickList;
     const line = (disabled) => `<div class="mm-pick-line"><input type="search" class="mm-pick-search"
                    placeholder="Search your checkpoints" aria-label="Search your checkpoints"
-                   value="${escapeHtml(list?.search || '')}"${disabled ? ' disabled' : ''}>${sortBoxHtml(disabled, list?.data)}</div>`;
+                   value="${escapeHtml(list?.search || '')}"${disabled ? ' disabled' : ''}>${sortBoxHtml(disabled, list?.data)}${
+                   lineButtonsHtml(holder)}</div>`;
     if (!list || list.loading || list.error) {
         // Read or failed, the list takes the room it will take once read - its line, a tab's
         // height, the rows' box - so the dialog does not change height when it comes (#377, R4).
@@ -943,6 +945,56 @@ function sortedRows(rows, data) {
         || sort.compare(a, b) || byShownName(a, b));
 }
 
+/** The rows a list shows: its answer, sorted, narrowed by its search. */
+function shownRows(holder) {
+    const words = String(holder.pickList?.search || '').toLowerCase().split(/\s+/).filter(Boolean);
+    return sortedRows(pickRows(holder), holder.pickList?.data).filter((r) => matches(r, words));
+}
+
+/** The ticked among the rows shown, in run order - the order they were ticked. */
+function tickedShown(holder, shown) {
+    const byName = new Map(shown.map((r) => [r.name, r]));
+    return holder.ticked.map((name) => byName.get(name)).filter(Boolean);
+}
+
+/**
+ * What the line's buttons say, worked out from the list as it stands: drawn
+ * with the line, and set in place after a tab, a search, a sort and a tick -
+ * the line is outside the rows a redraw rewrites (#415). Tick boxes alone.
+ */
+function lineState(holder) {
+    const count = holder?.ticked?.length || 0;
+    const reading = !holder?.pickList?.data;
+    const failed = Boolean(holder?.pickList?.error);
+    return {
+        untick: { disabled: reading || !count,
+                  title: failed ? 'Your checkpoints could not be read.' : reading ? 'Your checkpoints are still being read.'
+                      : !count ? 'Nothing is ticked.'
+                      : count === 1 ? 'Untick the checkpoint ticked.' : `Untick the ${count} checkpoints ticked.` },
+    };
+}
+
+/** The line's buttons: Untick all, for tick boxes. */
+function lineButtonsHtml(holder) {
+    if (!Array.isArray(holder?.ticked)) return '';
+    const { untick } = lineState(holder);
+    return `<button type="button" class="mm-btn secondary mm-btn-small" data-action="resources.untickAll"${
+        untick.disabled ? ' disabled' : ''} title="${escapeHtml(untick.title)}">Untick all</button>`;
+}
+
+/** The line's buttons and the Ticked tab's count, set in place - the rows and their scroll left as they are. */
+function drawLineState(root, holder) {
+    if (!root || !holder || !Array.isArray(holder.ticked)) return;
+    const { untick } = lineState(holder);
+    const button = root.querySelector('[data-action="resources.untickAll"]');
+    if (button) {
+        button.disabled = untick.disabled;
+        button.title = untick.title;
+    }
+    const count = root.querySelector('.mm-pick-tab[data-family="ticked"] .mm-pick-count');
+    if (count && holder.pickList?.data) count.textContent = String(tickedShown(holder, shownRows(holder)).length);
+}
+
 /** The Sort box, set to the order chosen, offering what the list's answer allows; disabled while the list is read. */
 function sortBoxHtml(disabled, data) {
     const chosen = pickSort(data).id;
@@ -968,23 +1020,33 @@ function pickBodyHtml(holder, name) {
         .sort((a, b) => familyName(a).localeCompare(familyName(b), undefined, { sensitivity: 'base' }) || (a < b ? -1 : 1));
     const suggested = (data.suggested || []).map((s) => shown.find((r) => r.name === s.name)).filter(Boolean);
     const hasSuggested = Boolean(data.suggested?.length);
+    // Tick boxes (#415): a Ticked tab, last, so no other tab moves as it comes - the ticked in run order.
+    const ticks = Array.isArray(holder.ticked);
+    const ticked = ticks ? tickedShown(holder, shown) : [];
     const tab = families.includes(list.tab) || list.tab === 'all' || (list.tab === 'suggested' && hasSuggested)
-        ? list.tab : 'all';
+        || (list.tab === 'ticked' && ticks) ? list.tab : 'all';
     const count = (n) => ` <span class="mm-pick-count">${n}</span>`;
     const tabs = [...(hasSuggested ? [['suggested', 'Suggested', suggested.length, 'What suits this image']] : []),
                   ...families.map((f) => [f, familyName(f), shown.filter((r) => r.family === f).length,
                                           `Forge's UI preset: ${f}`]),
-                  ['all', 'All', shown.length, 'Every checkpoint Forge lists']]
+                  ['all', 'All', shown.length, 'Every checkpoint Forge lists'],
+                  ...(ticks ? [['ticked', 'Ticked', ticked.length, 'The checkpoints ticked, in the order they run']] : [])]
         .map(([id, label, n, tip]) => `<button type="button" class="mm-pick-tab${id === tab ? ' active' : ''}"`
             + ` data-action="resources.pickTab" data-family="${escapeHtml(id)}" title="${escapeHtml(tip)}">${
                 escapeHtml(label)}${count(n)}</button>`)
-        .join('');
+        .join('')
+        // Round buttons: the Ticked tab's place held, unseen, so Select several turned on or off moves no
+        // row - the tab coming wrapped the row of tabs onto a second line, 29 px, at 1,024 px with 9
+        // families (#415).
+        + (ticks ? '' : '<button type="button" class="mm-pick-tab mm-pick-tab-held" disabled tabindex="-1" '
+                        + `aria-hidden="true">Ticked${count(0)}</button>`);
     const section = (title, list2, family) => (list2.length
         ? (title ? `<div class="mm-pick-head">${escapeHtml(title)}${count(list2.length)}</div>` : '')
           + list2.map((r) => pickRowHtml(holder, name, r, family)).join('') : '');
     let body;
     if (tab === 'suggested') body = section('', suggested, true);
     else if (tab === 'all') body = section('', shown, true);
+    else if (tab === 'ticked') body = section('', ticked, true) || (holder.ticked.length ? '' : '<div class="mm-pick-wait">Nothing is ticked.</div>');
     else {
         const inTab = shown.filter((r) => r.family === tab);
         const base = data.same_base?.base_model;
@@ -1343,9 +1405,16 @@ function pickInDialog(name, input) {
  * their scroll stays - only what each ticked one says, and the Send line.
  */
 function tickInDialog(name, input) {
-    const line = resourcesSend;
-    const ticked = line.ticked.filter((n) => n !== name);
+    const ticked = resourcesSend.ticked.filter((n) => n !== name);
     if (input?.checked) ticked.push(name);
+    input?.closest('.mm-pick-row')?.classList.toggle('picked', Boolean(input?.checked));
+    tickedInDialog(ticked);
+}
+
+/** Every tick of the dialog's list at once, in run order: what a tick does after it, done once (#415). */
+function tickedInDialog(ticked) {
+    const line = resourcesSend;
+    if (!Array.isArray(line?.ticked)) return;
     line.ticked = ticked;
     const first = ticked[0] || null;
     // The usual tick is one pick's: it starts as the setting says again only for a new first.
@@ -1354,7 +1423,6 @@ function tickInDialog(name, input) {
         line.usualPressed = false;
     }
     line.chosen = first;
-    input?.closest('.mm-pick-row')?.classList.toggle('picked', Boolean(input?.checked));
     ticked.forEach((n) => askUsual(line, n));
     const button = document.querySelector('.mm-resources-modal [data-action="resources.sendAgain"]');
     if (button) {
@@ -1869,6 +1937,7 @@ export function start(scope) {
         list.state.pickList.tab = String(family || 'all');
         redrawListBody(list.root, list.state);
         list.redrawn?.();
+        drawLineState(list.root, list.holder());
     });
     // The Sort box: kept for both windows, and the rows of the list it is in drawn again, from
     // the top - the search, the tab and the ticks as they were.
@@ -1884,13 +1953,30 @@ export function start(scope) {
         if (!list?.state.pickList?.data) return;
         redrawListBody(list.root, list.state);
         list.redrawn?.();
+        drawLineState(list.root, list.holder());
     });
     scope.provide('resources.pickRow', (data, input) => {
         const list = listOf(input);
-        if (list && input?.value) list.picked(input.value, input);
+        if (!list || !input?.value) return;
+        list.picked(input.value, input);
+        drawLineState(list.root, list.holder());
+    });
+    // Untick all (#415): every tick of the list it is in, set at once; the boxes unticked in place,
+    // a greyed row's box disabled again as a full draw draws it - the rows and their scroll kept.
+    scope.provide('resources.untickAll', (data, button) => {
+        const list = listOf(button);
+        if (!list?.setTicked || !Array.isArray(list.state.ticked)) return;
+        list.setTicked([]);
+        for (const input of list.root.querySelectorAll('.mm-pick-row input[type="checkbox"]')) {
+            const row = input.closest('.mm-pick-row');
+            input.checked = false;
+            row?.classList.remove('picked');
+            if (row?.classList.contains('mm-pick-greyed')) input.disabled = true;
+        }
+        drawLineState(list.root, list.holder());
     });
     scope.onStop(addPickList('dialog', { holder: () => resourcesSend, picked: pickInDialog,
-                                         redrawn: dialogListRedrawn }));
+                                         redrawn: dialogListRedrawn, setTicked: tickedInDialog }));
 
     scope.provide('resources.usualTick', (data, box) => {
         if (!resourcesSend) return;
@@ -1909,6 +1995,7 @@ export function start(scope) {
             list.state.pickList.search = event.target.value;
             redrawListBody(list.root, list.state);
             list.redrawn?.();
+            drawLineState(list.root, list.holder());
         });
     }
     whenDownloading((list) => {

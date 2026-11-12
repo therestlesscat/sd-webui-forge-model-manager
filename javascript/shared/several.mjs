@@ -271,8 +271,15 @@ function tickInChange(name, input) {
     if (!holder) return;
     const ticked = holder.ticked.filter((n) => n !== name);
     if (input?.checked) ticked.push(name);
-    holder.ticked = ticked;
     input?.closest('.mm-pick-row')?.classList.toggle('picked', Boolean(input?.checked));
+    tickedInChange(ticked);
+}
+
+/** Every tick of Change's window at once, in run order (#415: Untick all): its count, Use these, the column asked once. */
+function tickedInChange(ticked) {
+    const holder = changing?.holder;
+    if (!holder) return;
+    holder.ticked = ticked;
     drawTicked();
     askRuns(holder);
 }
@@ -442,7 +449,8 @@ export function start(scope) {
     scope.provide('several.enter', (args) => enter(args));
     scope.provide('several.leave', () => leave());
     scope.provide('several.change', () => openChange());
-    scope.onStop(addPickList('several', { holder: () => changing?.holder || null, picked: tickInChange }));
+    scope.onStop(addPickList('several', { holder: () => changing?.holder || null, picked: tickInChange,
+                                          setTicked: tickedInChange }));
     // Caught on the way down, before Forge's own listeners and the Queue tab's.
     scope.listen(document, 'keydown', onKeys, true);
     scope.listen(document, 'click', onGenerate, true);

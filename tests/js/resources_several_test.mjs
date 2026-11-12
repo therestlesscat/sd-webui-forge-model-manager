@@ -52,6 +52,7 @@ const USUAL = {
 const usualAsked = [];
 // ui-options as the server says them: the setting, the Queue's switch, and whether this start built it.
 const options = { several: true, queueOn: true, built: true, choose: true };
+let listHold = null;
 globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
     const reply = (body, status = 200) => ({ ok: status === 200, status, json: async () => structuredClone(body) });
@@ -60,7 +61,13 @@ globalThis.fetch = async (url, init = {}) => {
         usualAsked.push(params.get('checkpoint'));
         return reply(USUAL[params.get('checkpoint')]);
     }
-    if (href.includes('/model-manager/send/checkpoints')) return reply(shownList);
+    if (href.includes('/model-manager/send/checkpoints')) {
+        // Held by the check that reads the list's line while it is read (#415).
+        const hold = listHold;
+        listHold = null;
+        if (hold) await hold;
+        return reply(shownList);
+    }
     // A gallery Send's plan, asked before its dialog opens: the image's checkpoint can be sent.
     if (href.includes('/model-manager/send/plan')) {
         return reply({ success: true, preset: null, checkpoint: null, target: [], modules_missing: [] });
@@ -353,6 +360,91 @@ const choose = modal()?.querySelector('[data-action="resources.chooseTick"]');
 choose.checked = false;
 press(choose);
 check('Choose the checkpoint to send with unticked: no list, no Select several', Boolean(several()), false);
+close();
+
+// ------------------------------------------- Untick all and the Ticked tab (#415)
+// With tick boxes: Untick all on the list's line, and a tab of the ticked, last, in the order they
+// run - narrowed by the search, its count kept as each tick lands, the rows not drawn again. With
+// round buttons, neither.
+const untickAll = () => modal()?.querySelector('.mm-pick-line [data-action="resources.untickAll"]');
+const tabNames = () => [...(modal()?.querySelectorAll('.mm-pick-tab:not(.mm-pick-tab-held)') || [])].map((b) => b.textContent.trim());
+const heldTab = () => modal()?.querySelector('.mm-pick-tab.mm-pick-tab-held');
+const activeTab = () => modal()?.querySelector('.mm-pick-tab.active')?.textContent.trim();
+const rowNames = () => [...(modal()?.querySelectorAll('.mm-pick-row input') || [])].map((i) => i.value);
+const pickTab = (family) => {
+    const button = modal()?.querySelector(`[data-action="resources.pickTab"][data-family="${family}"]`);
+    if (button) press(button);
+};
+const search = (text) => {
+    const input = modal()?.querySelector('.mm-pick-search');
+    if (!input) return;
+    input.value = text;
+    input.dispatchEvent(new window.Event('input', { bubbles: true }));
+};
+// While the list is read: the line's controls there already, Untick all off, saying why.
+await open();
+pressSeveral(true);
+close();
+let releaseList;
+listHold = new Promise((resolve) => { releaseList = resolve; });
+await showImageResources(image, null, { note: 'Not in your library.', send: line() });
+// Tick boxes come once the settings have answered; the list's answer is held till after.
+await waitFor('the line in tick mode, the list held', () => untickAll() && modal()?.querySelector('.mm-pick-wait'));
+check('#415: tick boxes, the list being read: Untick all there, off, saying so',
+      [Boolean(untickAll()), untickAll()?.disabled, untickAll()?.title], [true, true, 'Your checkpoints are still being read.']);
+releaseList();
+await shown();
+pressSeveral(false);
+close();
+await open();
+check('#415: round buttons: no Untick all, no Ticked tab; its place held, last, unseen and out of reach, so tick boxes move no row',
+      [Boolean(untickAll()), tabNames().some((n) => n.startsWith('Ticked')),
+       [...(modal()?.querySelectorAll('.mm-pick-tab') || [])].at(-1) === heldTab(), heldTab()?.textContent.trim(),
+       heldTab()?.disabled, heldTab()?.getAttribute('aria-hidden'), heldTab()?.getAttribute('tabindex')],
+      [false, false, true, 'Ticked 0', true, 'true', '-1']);
+pressSeveral(true);
+tick(MIX.name);
+tick(FLUX.name);
+check('tick boxes: Untick all on the line, saying how many it unticks; a Ticked tab last, counting them',
+      [untickAll()?.disabled, untickAll()?.title, tabNames().at(-1)], [false, 'Untick the 3 checkpoints ticked.', 'Ticked 3']);
+pickTab('ticked');
+check('    the Ticked tab: the ticked, in the order they run', rowNames(), [OWN.name, MIX.name, FLUX.name]);
+search('flux');
+check('    the search narrows it, and its count', [rowNames(), tabNames().at(-1)], [[FLUX.name], 'Ticked 1']);
+search('');
+const rowsBefore = modal()?.querySelector('.mm-pick-rows');
+tick(MIX.name, false);
+check('    unticked there: its row stays, unticked, the rows not drawn again; the count and Untick all follow',
+      [rowNames(), ticked(), modal()?.querySelector('.mm-pick-rows') === rowsBefore, tabNames().at(-1), untickAll()?.title],
+      [[OWN.name, MIX.name, FLUX.name], [OWN.name, FLUX.name], true, 'Ticked 2', 'Untick the 2 checkpoints ticked.']);
+pickTab('ticked');
+check('    drawn again - its tab pressed - the row is gone', rowNames(), [OWN.name, FLUX.name]);
+// Pressed with the Ticked tab open: its rows stay, unticked, the rows not drawn again.
+const rowsAtUntick = modal()?.querySelector('.mm-pick-rows');
+// Pressed only where drawn: a build without it fails the checks after, not the suite.
+if (untickAll()) press(untickAll());
+check('Untick all, in the Ticked tab: its rows stay, unticked, the rows not drawn again',
+      [rowNames(), modal()?.querySelector('.mm-pick-rows') === rowsAtUntick], [[OWN.name, FLUX.name], true]);
+pickTab('all');
+check('    no tick left; Send off, saying to tick one; Untick all off, saying nothing is ticked; Ticked 0',
+      [ticked(), status(), sendButton()?.disabled, untickAll()?.disabled, untickAll()?.title, tabNames().at(-1)],
+      [[], 'Tick a checkpoint to send with.', true, true, 'Nothing is ticked.', 'Ticked 0']);
+pickTab('xl');
+check('    none in a family\'s tab either', ticked(), []);
+pickTab('ticked');
+check('    and the Ticked tab says nothing is ticked', modal()?.querySelector('.mm-pick-rows')?.textContent.trim(), 'Nothing is ticked.');
+pickTab('all');
+tick(REAL.name);
+check('    a tick: Untick all back, saying it', [untickAll()?.disabled, untickAll()?.title], [false, 'Untick the checkpoint ticked.']);
+pickTab('ticked');
+pressSeveral(false);
+check('Select several off with the Ticked tab open: round buttons, All shown, no Ticked tab, no Untick all',
+      [kinds(), activeTab()?.startsWith('All'), tabNames().some((n) => n.startsWith('Ticked')), Boolean(untickAll())],
+      [['radio'], true, false, false]);
+pressSeveral(true);
+check('    on again: the Ticked tab back, open, the one picked ticked; no held place beside it', [activeTab(), ticked(), Boolean(heldTab())],
+      ['Ticked 1', [REAL.name], false]);
+pressSeveral(false);
 close();
 
 done();

@@ -183,7 +183,7 @@ check('its tabs open on All, every ticked row in it, though one is suggested; th
        win()?.querySelector('.mm-pick-tab.active')?.textContent.trim(),
        inputOf(PHOTO)?.closest('.mm-pick-row')?.querySelector('.mm-pick-loaded')?.textContent,
        [...win().querySelectorAll('.mm-pick-row.picked')].map((r) => r.querySelector('input')?.value)],
-      [['Suggested 1', 'Flux 1', 'Qwen-Image 1', 'SD 1.x 1', 'SDXL 2', 'All 5'], 'All 5', 'Loaded in Forge now',
+      [['Suggested 1', 'Flux 1', 'Qwen-Image 1', 'SD 1.x 1', 'SDXL 2', 'All 5', 'Ticked 3'], 'All 5', 'Loaded in Forge now',
        [ANIME, FLUX, PHOTO]]);
 check('focus starts on Cancel, the safe button, as every window\'s does',
       document.activeElement === win()?.querySelector('[data-several-cancel]'), true);
@@ -310,6 +310,9 @@ act('several.change');
 await waitFor('the column answered, the list still asked', () => win() && settled());
 check('with the list not come yet, each line is named by its file', lines().map(([name]) => name),
       ['anime_v12', 'photo_v5', 'flux_dev']);
+const untickWhileRead = win()?.querySelector('.mm-pick-line [data-action="resources.untickAll"]');
+check('#415: three ticked, the list not come yet: Untick all there, off until it is, saying why',
+      [untickWhileRead?.disabled, untickWhileRead?.title], [true, 'Your checkpoints are still being read.']);
 releaseList();
 await waitFor('the list in the window', () => inputs().length);
 await waitFor('the lines named again', () => lines()[0]?.[0] === 'Anime Mix v12');
@@ -378,6 +381,9 @@ act('several.change');
 await waitFor('the answer', () => win()?.querySelector('.mm-pick-wait')?.textContent.includes('Could not'));
 check('the list failing says so in the window',
       win()?.querySelector('.mm-pick-wait')?.textContent, 'Could not read your checkpoints: the library is busy');
+const untickFailed = win()?.querySelector('.mm-pick-line [data-action="resources.untickAll"]');
+check('#415: and Untick all, off, says the list could not be read - not that it is still being read',
+      [untickFailed?.disabled, untickFailed?.title], [true, 'Your checkpoints could not be read.']);
 use()?.click();
 check('and its ticks stay as the mode holds them: Use these keeps the list', [win(), severalList()?.names],
       [null, [DREAM, FLUX]]);
@@ -431,6 +437,21 @@ check('    Largest first: the name Forge does not list, which has no size, still
 sortTo('file');
 check('    the rows by file name, the ticks on the same rows', [inputs().map((i) => i.value), ticked()],
       [[GONE, ANIME, DREAM, FLUX, PHOTO, QWEN], [GONE, ANIME, QWEN]]);
+// Untick all (#415): every tick gone, the greyed row's box disabled again as a full draw draws it,
+// Use these off, and the column asks nothing with nothing ticked.
+const untickHere = () => win()?.querySelector('.mm-pick-line [data-action="resources.untickAll"]');
+const runsBeforeUntick = runsAsked.length;
+const rowsBeforeUntick = win()?.querySelector('.mm-pick-rows');
+if (untickHere()) press(untickHere());
+await new Promise((resolve) => setTimeout(resolve, 20));
+check('#415: Untick all: no tick left, the rows not drawn again, the greyed row\'s box disabled again; 0 ticked, '
+      + 'Use these off saying why, nothing asked; Untick all off, the Ticked tab at 0',
+      [ticked(), win()?.querySelector('.mm-pick-rows') === rowsBeforeUntick, inputOf(QWEN)?.disabled, tickedText(),
+       use()?.disabled, use()?.title, runsAsked.length - runsBeforeUntick, untickHere()?.disabled,
+       win()?.querySelector('.mm-pick-tab[data-family="ticked"]')?.textContent.trim()],
+      [[], true, true, '0 ticked', true, 'Tick two checkpoints or more. To generate with one, press Leave and use Generate.',
+       0, true, 'Ticked 0']);
+tick(ANIME, true);
 // By base model again, Dream shows before Anime: the run order below is the ticks', not the rows'.
 sortTo('base');
 tick(GONE, false);

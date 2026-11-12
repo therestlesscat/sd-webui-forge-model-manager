@@ -86,7 +86,8 @@ const modal = () => document.querySelector('.mm-resources-modal');
 const box = () => modal()?.querySelector('[data-action="resources.chooseTick"]');
 const sendButton = () => modal()?.querySelector('[data-action="resources.sendAgain"]');
 const status = () => modal()?.querySelector('.mm-res-send-status')?.textContent || '';
-const tabs = () => [...(modal()?.querySelectorAll('.mm-pick-tab') || [])].map((t) => t.textContent.trim());
+// The tabs shown: a held one is there unseen (#415).
+const tabs = () => [...(modal()?.querySelectorAll('.mm-pick-tab:not(.mm-pick-tab-held)') || [])].map((t) => t.textContent.trim());
 const active = () => modal()?.querySelector('.mm-pick-tab.active')?.textContent.trim();
 const heads = () => [...(modal()?.querySelectorAll('.mm-pick-head') || [])].map((h) => h.textContent);
 const rows = () => [...(modal()?.querySelectorAll('.mm-pick-row') || [])];
