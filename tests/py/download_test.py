@@ -2557,5 +2557,174 @@ if real_wait is not None:
     ds._wait = real_wait
 let_go()
 
+# ------------------------------------- one .partial, one download (#395)
+# Two different files with one name, bound for one folder - two versions of a
+# model shipping one file name - wrote one .partial at once, and one could end
+# checked and complete holding both downloads' bytes. A download whose
+# .partial another on its way writes - running, paused, queued to resume -
+# does not start. The second here is started from inside the first's transfer.
+OTHER = b'another file, same name'
+
+
+def named_version(version_id, name, body=BODY, url='https://example.invalid/n', size_kb=None):
+    entry = {'id': F(version_id), 'name': name, 'primary': True, 'downloadUrl': url,
+             'hashes': {'SHA256': hashlib.sha256(body).hexdigest().upper()}}
+    if size_kb is not None:
+        entry['sizeKB'] = size_kb
+    return version(id=version_id, files=[entry])
+
+
+second_try = {}
+
+
+def start_second(version_id, name, body=OTHER):
+    def start():
+        second_try['row'] = service.download_version(version_id, CHECKPOINT, named_version(version_id, name, body))
+    return start
+
+
+# 11. The second started while the first downloads.
+target = os.path.join(CKPT_DIR, 'same_1311.safetensors')
+civitai_says(FakeResponse([BODY[:5], start_second(1312, 'same_1311.safetensors'), BODY[5:]]),
+             FakeResponse([OTHER]))
+first = service.download_version(1311, CHECKPOINT, named_version(1311, 'same_1311.safetensors'))
+refused_second = second_try.get('row')
+check('#395: a second file of the same name, started while the first downloads, does not start',
+      [getattr(refused_second, 'status', None), (getattr(refused_second, 'error', '') or '').startswith(
+          'Not started: same_1311.safetensors, another download in the list')], ['error', True])
+check('and the first completes with its own bytes, Civitai\'s SHA-256',
+      [first.status, bytes_of(target), first.sha256], ['complete', BODY, SHA])
+check('the second asked Civitai for nothing', len(FakeSession.asked), 1)
+
+# 12. A paused download's .partial, and a new download of another file of the same name.
+target = os.path.join(CKPT_DIR, 'same_1313.safetensors')
+civitai_says(FakeResponse([BODY[:5], lambda: service._pause_flags.__setitem__(F(1313), True), BODY[5:]]))
+paused_first = service.download_version(1313, CHECKPOINT, named_version(1313, 'same_1313.safetensors'))
+civitai_says(FakeResponse([OTHER]))
+newcomer = service.download_version(1314, CHECKPOINT, named_version(1314, 'same_1313.safetensors', OTHER))
+check('a paused download\'s .partial: a new download of another file with its name is refused, the bytes kept',
+      [paused_first.status, newcomer.status, bytes_of(target + '.partial'), len(FakeSession.asked)],
+      ['paused', 'error', BODY[:5], 0])
+civitai_says(FakeResponse([BODY[5:]], status_code=206))
+paused_first = service.download_version(1313, CHECKPOINT, named_version(1313, 'same_1313.safetensors'), resume=True)
+check('and the paused one resumes and completes', [paused_first.status, bytes_of(target)], ['complete', BODY])
+
+# 14. The same name in another case is the same file on Windows, where the
+# suite runs (normcase folds case there alone).
+target = os.path.join(CKPT_DIR, 'Case_1315.safetensors')
+civitai_says(FakeResponse([BODY[:5], lambda: service._pause_flags.__setitem__(F(1315), True), BODY[5:]]))
+service.download_version(1315, CHECKPOINT, named_version(1315, 'Case_1315.safetensors'))
+civitai_says(FakeResponse([OTHER]))
+other_case = service.download_version(1316, CHECKPOINT, named_version(1316, 'case_1315.safetensors', OTHER))
+check('the same name in another case: refused, the paused one\'s bytes kept',
+      [other_case.status, bytes_of(target + '.partial')], ['error', BODY[:5]])
+service.cancel(F(1315))
+
+# 11b. The second started in the moment after the first's look, before its
+# .partial is recorded: only the claim taken with the look keeps it out.
+claim_window = {}
+real_api_key = ds.api_key_from_settings
+
+
+def key_starting_second():
+    if not claim_window:
+        claim_window['row'] = service.download_version(1324, CHECKPOINT,
+                                                       named_version(1324, 'same_1323.safetensors', OTHER))
+    return real_api_key()
+
+
+ds.api_key_from_settings = key_starting_second
+civitai_says(FakeResponse([BODY]), FakeResponse([OTHER]))
+try:
+    claimed = service.download_version(1323, CHECKPOINT, named_version(1323, 'same_1323.safetensors'))
+finally:
+    ds.api_key_from_settings = real_api_key
+check('the second started before the first has recorded its .partial: refused by the first\'s claim',
+      [getattr(claim_window.get('row'), 'status', None), claimed.status,
+       bytes_of(os.path.join(CKPT_DIR, 'same_1323.safetensors'))], ['error', 'complete', BODY])
+
+# 11c. An earlier download of the same file, kept from before 0.73.0 under a
+# stand-in and paused, holding the .partial: the new one says so, truly.
+earlier = os.path.join(CKPT_DIR, 'same_1325.safetensors.partial')
+io.open(earlier, 'wb').write(BODY[:5])
+kept['rows'] = [kept_row(1325, earlier, 0, file_id=-1325)]
+standing = fresh()
+standing.restore()
+civitai_says(FakeResponse([BODY]))
+pressed_again = standing.download_version(1325, CHECKPOINT, named_version(1325, 'same_1325.safetensors'))
+check('pressed again while its earlier download sits paused: not started, saying so, its bytes kept',
+      [pressed_again.status, pressed_again.error, bytes_of(earlier), len(FakeSession.asked)],
+      ['error', 'Not started: an earlier download of same_1325.safetensors is paused in the list. '
+                'Resume it, or Cancel it and press Retry.', BODY[:5], 0])
+standing.cancel(-1325)
+
+# 15. The first already being added to the library: the second finds its file
+# there, and is answered as one after the other is.
+added_meanwhile = {}
+
+
+def sync_starting_second(path, progress=None, known=None):
+    fake_sync(path, progress, known)
+    if not added_meanwhile:
+        civitai_says(FakeResponse([OTHER]))
+        added_meanwhile['row'] = service.download_version(1318, CHECKPOINT,
+                                                          named_version(1318, 'same_1317.safetensors', OTHER))
+
+
+service._sync_downloaded_file = sync_starting_second
+civitai_says(FakeResponse([BODY]))
+being_added = service.download_version(1317, CHECKPOINT, named_version(1317, 'same_1317.safetensors'))
+service._sync_downloaded_file = fake_sync
+check('the first being added to the library: the second finds its file there, a different file, and says so',
+      [being_added.status, getattr(added_meanwhile.get('row'), 'status', None),
+       (getattr(added_meanwhile.get('row'), 'error', '') or '').startswith('A different file named same_1317')],
+      ['complete', 'error', True])
+
+# 16. Two different names in one folder, at once: both complete.
+civitai_says(FakeResponse([BODY[:5], start_second(1320, 'apart_1320.safetensors'), BODY[5:]]),
+             FakeResponse([OTHER]))
+side = service.download_version(1319, CHECKPOINT, named_version(1319, 'apart_1319.safetensors'))
+check('two different names in one folder at once: both complete',
+      [side.status, getattr(second_try.get('row'), 'status', None),
+       bytes_of(os.path.join(CKPT_DIR, 'apart_1320.safetensors'))], ['complete', 'complete', OTHER])
+
+# 13. In parts: the second does not remove the first's part files.
+ds.PART_MIN = 10
+ds.requests = types.SimpleNamespace(Session=PartsSession, exceptions=real_requests.exceptions)
+same_parts = os.path.join(CKPT_DIR, 'same_parts.safetensors.partial')
+
+
+def part_sizes():
+    return [os.path.getsize(p) if os.path.exists(p) else None
+            for p in [same_parts] + ['%s.%d' % (same_parts, n) for n in (2, 3, 4)]]
+
+
+half_way = []
+
+
+def pause_parts_half(url, start, end, nth):
+    def between():
+        with PartsSession.lock:
+            half_way.append(1)
+        until('every part half way', lambda: len(half_way) >= 4)
+        service._pause_flags[F(1321)] = True
+    return between
+
+
+storage_says(BIG, script=pause_parts_half)
+parts_first = service.download_version(1321, CHECKPOINT, named_version(1321, 'same_parts.safetensors', BIG,
+                                                                       url=PARTS_URL, size_kb=len(BIG) / 1024))
+kept_sizes = part_sizes()
+storage_says(BIG)
+parts_second = service.download_version(1322, CHECKPOINT, named_version(1322, 'same_parts.safetensors', BIG,
+                                                                        url=PARTS_URL, size_kb=len(BIG) / 1024))
+check('in parts: the second, of the same name, is refused, and the paused one\'s parts are untouched',
+      [parts_first.status, parts_second.status, part_sizes() == kept_sizes, PartsSession.asked],
+      ['paused', 'error', True, []])
+service.cancel(F(1321))
+ds.requests = types.SimpleNamespace(Session=FakeSession, exceptions=real_requests.exceptions)
+if real_part_min is not None:
+    ds.PART_MIN = real_part_min
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

@@ -627,6 +627,23 @@ class DownloadService:
         kept = job.get("partial_path")
         return kept if kept and kept.endswith(PARTIAL) and os.path.exists(kept) else None
 
+    def _writing(self, partial: str, key: int) -> Optional[int]:
+        """
+        Another download on its way that writes this .partial (#395) - queued
+        to resume, downloading or paused - by its key; None if none. One
+        being added to the library is not counted: its file is already under
+        its name, which the check for a file already there answers. Under
+        the lock; `partial` as `_same_path` gives it.
+        """
+        for other, progress in self._active_downloads.items():
+            if other == key or progress.status not in ("pending", "downloading", "paused"):
+                continue
+            job = self._jobs.get(other) or {}
+            named = job.get("partial_path")
+            if job.get("claim") == partial or (named and _same_path(named) == partial):
+                return other
+        return None
+
     def _cancel_kept(self, key: int, job: Dict[str, Any]) -> None:
         """A download cancelled before it began fetching: cancelled, the .partial it kept removed."""
         partial = job.pop("partial_path", None)
@@ -1869,6 +1886,31 @@ class DownloadService:
             progress.file_name = file_name
             target_path = os.path.join(target_dir, file_name)
 
+            # One .partial, one download (#395): two different files of one
+            # name in one folder - two versions shipping one file name, say -
+            # wrote one .partial at once, and one could end checked and
+            # complete holding both downloads' bytes. Taken in the same step
+            # as the look, so a download starting a moment later sees it.
+            with self._lock:
+                holder = self._writing(_same_path(target_path + PARTIAL), key)
+                if holder is None:
+                    job["claim"] = _same_path(target_path + PARTIAL)
+            if holder is not None and holder < 0:
+                # A stand-in, kept from before 0.73.0: its file not yet named,
+                # most likely this very file, pressed again while it sat paused.
+                progress.status = "error"
+                progress.error = (f"Not started: an earlier download of {file_name} is paused in the list. "
+                                  "Resume it, or Cancel it and press Retry.")
+                return progress
+            if holder is not None:
+                progress.status = "error"
+                progress.error = (f"Not started: {file_name}, another download in the list, is being saved "
+                                  f"under the same name in {target_dir}. Two different files cannot have one "
+                                  "name in one folder. Press Retry once that download has finished: the file "
+                                  "there is then compared with this one, and added to your library if it is "
+                                  "the same, or you are told it is a different file.")
+                return progress
+
             # Civitai lists every hash the library keeps for a file. When the
             # bytes are the ones it hashed, its list is used rather than
             # reading the file again; when they are not, the file is corrupt.
@@ -1968,6 +2010,9 @@ class DownloadService:
                 partial_path = None              # kept and paused, or gone as the progress says
                 return progress
             partial_path = None
+            # Under its name now: being added, which a download of the same
+            # name meanwhile finds there and is answered by (#395).
+            progress.status = "finishing"
             _remove_parts(target_path + PARTIAL)
             target_path = self._file_by_what_it_is(target_path, progress)
 
@@ -2000,6 +2045,9 @@ class DownloadService:
             with self._lock:
                 self._cancel_flags.pop(key, None)
                 self._pause_flags.pop(key, None)
+                # The claim is the moments before the .partial is recorded;
+                # a paused download keeps the name by its .partial.
+                self._jobs.get(key, {}).pop("claim", None)
                 ended = progress.status in ("complete", "error", "cancelled")
                 if ended:
                     self._jobs.get(key, {}).pop("partial_path", None)
