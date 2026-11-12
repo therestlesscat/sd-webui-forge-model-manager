@@ -1880,7 +1880,8 @@ def your_checkpoints(db, version_ids: str = "", hashes: str = "", model_id: int 
     """
     Every checkpoint Forge lists, for the Resources dialog's list (#377), and
     which of them suit the image - from the library's rows and what the page
-    hands, reading no file and asking Civitai nothing.
+    hands, asking Civitai nothing; of the files, only whether the one picked
+    to begin with is there (#418).
 
     Args:
         version_ids, hashes: the image's checkpoint as the page reads it
@@ -1900,7 +1901,7 @@ def your_checkpoints(db, version_ids: str = "", hashes: str = "", model_id: int 
             sync read, null for none or not read yet (`read` false);
             `supported`, whether this WebUI has that preset.
         suggested: [{name, why}], closest first; picked: the name picked to
-            begin with, or null; same_base: {base_model, names} - the
+            begin with, or null - never one whose file is not there (#418); same_base: {base_model, names} - the
             checkpoints of the image's base model, in Forge's order, shown
             first in their family's tab, not suggested; loaded: Forge's
             checkpoint now; family: the image's, which the list opens on.
@@ -2004,7 +2005,16 @@ def your_checkpoints(db, version_ids: str = "", hashes: str = "", model_id: int 
         return min(SUGGESTED_ORDER.index(why) for why in reasons[name]), name.lower()
     suggested = [{"name": name, "why": [w for w in SUGGESTED_ORDER if w in reasons[name]]}
                  for name in sorted(reasons, key=closest)]
-    picked = next((s["name"] for s in suggested if s["why"][0] in PICKED_FIRST), None)
+    # Not picked to begin with where its file is not there (#418): Forge
+    # still lists a checkpoint whose drive went after its last refresh, and
+    # a press with it would fail at its load. Only the candidates for the
+    # pick are asked, in order, up to the first there - not the list.
+    paths = {name: path for name, path in listed}
+
+    def there(name):
+        path = paths.get(name)
+        return not path or os.path.exists(path)
+    picked = next((s["name"] for s in suggested if s["why"][0] in PICKED_FIRST and there(s["name"])), None)
 
     own_row = rows.get(key(own_path)) or {}
     base = own_row.get("base_model") or base_model or gallery_base_model or ""

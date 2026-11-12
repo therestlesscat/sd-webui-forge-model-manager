@@ -140,7 +140,8 @@ def register(app: FastAPI):
         The Resources dialog's list of your checkpoints (#377): every one
         Forge lists, and which suit the image - send.your_checkpoints(). Asked
         once the dialog's missing-resources lookup has answered, with what it
-        answered. Reads the library alone: no file, no Civitai.
+        answered. Reads the library, and whether the checkpoint it picks to
+        begin with is on disk (#418); asks Civitai nothing.
         """
         from ..db import get_models_db
         from ..send import your_checkpoints

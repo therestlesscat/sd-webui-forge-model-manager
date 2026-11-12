@@ -179,9 +179,22 @@ check('its row: in the library, its drive or folder not there, no Download',
       ['In your library - its drive or folder is not there now', false]);
 await waitFor('the line', () => line());
 check('the line says why, with Check again at once', [line(), Boolean(checkAgain())], [WAITS.unseen, true]);
+// The drive back: Check again finds it ready, and the row is asked again -
+// on 7880 it went on saying its drive was not there beside a ready Send.
+// The server then answers it held, as the library holds the file.
+away = {};
+installed.add(AWAY_ID);
+answer = '';
+if (checkAgain()) press(checkAgain());
+await waitFor('Send', () => sendButton() && !sendButton().disabled);
+await waitFor('the row asked again', () => cell() === 'Installed');
+check('ready once the drive is back, and the row says Installed again',
+      [sendButton()?.disabled, cell()], [false, 'Installed']);
+installed.delete(AWAY_ID);
 close();
 
 // Opened by the Resources button, its box unticked: the line says what the row says.
+away = { [AWAY_ID]: 'unseen' };
 await showImageResources(image(AWAY_ID), null, { send: { opened: 'resources', waits: WAITS, run: () => sent.push('box') } });
 await tick('resources.chooseTick', false);
 await waitFor('the row', () => cell().startsWith('In your library'));

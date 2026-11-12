@@ -1431,7 +1431,11 @@ async function recheckSend() {
             Object.assign(wanted, { reason, why, ready: !reason,
                                     gaveUp: Boolean(reason) && (isAway(reason) || Date.now() >= until) });
             // Ready: Forge lists it now, and the list's answer names it the image's own (#377).
-            if (!reason) askPickList({ again: true });
+            if (!reason) {
+                askPickList({ again: true });
+                // A row that said its drive was not there is asked again: it is back (#418).
+                if (resourcesRows.some(rowAway)) checkInstalledResources(resourcesRows, resourcesUnresolved);
+            }
             redrawSendBar();
             if (!reason || wanted.gaveUp) return;
             await new Promise((resolve) => setTimeout(resolve, TIMING.sendRecheck));

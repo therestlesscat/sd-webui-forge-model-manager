@@ -120,6 +120,34 @@ check('what suits the image, closest first, each with why',
       [(TITLES[P1], ["the image's own"]), (TITLES[P1_FP16], ['same version, other file']),
        (TITLES[P2], ['same model']), (TITLES[OTHER], ['loaded now'])])
 check('the image\'s own picked first', body.get('picked'), TITLES[P1])
+# Its file not there - its drive away, Forge still listing it until its next
+# refresh (#418): suggested still, as Forge lists it, but not picked to begin
+# with - a press with it would fail at Forge's load.
+# With a copy held under another model (#304), that copy is picked; and only
+# the candidates for the pick are asked about, never the whole list.
+real_exists, looked = os.path.exists, []
+
+
+def counted(path):
+    looked.append(os.path.normcase(str(path)))
+    return real_exists(path)
+
+
+os.rename(P1, P1 + '.away')
+try:
+    away = answer(version_ids=str(V1))
+    os.path.exists = counted
+    with_copy = answer(version_ids=str(V1), same_file=OTHER_VERSION)
+finally:
+    os.path.exists = real_exists
+    os.rename(P1 + '.away', P1)
+check('the image\'s own, its file not there: still suggested, not picked',
+      (suggested(away)[0], away.get('picked')), ((TITLES[P1], ["the image's own"]), None))
+check('  with the same file held under another model: that copy picked',
+      with_copy.get('picked'), TITLES[OTHER])
+check('  and of the listed files only the two candidates are asked about',
+      sorted(p for p in looked if p in {os.path.normcase(x) for x in TITLES}),
+      sorted(os.path.normcase(x) for x in (P1, OTHER)))
 check('Forge\'s checkpoint now, named', body.get('loaded'), TITLES[OTHER])
 check('the image\'s family, which the list opens on', body.get('family'), 'xl')
 check('the same base model: not suggested, but named for its family\'s tab, in Forge\'s order',
