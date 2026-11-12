@@ -113,6 +113,13 @@ let currentModels = [];
 // model, and a fresh card can name a newer version than the one on screen.
 // Only opening another model, or closing the panel, changes it.
 let openModel = null;
+// The open model's files not there, by path: "unseen" - their drive or
+// folder away, kept by a sync (#389) - or "gone", deleted and not yet
+// forgotten. Each details answer says it for all of them (#418), and the
+// panel's line, Files list, Delete and Sync follow it.
+let absentFiles = new Map();
+// Whether the shown file, not there, is in a folder this WebUI loads.
+let absentLoadsHere = true;
 let isLoading = false;
 // The grid load under way: one asked for meanwhile returns at once.
 let modelsLoad = Promise.resolve();
@@ -792,6 +799,8 @@ async function selectModel(index) {
 /** Open a model in the details panel: the copy every panel action reads until another is opened. */
 async function openRecord(model) {
     openModel = model;
+    absentFiles = new Map();
+    absentLoadsHere = true;
 
     // Reset image state
     imageGallery.images = [];
@@ -863,6 +872,7 @@ async function loadVersionDetails(filePath) {
         const data = await apiCall({ endpoint: '/model-manager/models/details', params });
         if (request !== imagesRequest) return;  // superseded by a newer load
         if (data.success && data.model) {
+            takeAbsence(filePath, data.model);
             // Store version ID for load-more
             if (data.model.civitai_version) {
                 currentVersionId = data.model.civitai_version.id;
@@ -1052,6 +1062,8 @@ async function selectVersion(versionIndex) {
 
     // Update version-specific info in details panel
     updateVersionInfo(version);
+    // Its line and buttons at once: the last answer named every file (#418).
+    drawAbsence();
 
     // Load details for new version - its gallery saying so meanwhile.
     if (document.getElementById('mm_images')?.style.display !== 'none') showGalleryLoading('mm_images');
@@ -1085,15 +1097,16 @@ function renderFilesSection(shown) {
         const folder = shortenFilePath((f.file_path || '').replace(/[\\/][^\\/]*$/, ''));
         return `<tr>
             <td>${escapeHtml(f.file_type || model.civitai_type || 'Unknown')}</td>
-            <td title="${escapeHtml(f.file_path)}">${escapeHtml(f.file_name)}${ignoredFileTag(f)}</td>
+            <td title="${escapeHtml(f.file_path)}">${escapeHtml(f.file_name)}${ignoredFileTag(f)}${absentFileTag(f)}</td>
             <td>${formatFileSize(f.file_size)}</td>
             <td>${formatDate(f.file_modified)}</td>
             <td title="${escapeHtml(f.file_path)}">${escapeHtml(folder)}</td>
             <td>${f.send_uses ? '<span title="Send to txt2img uses this file">✓</span>' : ''}</td>
             <td>${f.civitai_file_id ? escapeHtml(String(f.civitai_file_id)) : '—'}</td>
             <td><button class="mm-btn danger mm-btn-small mm-file-delete" data-action="modelManager.deleteFile"
-                        data-index="${currentVersions.indexOf(f)}"
-                        title="Delete this file, and its metadata files">🗑</button></td>
+                        data-index="${currentVersions.indexOf(f)}"${whyAbsent(f) ? ' disabled' : ''}
+                        title="${escapeHtml(whyAbsent(f) ? ABSENT_TITLES[whyAbsent(f)]
+                                                         : 'Delete this file, and its metadata files')}">🗑</button></td>
         </tr>`;
     }).join('');
     return `<div class="detail-section"><h4>Files (${files.length})</h4>
@@ -1147,6 +1160,8 @@ function forgetFile(file) {
     const selector = document.querySelector('#mm_details .mm-version-selector');
     if (selector) selector.outerHTML = renderVersionSelector();
     updateFileFacts(shownVersion(model));
+    // The file shown now may be one not there (#418).
+    drawAbsence();
     return true;
 }
 
@@ -1466,6 +1481,95 @@ function renderDetailHeader(model, { deletable = true, versionId = null } = {}) 
             </div>`;
 }
 
+/** Why a file of the open model is not there - "unseen" or "gone" - or undefined (#418). */
+function whyAbsent(file) {
+    return file?.file_path ? absentFiles.get(file.file_path) : undefined;
+}
+
+// The titles of Delete, Sync and a file's own delete where none of their files is there.
+const FORGET_BOX = 'To forget it, tick "Also forget files whose drive or folder is not there" in the Sync dialog; '
+                   + 'a sync that finds no file at all forgets nothing.';
+const ABSENT_TITLES = {
+    unseen: `This file's drive or folder is not there: nothing to delete. ${FORGET_BOX}`,
+    gone: 'This file is no longer on disk: nothing to delete. The next sync from the dialog forgets it.',
+};
+const ABSENT_SYNC_TITLES = {
+    unseen: `This model's drive or folder is not there: nothing to sync. ${FORGET_BOX}`,
+    gone: 'This model\'s files are no longer on disk: nothing to sync. The next sync from the dialog forgets them.',
+};
+// A Files list row's tag, whoever's folder the file is in.
+const ABSENT_TAG_TITLES = {
+    unseen: (path) => `Its drive or folder is not there now: ${path}.`,
+    gone: (path) => `No longer on disk: ${path}. The next sync from the dialog forgets it.`,
+};
+
+/** A file not there, tagged so in the Files list (#418). */
+function absentFileTag(file) {
+    const why = whyAbsent(file);
+    if (!why) return '';
+    const label = why === 'unseen' ? 'Drive or folder not there' : 'Not on disk';
+    return ` <span class="ignored-tag mm-absent-tag" title="${escapeHtml(ABSENT_TAG_TITLES[why](file.file_path))}">${label}</span>`;
+}
+
+// The line under the panel's header for a shown file not there.
+const ABSENT_LINE = {
+    unseen: (path) => `The drive or folder this file was in is not there now: ${path}. `
+                      + (absentLoadsHere ? 'What is shown is what the library kept. Connect the drive, and everything works again.'
+                                         : 'It is in a folder this WebUI does not load - another WebUI\'s, sharing this '
+                                           + 'library - and what is shown is what the library kept.'),
+    gone: (path) => `This file is no longer on disk: ${path}. The next sync from the dialog forgets it.`,
+};
+
+/** A details answer: which of the open model's files are not there (#418), then the panel drawn by it. */
+function takeAbsence(path, answer) {
+    absentFiles = new Map(Object.entries(answer.files_absent || {}));
+    if (answer.absent) absentFiles.set(path, answer.absent);
+    absentLoadsHere = answer.loads_here !== false;
+    drawAbsence();
+}
+
+/**
+ * The panel as its files' absence says: the line for the shown file, the
+ * Files list's tags, and Delete and Sync greyed, saying why, where none of
+ * the files they would act on is there - pressable again where one is.
+ */
+function drawAbsence() {
+    if (!openModel) return;
+    const shown = shownVersion(openModel);
+    const why = whyAbsent(shown);
+    const note = document.getElementById('mm_absent_note');
+    if (note) {
+        if (note.hidden !== !why) note.hidden = !why;
+        setText(note.querySelector('.mm-absent-text'), why ? ABSENT_LINE[why](shown.file_path) : '');
+    }
+    const slot = document.querySelector('#mm_details .mm-files-slot');
+    const files = renderFilesSection(shown);
+    if (slot && slot.innerHTML !== files) slot.innerHTML = files;
+    document.querySelectorAll('#mm_details .detail-header [data-action="modelManager.deleteModel"]').forEach((button) => {
+        const away = deleteTargets(button.dataset.scope).map(whyAbsent);
+        greyFor(button, away.every(Boolean) ? ABSENT_TITLES[away.includes('unseen') ? 'unseen' : 'gone'] : null);
+    });
+    const sync = document.querySelector('#mm_details .detail-header [data-action="modelManager.syncModel"]');
+    if (sync) {
+        const away = localFiles().map(whyAbsent);
+        greyFor(sync, away.every(Boolean) ? ABSENT_SYNC_TITLES[away.includes('unseen') ? 'unseen' : 'gone'] : null);
+    }
+}
+
+/** A button greyed with `why` as its title, or pressable with the title it was drawn with. */
+function greyFor(button, why) {
+    if (!('usualTitle' in button.dataset)) button.dataset.usualTitle = button.title || '';
+    const title = why || button.dataset.usualTitle;
+    if (button.disabled !== Boolean(why)) button.disabled = Boolean(why);
+    if (button.title !== title) button.title = title;
+}
+
+/** What a Delete of `scope` would delete: the version shown's files, all the model's, or one file. */
+function deleteTargets(scope, file = null) {
+    const shown = file || shownVersion(openModel);
+    return scope === 'all' ? localFiles().slice() : scope === 'file' ? [shown] : versionFiles(shown);
+}
+
 /**
  * A version not in the library, as the Civitai Browser shows one: what it is
  * and a Download, from what was recorded at the last sync. It has no gallery
@@ -1619,6 +1723,8 @@ async function versionDownloaded(dl) {
     const header = document.querySelector('#mm_details .detail-header');
     if (header) header.outerHTML = renderDetailHeader(model, { deletable: remoteVersionId === null,
                                                                versionId: remoteVersionId ?? model.id });
+    // Drawn afresh, its buttons greyed again where their files are not there (#418).
+    drawAbsence();
     const selector = document.querySelector('#mm_details .mm-version-selector');
     const fresh = renderVersionSelector();
     if (selector) selector.outerHTML = fresh;
@@ -1675,6 +1781,10 @@ function renderModelDetails(model, fullDetails = null) {
     container.innerHTML = `
         <div class="model-details-content">
             ${renderDetailHeader(model, { versionId: model.id })}
+
+            <div class="mm-banner mm-absent-note" id="mm_absent_note" hidden>
+                <span class="mm-banner-icon">!</span><span class="mm-absent-text"></span>
+            </div>
 
             ${versionSelectorHtml}
 
@@ -1813,10 +1923,14 @@ async function forceSyncModel() {
 
         if (data.success) {
             const synced = data.synced_count || 0;
-            const total = data.total_versions || 0;
+            // A file not there is left, and named so, not counted as failed (#418).
+            const away = localFiles().filter((f) => whyAbsent(f)).map((f) => f.file_path);
+            const errors = data.errors || [];
+            const left = errors.filter((e) => away.some((path) => e.startsWith(`${path}: `)));
+            const total = (data.total_versions || 0) - left.length;
             // Which failed, and why: it said "successfully" whatever the count (#208).
             const failed = total - synced;
-            const why = (data.errors || []).join('; ');
+            const why = errors.filter((e) => !left.includes(e)).join('; ');
             // The panel draws from the card's record, which the sync made
             // stale (#388): the grid's page again - after any load already
             // under way, which would make this one return at once - then the
@@ -1825,6 +1939,7 @@ async function forceSyncModel() {
             // Said after the page's own count, which would replace it (#208).
             setStatus(`Synced ${synced} of ${total} files from Civitai`
                 + (failed > 0 ? `; ${failed} failed${why ? `: ${why}` : ''}` : '')
+                + (left.length ? `; left as they are: ${left.join('; ')}` : '')
                 + (reloaded ? '' : '; the grid could not be loaded again'), !reloaded);
             // A page that no longer holds its card - another page, another
             // tab of the grid - leaves the panel the record it had.
@@ -1974,12 +2089,21 @@ async function deleteModel(scope = 'version', file = null) {
     if (!model) return;
 
     const shown = file || shownVersion(model);
-    const targets = scope === 'all' ? localFiles().slice()
-        : scope === 'file' ? [shown] : versionFiles(shown);
+    // Only the files there are sent; those not there are named as left (#418).
+    const chosen = deleteTargets(scope, shown);
+    const targets = chosen.filter((f) => !whyAbsent(f));
+    const away = chosen.filter((f) => whyAbsent(f));
+    if (!targets.length) {
+        setStatus(ABSENT_TITLES[away.some((f) => whyAbsent(f) === 'unseen') ? 'unseen' : 'gone']);
+        return;
+    }
     const all = targets.length > 1;
     const versions = versionCount(localFiles());
     const name = (v) => v.version_name || v.file_name || 'this version';
-    const what = scope === 'file' ? `the file ${shown.file_name} of "${model.display_name}"`
+    // Some left (#418): named by what is deleted, not by the scope pressed.
+    const some = targets.length === 1 ? targets[0].file_name : `${targets.length} files`;
+    const what = away.length ? `${targets.length === 1 ? 'the file ' : ''}${some} of "${model.display_name}"`
+        : scope === 'file' ? `the file ${shown.file_name} of "${model.display_name}"`
         : scope === 'all' && versions > 1 ? `all ${versions} versions of "${model.display_name}"`
         : versions > 1 ? `version "${name(shown)}" of "${model.display_name}"`
         : `"${model.display_name}"`;
@@ -1989,8 +2113,11 @@ async function deleteModel(scope = 'version', file = null) {
         title: `Are you sure you want to delete ${what}?`,
         message: `This will delete, for ${all ? 'each' : 'it'}: the model file, all metadata files `
             + '(.civitai.info, .preview.png, etc.) and the folder its download made, once empty.',
-        list: all ? targets.map((v) => ({ text: name(v), detail: v.file_name })) : null,
-        note: 'This action cannot be undone.',
+        list: all || away.length ? targets.map((v) => ({ text: name(v), detail: v.file_name })) : null,
+        note: (away.length ? `Left as they are, not there to delete: ${away.map((v) => `${v.file_name} - `
+                                + (whyAbsent(v) === 'unseen' ? 'its drive or folder is not there now'
+                                                             : 'it is no longer on disk')).join('; ')}. ` : '')
+              + 'This action cannot be undone.',
         buttons: [{ label: 'Cancel', value: false }, { label: 'Delete', value: true, type: 'danger' }],
     });
     if (!answer?.value) return;
@@ -2004,7 +2131,8 @@ async function deleteModel(scope = 'version', file = null) {
     // And what it left on purpose that the person should know of: a .png
     // the original Forge loads as an embedding. Information, not an error;
     // a side file another model file uses goes unsaid.
-    const kept = [];
+    const kept = away.map((v) => `Left ${v.file_name}: `
+                          + (whyAbsent(v) === 'unseen' ? 'its drive or folder is not there now' : 'it is no longer on disk'));
     for (const version of targets) {
         try {
             const response = await fetch('/model-manager/models/delete', {
@@ -2045,8 +2173,9 @@ async function deleteModel(scope = 'version', file = null) {
     if (failed.length) {
         setStatus(withLeft(`Delete failed for ${failed.join('; ')}`), true);
     } else {
-        setStatus(withLeft(all ? `Deleted ${targets.length} files of ${model.display_name}${deletedName}`
-                               : `Deleted: ${model.display_name}${deletedName}`), !!left.length);
+        setStatus(withLeft(away.length ? `Deleted ${some} of ${model.display_name}`
+                           : all ? `Deleted ${targets.length} files of ${model.display_name}${deletedName}`
+                           : `Deleted: ${model.display_name}${deletedName}`), !!left.length);
     }
 }
 

@@ -402,7 +402,7 @@ os.remove(ghost)
 code, body = post('/model-manager/models/delete', path=ghost)
 check('a known model whose file is gone still answers 404', code, 404)
 check('and says why, not "Model file not found" (#418)', body.get('error'),
-      'Nothing was removed: it is no longer on disk; the next sync from the dialog forgets it')
+      'Nothing was removed: it is no longer on disk, and the next sync from the dialog forgets it')
 
 # ------------------------------------------------ a file not there (#418)
 # Since #389 a sync keeps the row of a file whose drive or folder cannot be
@@ -434,6 +434,16 @@ code, body = get('/model-manager/models/details', path=away)
 shown = body.get('model') or {}
 check('a file whose drive is away: its details answer', (code, body.get('success')), (200, True))
 check('saying its drive or folder is not there', shown.get('absent'), 'unseen')
+check('and that it is not in a folder this WebUI loads - none is given here', shown.get('loads_here'), False)
+forge_paths = sys.modules['modules'].paths
+models_before = getattr(forge_paths, 'models_path', None)
+forge_paths.models_path = facts['models_dir']
+moved_here = os.path.join(facts['models_dir'], 'Stable-diffusion', 'away_' + os.path.basename(away_from))
+db.move_version(away, moved_here)
+code, body = get('/model-manager/models/details', path=moved_here)
+check('a file not there in a folder this WebUI loads: said so', (body.get('model') or {}).get('loads_here'), True)
+db.move_version(moved_here, away)
+forge_paths.models_path = models_before
 check('with its version, its model and its gallery, as for any file',
       ['civitai_version' in shown, 'civitai_model' in shown, 'images_state' in shown], [True, True, True])
 check('its size and date as the library last saw them',

@@ -21,7 +21,7 @@ from ..civitai import CivitaiClient, paid_access_info
 from ..civitai.licensing import on_site_only
 from .images import gallery_state, gallery_switches
 from .common import card_size, failed, gate
-from ..model_dirs import absence, absences, companions, file_modified, folder_of, ignored_because
+from ..model_dirs import absence, absences, companions, file_modified, folder_of, ignored_because, loads_here
 from ..download_service import template_folders
 from .. import resources
 from ..console import say
@@ -199,7 +199,7 @@ def _absent_words(why: str) -> str:
     """Why a file not there was left alone, as the page says it (#418): it was "File not found" either way."""
     if why == "unseen":
         return "its drive or folder is not there now"
-    return "it is no longer on disk; the next sync from the dialog forgets it"
+    return "it is no longer on disk, and the next sync from the dialog forgets it"
 
 
 def _clear_beside(path: str, made: List[str], deleted_files: List[str], not_removed: List[dict],
@@ -390,6 +390,9 @@ def register(app: FastAPI):
                     "file_size": db_version.get("file_size"),
                     "file_modified": db_version.get("file_modified"),
                     "absent": absent.pop(path),
+                    # The other WebUI's file, sharing the database: the
+                    # panel does not tell to connect a drive for it.
+                    "loads_here": loads_here(path),
                 }
             if absent:
                 result["files_absent"] = absent

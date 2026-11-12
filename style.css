@@ -4229,6 +4229,14 @@ body.mm-modal-open {
     display: none;
 }
 
+/* A model's file not there, in its details panel (#418): the line names its
+   whole path, which has no place to break - it wraps anywhere rather than
+   push the line past the panel. */
+.mm-banner > .mm-absent-text {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
 .mm-banner-icon {
     flex: none;
     width: 18px;
