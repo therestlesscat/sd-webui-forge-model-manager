@@ -9,6 +9,7 @@ executed by a test.
 import io
 import json
 import os
+import string
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -400,6 +401,67 @@ ghost = facts['local_only_paths'][1]
 os.remove(ghost)
 code, body = post('/model-manager/models/delete', path=ghost)
 check('a known model whose file is gone still answers 404', code, 404)
+check('and says why, not "Model file not found" (#418)', body.get('error'),
+      'Nothing was removed: it is no longer on disk; the next sync from the dialog forgets it')
+
+# ------------------------------------------------ a file not there (#418)
+# Since #389 a sync keeps the row of a file whose drive or folder cannot be
+# seen. Its details answered 404, and the panel drew no description and no
+# gallery - which need no file. They come from the library now, with why the
+# file is not there: "gone" where its folder is there - the next sync
+# forgets it - "unseen" where it is not.
+code, body = get('/model-manager/models/details', path=ghost)
+check('a known model whose file was deleted: its details answer, from the library',
+      (code, body.get('success')), (200, True))
+check('saying it is gone', (body.get('model') or {}).get('absent'), 'gone')
+
+
+def unmapped_drive():
+    for letter in reversed(string.ascii_uppercase):
+        if not os.path.isdir(letter + ':\\'):
+            return letter + ':\\'
+    return None
+
+
+AWAY_DRIVE = unmapped_drive()
+check('an unmapped drive letter is there to stand for a drive away', AWAY_DRIVE is not None)
+pair = [v['file_path'] for v in db.get_versions_for_model(facts['checkpoint_ids'][1])]
+check('a checkpoint with two files, to take one away', len(pair), 2)
+held_file, away_from = pair
+away = os.path.join(AWAY_DRIVE or 'Q:\\', 'models', 'Stable-diffusion', os.path.basename(away_from))
+db.move_version(away_from, away)
+code, body = get('/model-manager/models/details', path=away)
+shown = body.get('model') or {}
+check('a file whose drive is away: its details answer', (code, body.get('success')), (200, True))
+check('saying its drive or folder is not there', shown.get('absent'), 'unseen')
+check('with its version, its model and its gallery, as for any file',
+      ['civitai_version' in shown, 'civitai_model' in shown, 'images_state' in shown], [True, True, True])
+check('its size and date as the library last saw them',
+      (shown.get('file_size'), shown.get('file_modified')), (os.path.getsize(away_from), '2026-01-01T00:00:00'))
+check('its model\'s other file, there, unmarked', 'files_absent' in shown, False)
+code, body = get('/model-manager/models/details', path=held_file)
+check('the model\'s other file, there: as ever, with the one away marked',
+      ((body.get('model') or {}).get('absent'), (body.get('model') or {}).get('files_absent')),
+      (None, {away: 'unseen'}))
+code, body = get('/model-manager/models/details', path=facts['linked_paths'][0])
+check('a file there, nothing of its model away: the answer holds what it always held',
+      sorted(body.get('model') or {}), ['civitai_model', 'civitai_version', 'file_modified', 'file_name',
+                                        'file_path', 'file_size', 'generations_count', 'images_state'])
+
+code, body = post('/model-manager/models/delete', path=away)
+check('Delete of a file whose drive is away: refused, saying why',
+      (code, body.get('error')), (404, 'Nothing was removed: its drive or folder is not there now'))
+check('and its row kept', bool(db.get_version(away)), True)
+
+lone = next(p for p in facts['linked_paths'][::-1]
+            if len(db.get_versions_for_model(db.get_version(p)['model_id'])) == 1)
+lone_model = db.get_version(lone)['model_id']
+lone_away = os.path.join(AWAY_DRIVE or 'Q:\\', 'models', 'Lora', os.path.basename(lone))
+db.move_version(lone, lone_away)
+code, body = post('/model-manager/models/force-sync', model_id=lone_model)
+check('the model\'s Sync, its one file away: nothing synced, and why, not "File not found"',
+      (code, body.get('synced_count'), body.get('errors')),
+      (200, 0, ['%s: its drive or folder is not there now' % lone_away]))
 
 # The folders its download made go with the last file in them (#196): the
 # template's, for this model. The old rule wanted a folder named like the

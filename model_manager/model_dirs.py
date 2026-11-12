@@ -726,7 +726,16 @@ class Sight:
             if self._there(folder):
                 break
         where = _as_prefix(folder)
-        return any(where.startswith(walked) or walked.startswith(where) for walked in self.walked)
+        return any(_on_line(where, walked) for walked in self.walked)
+
+
+def _on_line(where: str, library: str) -> bool:
+    """
+    Whether a library folder is inside the first folder there on a missing
+    file's way up, or holds it - both as prefixes (_as_prefix): the only
+    library folders that make that folder's being there count (Sight).
+    """
+    return where.startswith(library) or library.startswith(where)
 
 
 def _as_prefix(folder: str) -> str:
@@ -761,6 +770,61 @@ def _sight(walked) -> Sight:
     if isinstance(walked, Sight):
         return walked
     return Sight(library_dirs() if walked is None else walked)
+
+
+def absence(path: str, walked=None) -> Optional[str]:
+    """
+    Whether a library file is there, and if not, why (#418): None for a file
+    on disk; "unseen" where the place it was in cannot be seen - its drive
+    unplugged, its share asleep, a junction on the way leading nowhere - and
+    a sync keeps its row; "gone" where that place can be seen and the file
+    is not in it, and the next sync forgets it. The sync's own rule (Sight),
+    so the page never says otherwise than the sync does.
+
+    The rest is asked only once the file is not there, and then only of the
+    file's own line: the folders above it up to the first that is there, and
+    the library folders inside that one or holding it - the only ones Sight
+    compares. Any other is not asked whether it is there: one may be a share
+    asleep, 42 s for its first question (#389). `walked`: the library's
+    folders, or a Sight; by default those, as absences() finds them.
+    """
+    if walked is None:
+        return absences([path]).get(path)
+    if not path or os.path.exists(path):
+        return None
+    return "gone" if _sight(walked).can_see(path) else "unseen"
+
+
+def absences(paths) -> Dict[str, str]:
+    """
+    absence() of each path, for those not there: {path: "unseen" | "gone"}.
+    Each library folder is asked at most once whether it is there, and only
+    one on a missing file's line.
+    """
+    found: Dict[str, str] = {}
+    folders: Dict[str, bool] = {}
+    named = None
+
+    def there(folder: str) -> bool:
+        key = os.path.normcase(folder)
+        if key not in folders:
+            folders[key] = os.path.isdir(folder)
+        return folders[key]
+
+    for path in paths:
+        if not path or path in found or os.path.exists(path):
+            continue
+        if named is None:
+            named = [(d, _as_prefix(d)) for d in _named_dirs(*model_folders())]
+        # The first folder there on the file's way up: the only library
+        # folders the Sight compares are inside it or holding it.
+        where = os.path.dirname(os.path.abspath(path))
+        while not there(where) and os.path.dirname(where) != where:
+            where = os.path.dirname(where)
+        at = _as_prefix(where)
+        walked = [d for d, prefix in named if _on_line(at, prefix) and there(d)]
+        found[path] = "gone" if Sight(walked).can_see(path) else "unseen"
+    return found
 
 
 def gone_from_disk(stored_paths, found_paths, walked=None) -> List[str]:

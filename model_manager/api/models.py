@@ -21,7 +21,7 @@ from ..civitai import CivitaiClient, paid_access_info
 from ..civitai.licensing import on_site_only
 from .images import gallery_state, gallery_switches
 from .common import card_size, failed, gate
-from ..model_dirs import companions, file_modified, folder_of, ignored_because
+from ..model_dirs import absence, absences, companions, file_modified, folder_of, ignored_because
 from ..download_service import template_folders
 from .. import resources
 from ..console import say
@@ -195,6 +195,13 @@ def _why(error: OSError) -> str:
     return error.strerror or str(error)
 
 
+def _absent_words(why: str) -> str:
+    """Why a file not there was left alone, as the page says it (#418): it was "File not found" either way."""
+    if why == "unseen":
+        return "its drive or folder is not there now"
+    return "it is no longer on disk; the next sync from the dialog forgets it"
+
+
 def _clear_beside(path: str, made: List[str], deleted_files: List[str], not_removed: List[dict],
                   kept: Dict[str, List[str]]) -> None:
     """
@@ -346,27 +353,51 @@ def register(app: FastAPI):
         try:
             import os
 
-            if not os.path.exists(path):
+            db = get_models_db()
+            db_version = db.get_version(path)
+            # A file not there is answered from the library while it keeps
+            # the row (#418): its drive away, or deleted and not yet
+            # forgotten - said which, for the panel. Each of the model's
+            # files is asked once; its other files' answer marks the Files
+            # list and the Delete buttons.
+            if not db_version and not os.path.exists(path):
                 return JSONResponse(
                     {"success": False, "error": "Model file not found"},
                     status_code=404
                 )
+            others = []
+            if db_version and db_version.get("model_id"):
+                others = [v["file_path"] for v in db.get_versions_for_model(db_version["model_id"])
+                          if v.get("file_path") and v["file_path"] != db_version.get("file_path")]
+            absent = absences([path] + others)
+            # One look decides: a drive back between two looks once made a
+            # file there read as deleted.
+            on_disk = path not in absent
 
-            # Build response with file info
-            stat = os.stat(path)
-            result = {
-                "file_path": path,
-                "file_name": os.path.basename(path),
-                "file_size": stat.st_size,
-                "file_modified": file_modified(path),
-            }
+            if on_disk:
+                stat = os.stat(path)
+                result = {
+                    "file_path": path,
+                    "file_name": os.path.basename(path),
+                    "file_size": stat.st_size,
+                    "file_modified": file_modified(path),
+                }
+            else:
+                # As the sync last saw it.
+                result = {
+                    "file_path": path,
+                    "file_name": os.path.basename(path),
+                    "file_size": db_version.get("file_size"),
+                    "file_modified": db_version.get("file_modified"),
+                    "absent": absent.pop(path),
+                }
+            if absent:
+                result["files_absent"] = absent
 
             # The database alone: a sidecar is no source for a file Civitai
             # has not identified - a sync reads one only for a model Civitai
             # does not have (SyncService._identify_by_sidecar).
             version_id = None
-            db = get_models_db()
-            db_version = db.get_version(path)
 
             if db_version and db_version.get("id"):
                 version_id = db_version["id"]
@@ -541,14 +572,16 @@ def register(app: FastAPI):
             synced_count = 0
             errors = []
 
+            # Each file not there, asked at once: one look at the library's folders.
+            absent = absences([v.get("file_path") for v in versions])
             for version in versions:
                 file_path = version.get("file_path")
                 if not file_path:
                     continue
 
                 import os
-                if not os.path.exists(file_path):
-                    errors.append(f"File not found: {file_path}")
+                if file_path in absent:
+                    errors.append(f"{file_path}: {_absent_words(absent[file_path])}")
                     continue
 
                 # Forced, but with the hashes read from the file before if
@@ -608,9 +641,10 @@ def register(app: FastAPI):
                     status_code=403
                 )
 
-            if not os.path.exists(path):
+            why = absence(path)
+            if why:
                 return JSONResponse(
-                    {"success": False, "error": "Model file not found"},
+                    {"success": False, "error": f"Nothing was removed: {_absent_words(why)}"},
                     status_code=404
                 )
 

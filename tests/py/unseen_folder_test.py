@@ -146,6 +146,9 @@ THROUGH_LINK = os.path.join(LINK, base(BEHIND))
 
 # A subfolder of the library, and a file in it.
 OLD = write(os.path.join(models, 'Lora', 'old', 'in_old.safetensors'))
+# Two levels down, the inner folder deleted and the outer kept: the first
+# folder there is inside the library folder, not the folder itself (#418).
+DEEP = write(os.path.join(models, 'Lora', 'outer', 'inner', 'deep.safetensors'))
 
 # The other WebUI, sharing the database: one of its files on a drive not
 # there, one in a folder that is there.
@@ -181,6 +184,7 @@ os.remove(OTHER_DELETED)
 DELETED = facts['local_only_paths'][0]
 os.remove(DELETED)
 shutil.rmtree(os.path.join(models, 'Lora', 'old'))
+shutil.rmtree(os.path.join(models, 'Lora', 'outer', 'inner'))
 VAES = [p for p in db.get_all_version_paths() if os.sep + 'VAE' + os.sep in p and p.startswith(models)]
 shutil.rmtree(os.path.join(models, 'VAE'))
 # A row in another spelling of a file deleted by hand.
@@ -195,9 +199,42 @@ LOOSE_MOVED = os.path.join(models, 'VAE', base(LOOSE))
 check('Move would offer the VAE on the USB drive while it is there - not now',
       [f['path'] for f in model_dirs.misplaced_files(db) if f['path'] == ON_USB[2]], [])
 
+# What the page is told of a file not there (#418), asked before the sync:
+# the sync's own rule, so it forgets exactly the "gone" and keeps the
+# "unseen". A file that is itself a link leading nowhere sits in a folder
+# that is there: gone, as the sync takes it.
+DANGLING = os.path.join(models, 'Lora', 'dangling.safetensors')
+try:
+    os.symlink(os.path.join(DRIVES, 'nowhere.safetensors'), DANGLING)
+except (OSError, NotImplementedError):
+    DANGLING = None
+    print('note: no symbolic link could be made here; the dangling-file case is not run')
+absence = getattr(model_dirs, 'absence', None)
+told = {}
+if absence is None:
+    fails.append('model_dirs has no absence(): what the page is told cannot be asked')
+else:
+    told = {p: absence(p) for p in db.get_all_version_paths()}
+    check('a file there: nothing to tell', absence(LOOSE), None)
+    check('a library folder away, a junction leading nowhere, the other WebUI\'s drive away: unseen',
+          [told.get(p) for p in ON_USB + [MOVED_LORA, THROUGH_LINK, OTHER_AWAY]], ['unseen'] * 6)
+    check('a file deleted, a subfolder of the library deleted, one inside it, a kind\'s folder deleted: gone',
+          [told.get(p) for p in [DELETED, OLD, DEEP] + VAES], ['gone'] * (3 + len(VAES)))
+    check('the other WebUI\'s file deleted from a folder that is there: gone', told.get(OTHER_DELETED), 'gone')
+    if DANGLING:
+        check('a file that is a link leading nowhere: gone', absence(DANGLING), 'gone')
+    check('all at once, the same answers', model_dirs.absences(list(told)),
+          {p: why for p, why in told.items() if why})
+
+if DANGLING:
+    os.remove(DANGLING)
+
 mark = console.said()
 progress = SyncService(client=Client()).sync_all(move_misplaced=True)
 log = said_since(mark)
+if told:
+    check('the sync forgets what the page calls gone, and keeps what it calls unseen',
+          sorted(p for p, why in told.items() if why and has(p) != (why == 'unseen')), [])
 
 check('a library folder away: its files are kept', [has(p) for p in ON_USB + [MOVED_LORA]], [True] * 4)
 check('a junction leading nowhere: its file is kept', has(THROUGH_LINK), True)
@@ -221,7 +258,7 @@ VAES = [p for p in VAES if os.path.normcase(p) != os.path.normcase(LOOSE_MOVED)]
 check('a row in another spelling, its file deleted: forgotten', has(OTHER_CASE), False)
 check('the other WebUI\'s file deleted from a folder that is there: forgotten', has(OTHER_DELETED), False)
 check('and counted as gone from disk', progress.removed,
-      len({os.path.normcase(p) for p in [DELETED, OLD, OTHER_CASE, OTHER_DELETED] + VAES}))
+      len({os.path.normcase(p) for p in [DELETED, OLD, DEEP, OTHER_CASE, OTHER_DELETED] + VAES}))
 
 # A metadata sync with the drive away: its own check meets the linked row on
 # the drive again, which the walk kept already.
