@@ -34,7 +34,8 @@ except ImportError:
 
 import fixtures                                          # noqa: E402
 import model_manager.db.database as dbmod                # noqa: E402
-from model_manager.api import common, setup_api          # noqa: E402
+import model_manager.release_notes as rn                 # noqa: E402
+from model_manager.api import setup_api                  # noqa: E402
 from model_manager.nsfw import PG, X                     # noqa: E402
 from model_manager.repairs import lora_weights           # noqa: E402
 
@@ -124,12 +125,18 @@ TO_CORRECT = [plain, hires, batch, styled, added, stale, two, mixed, batches, se
 
 app = FastAPI()
 setup_api(app)
-lora_weights.register(app, common)
 client = TestClient(app)
 
 # ------------------------------------------------------------------ the check
 check('the check counts the generations whose weights differ from their prompts\'',
       lora_weights.needed(db), len(TO_CORRECT))
+
+# ------------------------------------------------- the page's list, the note
+check('the list of repairs names it, with its count and its tab',
+      client.get('/model-manager/repairs').json()['repairs'].get('lora_weights'),
+      {'count': len(TO_CORRECT), 'tab': 'generations'})
+check('the Generations tab\'s note shows while there are any',
+      'lora-weights-0-78-10' in [n['id'] for n in rn.notes_for(db, 'generations')], True)
 
 # -------------------------------------------------------------------- the list
 opts.model_manager_generations_hide_nsfw = False
@@ -181,7 +188,7 @@ answer = client.post('/model-manager/repairs/lora-weights/correct',
                      data={'ids': ','.join(str(g) for g in ticked) + ',99999999'}).json()
 check('Correct takes the ticked ones, and says what it skipped',
       (answer.get('corrected'), answer.get('skipped')),
-      (sorted(ticked), [{'id': 99999999, 'why': 'already gone'}]))
+      (sorted(ticked), [{'id': 99999999, 'why': 'it is already gone'}]))
 check('each LoRA now holds its tag\'s weights',
       [weights_of(g) for g in (plain, batch, two)],
       [{0: [('a', 0.7, 0.7)]}, {0: [('a', 0.4, 0.4)], 1: [('a', 0.4, 0.4)]}, {0: [('a', 0.7, 0.4)]}])
@@ -225,7 +232,7 @@ check('and every index row but a LoRA at 1 in a corrected image',
       sorted(k for k in index_before if index_after.get(k) != index_before[k]
              and not (k[0] in corrected_images and k[1] == 'lora' and index_before[k] == 1.0)), [])
 check('the check now counts the one not ticked', lora_weights.needed(db), 1)
-NOTHING_LEFT = ('nothing left to correct: its LoRA weights match its prompt, '
+NOTHING_LEFT = ('its LoRA weights already match its prompt, '
                 'or the image its batch\'s weights are read from is gone')
 check('a second Correct changes nothing, saying why - the UNet\'s alone too',
       client.post('/model-manager/repairs/lora-weights/correct', data={'ids': '%d,%d' % (plain, unet_only)}).json(),
@@ -238,9 +245,12 @@ check('nothing ticked: nothing corrected',
 # ------------------------------------------ one deleted between list and Correct
 db.delete_generation(styled)
 check('a generation deleted since: the count drops', lora_weights.needed(db), 0)
+check('none left: the list of repairs does not name it, and the note is gone',
+      ('lora_weights' in client.get('/model-manager/repairs').json()['repairs'],
+       'lora-weights-0-78-10' in [n['id'] for n in rn.notes_for(db, 'generations')]), (False, False))
 check('and Correct skips it, saying why',
       client.post('/model-manager/repairs/lora-weights/correct', data={'ids': str(styled)}).json()['skipped'],
-      [{'id': styled, 'why': 'already gone'}])
+      [{'id': styled, 'why': 'it is already gone'}])
 
 # ----------------------------------------- asked again: only newer generations
 # Many generations the check reads at its first ask, none to correct...

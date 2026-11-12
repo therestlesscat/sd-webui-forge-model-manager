@@ -12,11 +12,11 @@ no database. A repair's check does, and a slow disk would hold every tab.
 from typing import Any, Dict
 
 from ..tabs import on
-from . import recorded_twice
+from . import lora_weights, recorded_twice
 
 # Each repair, by the name the page knows it by: its script is
 # javascript/repairs/<name>.mjs.
-REPAIRS: Dict[str, Any] = {"recorded_twice": recorded_twice}
+REPAIRS: Dict[str, Any] = {"recorded_twice": recorded_twice, "lora_weights": lora_weights}
 
 
 def needed(db) -> Dict[str, int]:

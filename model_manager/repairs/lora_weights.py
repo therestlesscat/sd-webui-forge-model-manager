@@ -212,8 +212,8 @@ def correct(db, ids: Iterable[int]) -> Dict[str, Any]:
                        (json.dumps(ids),))
         present = {row[0] for row in cursor.fetchall()}
         fresh = _of(cursor, present)
-        skipped = [{"id": i, "why": "already gone" if i not in present
-                    else "nothing left to correct: its LoRA weights match its prompt, "
+        skipped = [{"id": i, "why": "it is already gone" if i not in present
+                    else "its LoRA weights already match its prompt, "
                          "or the image its batch's weights are read from is gone"}
                    for i in ids if i not in fresh]
         for images in fresh.values():

@@ -7,7 +7,7 @@ two streaming routes do, through streams_status beneath the gate - else from
 one it adds and takes out again. A second would leave the first unfilled, and
 those two routes would fail on every call.
 
-What is checked here: every one of the 96 routes hands its request to the
+What is checked here: every one of the 98 routes hands its request to the
 gate, the gate outermost; a route that asked for its request still gets it,
 one that did not is not handed it; a direct call, with no request, runs as a
 script's. The streaming routes' own answers, plain and streamed, are
@@ -23,7 +23,7 @@ request sent to a name it does not know - not localhost, an IP address or
 a name in the setting - is refused unless the browser sent Sec-Fetch-Site,
 over https, and the setting's names count, in Host and in Origin, the
 latter whatever the switch says; the
-listening address is read as the WebUI chooses it; and each of the 96 routes, called with such a request, refuses it before
+listening address is read as the WebUI chooses it; and each of the 98 routes, called with such a request, refuses it before
 any of its own code runs.
 """
 import asyncio
@@ -77,7 +77,7 @@ app = FastAPI()
 api.setup_api(app)
 routes = {(method, route.path): route for route in app.routes
           if isinstance(route, APIRoute) and route.path.startswith('/model-manager/') for method in route.methods}
-check('all 96 routes', len(routes), 96)
+check('all 98 routes', len(routes), 98)
 # The gate's own mark points at itself: a wrapper put outside it would
 # carry a copy pointing at the gate within.
 check('the gate is each route\'s outermost wrapper: what FastAPI calls is the gate itself',
@@ -437,7 +437,7 @@ if ask({'sec-fetch-site': 'cross-site', 'origin': 'https://example.invalid'})[:2
             walked[key] = (answer.status_code, json.loads(answer.body).get('refused'))
         except Exception as e:
             walked[key] = ('ran', type(e).__name__)
-    check('each of the 96 routes, asked from another site with its tab on: refused before its own code',
+    check('each of the 98 routes, asked from another site with its tab on: refused before its own code',
           sorted(key for key, got in walked.items() if got != (403, 'https://example.invalid')), [])
 else:
     check('the stand-in refuses a request from another site, so the routes can be walked', False)

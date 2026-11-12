@@ -23,7 +23,8 @@ document.dispatchEvent(new window.Event('DOMContentLoaded'));
 await waitFor('the question', () => asked.includes('/model-manager/repairs'));
 await new Promise((resolve) => setTimeout(resolve, 50));
 check('asked once', asked.filter((p) => p === '/model-manager/repairs').length, 1);
-check('none named: no repair\'s window offered', globalThis.__mmOffered?.has('repairs.recorded_twice'), false);
+check('none named: no repair\'s window offered',
+      ['repairs.recorded_twice', 'repairs.lora_weights'].map((name) => globalThis.__mmOffered?.has(name)), [false, false]);
 check('and none of its routes asked', asked.filter((p) => p.startsWith('/model-manager/repairs/')), []);
 const slot = document.createElement('div');
 slot.dataset.repairsSlot = '';

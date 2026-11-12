@@ -2,7 +2,7 @@
 Which tabs are on, decided in one place (model_manager/tabs.py, #181): a tab
 switched off has its routes refuse and its startup work left out.
 
-What is checked here: every route naming its area - all 96 held to the table
+What is checked here: every route naming its area - all 98 held to the table
 below, which is the spec; with every tab off, every route but ui-options
 refusing, in the shape every failure answers; an off tab's routes refused
 through the app; the shared areas, on while any of their tabs is; the
@@ -209,8 +209,10 @@ SPEC = {
     ('GET', '/model-manager/repairs'): 'always',
     ('GET', '/model-manager/repairs/recorded-twice'): 'generations',
     ('POST', '/model-manager/repairs/recorded-twice/remove'): 'generations',
+    ('GET', '/model-manager/repairs/lora-weights'): 'generations',
+    ('POST', '/model-manager/repairs/lora-weights/correct'): 'generations',
 }
-check('the spec holds 96 routes', len(SPEC), 96)
+check('the spec holds 98 routes', len(SPEC), 98)
 
 app = FastAPI()
 api.setup_api(app)

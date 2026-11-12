@@ -5,7 +5,7 @@
 // Review, and its window - every early copy ticked to begin with, Remove
 // sending only the ticked ones, Cancel nothing. The server's side:
 // generations_review_test.py; a library that needs none: repairs_none_test.mjs.
-import { bootPage, checker, mountTab, press, sharedModule, tabsAnswer, withGalleryPages } from './harness.mjs';
+import { bootPage, checker, escape, mountTab, press, sharedModule, tabsAnswer, withGalleryPages } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_generations.py');
 const { check, waitFor, done } = checker();
@@ -17,6 +17,22 @@ const ROWS = [
       kept_images: 6, same_press: 2, prompt: null, image_id: null, hidden_level: 'X' },
 ];
 let listed = ROWS;
+// LoRA weights saved as 1 (#392): the second repair, its own window.
+const LORA_ROWS = [
+    { id: 51, created_at: '2026-11-09T21:14:00', mode: 'txt2img', batch_count: 2, images: 4, prompt: 'a portrait',
+      image_id: 9, hidden_level: null, changes: [{ name: 'example_style', from: 1, te: 0.7, unet: 0.7 },
+                                                { name: 'scheduled', from: 1, te: null, unet: null }] },
+    { id: 52, created_at: '2026-11-08T10:02:00', mode: 'txt2img', batch_count: 1, images: 1, prompt: null,
+      image_id: null, hidden_level: 'X', changes: [{ name: 'detail', from: 1, te: 1, unet: 0.4 }] },
+    { id: 53, created_at: '2026-11-07T09:00:00', mode: 'img2img', batch_count: 1, images: 2,
+      prompt: 'a <b data-mm-marker>bold</b> prompt',
+      image_id: 10, hidden_level: null, changes: [{ name: '<i data-mm-marker></i>', from: 1, te: 0.5, unet: 0.5 }] },
+];
+let loraListed = LORA_ROWS;
+const corrections = [];
+// Correct's answer: held until the suite lets it go, or answered at once.
+let correctAnswer = () => ({ success: true, corrected: [51], skipped: [{ id: 53, why: 'it is already gone' }] });
+let held = null;
 const asked = [];
 const posted = [];
 const browsed = [];      // the Generations tab's searches, as it asked for them
@@ -29,7 +45,8 @@ globalThis.fetch = withGalleryPages(async (url, init = {}) => {
         return reply({ success: true, samplers: [], schedulers: [], tabs: tabsAnswer({ generations: true }) });
     }
     if (path === '/model-manager/repairs') {
-        return reply({ success: true, repairs: { recorded_twice: { count: 2, tab: 'generations' } } });
+        return reply({ success: true, repairs: { recorded_twice: { count: 2, tab: 'generations' },
+                                                 lora_weights: { count: 3, tab: 'generations' } } });
     }
     if (path === '/model-manager/repairs/recorded-twice') return reply({ success: true, early: listed });
     if (path === '/model-manager/repairs/recorded-twice/remove') {
@@ -37,11 +54,27 @@ globalThis.fetch = withGalleryPages(async (url, init = {}) => {
         posted.push(ids);
         return reply({ success: true, removed: ids.split(',').map(Number), skipped: [] });
     }
+    if (path === '/model-manager/repairs/lora-weights') return reply({ success: true, generations: loraListed });
+    if (path === '/model-manager/repairs/lora-weights/correct') {
+        const ids = new URLSearchParams(init.body).get('ids');
+        corrections.push(ids);
+        if (held) {
+            const wait = held;
+            held = null;
+            const answer = await wait;
+            if (answer instanceof Error) throw answer;
+            return reply(answer);
+        }
+        return reply(correctAnswer());
+    }
     if (path === '/model-manager/generations/browse') browsed.push(new URL(href).searchParams.get('search'));
     if (path === '/model-manager/notes') {
         return reply({ success: true, notes: [{ id: 'recorded-twice-0-70-5', version: '0.70.5', kind: 'action',
             tabs: ['generations'], title: 'Some generations were recorded twice', text: 't',
-            action: { id: 'repair', label: 'Review', repair: 'recorded_twice' } }] });
+            action: { id: 'repair', label: 'Review', repair: 'recorded_twice' } },
+            { id: 'lora-weights-0-78-10', version: '0.78.10', kind: 'action', tabs: ['generations'],
+              title: 'LoRA weights saved as 1', text: 't',
+              action: { id: 'repair', label: 'Review', repair: 'lora_weights' } }] });
     }
     return reply({ success: true, generations: [], images: [], total: 0 });
 });
@@ -146,9 +179,130 @@ check('a row\'s counts that are not numbers draw nothing as markup',
       dialog().querySelectorAll('[data-mm-marker]').length, 0);
 dialog().querySelector('[data-repair-cancel]').dispatchEvent(new window.Event('click', { bubbles: true }));
 
+// ------------------------------------------- LoRA weights saved as 1 (#392)
+const loraOffered = () => globalThis.__mmOffered?.has('repairs.lora_weights');
+check('the second repair named is started too: its window offered', loraOffered(), true);
+// The notes are a pile, one shown at a time: its note is the second.
+document.querySelector('#gen_notes [data-note-step="1"]')?.dispatchEvent(new window.Event('click', { bubbles: true }));
+await waitFor('its note', () => document.querySelector('#gen_notes [data-note-repair="lora_weights"]'));
+const loraNote = document.querySelector('#gen_notes [data-note-repair="lora_weights"]');
+check('its note\'s Review', loraNote?.textContent.trim(), 'Review');
+const loraLine = () => slot.querySelector('[data-repair="lora_weights"]');
+window.dispatchEvent(new window.CustomEvent('mm-upkeep-drawn', { detail: { slot } }));
+check('its line in the database box\'s place for repairs, beside the other',
+      [loraLine()?.querySelector('.mm-upkeep-line')?.textContent, loraLine()?.querySelector('button')?.dataset.action],
+      ['LoRA weights saved as 1: 3 generations', 'repairs.lora_weights']);
+loraNote.dispatchEvent(new window.Event('click', { bubbles: true }));
+await waitFor('its list', () => dialog()?.querySelectorAll('[data-repair-id]').length === 3);
+const correctButton = () => dialog().querySelector('[data-repair-correct]');
+const loraStatus = () => dialog()?.querySelector('[data-repair-status]');
+check('the note\'s Review opens its window: every one ticked, Correct counting them',
+      [boxes().map((b) => b.checked), correctButton().textContent, dialog().querySelector('h3')?.textContent],
+      [[true, true, true], 'Correct 3', 'LoRA weights saved as 1']);
+const loraRows = [...dialog().querySelectorAll('.mm-repair-row')];
+check('a row: its first image, when and in which tab, its prompt, its images and each LoRA\'s change',
+      [loraRows[0].querySelector('img')?.getAttribute('src'),
+       loraRows[0].querySelector('.mm-repair-when')?.textContent.includes('txt2img, batch count 2'),
+       loraRows[0].querySelector('.mm-repair-prompt')?.textContent,
+       loraRows[0].querySelector('.mm-repair-text > span:last-child')?.textContent],
+      ['/model-manager/generations/images/9/thumb', true, 'a portrait',
+       '4 images: example_style 1 → 0.7; scheduled 1 → no fixed weight']);
+check('both weights named where they differ; a hidden one hidden as the Generations tab hides it',
+      [loraRows[1].querySelector('.mm-repair-text > span:last-child')?.textContent, loraRows[1].querySelector('img'),
+       loraRows[1].querySelector('.mm-repair-hidden')?.textContent,
+       loraRows[1].querySelector('.mm-repair-prompt')?.textContent],
+      ['1 image: detail 1 → text encoder 1, UNet 0.4', null, 'X', 'Rated X: hidden, as the Generations tab hides it']);
+check('a LoRA\'s name and a prompt drawn as text, never markup',
+      [dialog().querySelectorAll('[data-mm-marker]').length, loraRows[2].querySelector('.mm-repair-prompt')?.textContent],
+      [0, 'a <b data-mm-marker>bold</b> prompt']);
+const loraAll = () => dialog().querySelector('[data-repair-all]');
+untick(boxes()[1]);
+check('one unticked: the count, Correct\'s number, Select all half',
+      [dialog().querySelector('[data-repair-count]').textContent, correctButton().textContent, loraAll().indeterminate],
+      ['2 of 3 ticked', 'Correct 2', true]);
+untick(boxes()[0]);
+untick(boxes()[2]);
+check('none ticked: Correct greyed, saying why', [correctButton().disabled, correctButton().title], [true, 'Nothing ticked']);
+loraAll().checked = true;
+loraAll().dispatchEvent(new window.Event('change', { bubbles: true }));
+check('Select all ticks every row', boxes().map((b) => b.checked), [true, true, true]);
+// Ticked by hand where it did not, so what follows still runs.
+boxes().filter((b) => !b.checked).forEach((b) => { b.checked = true; b.dispatchEvent(new window.Event('change', { bubbles: true })); });
+untick(boxes()[1]);
+
+// Held: while it works the window keeps itself and its controls still.
+let release;
+held = new Promise((resolve) => { release = resolve; });
+correctButton().dispatchEvent(new window.Event('click', { bubbles: true }));
+await waitFor('the press', () => corrections.length === 1);
+escape();
+check('while it corrects: its line says so, every control off, and Esc does not close it',
+      [loraStatus()?.textContent, [...(dialog()?.querySelectorAll('input, button') || [])].every((c) => c.disabled),
+       dialog() !== null],
+      ['Correcting 2...', true, true]);
+// Closed by Esc, nothing after it can be read: the failure is said, and the suite ends.
+if (!dialog()) done();
+release({ success: false, error: 'database is locked' });
+await waitFor('the failure', () => loraStatus()?.classList.contains('mm-question-error'));
+check('the server\'s failure: said, nothing changed, and the controls back',
+      [loraStatus().textContent, correctButton().disabled, boxes().map((b) => b.checked)],
+      ['Could not correct them: database is locked. Nothing was changed.', false, [true, false, true]]);
+held = Promise.resolve(new Error('Failed to fetch'));
+correctButton().dispatchEvent(new window.Event('click', { bubbles: true }));
+await waitFor('the lost answer', () => corrections.length === 2 && loraStatus()?.textContent.startsWith('Could not hear'));
+check('an answer lost on the way: it may have finished, so it says to look again',
+      loraStatus().textContent,
+      'Could not hear back from the server: Failed to fetch. It may have finished: close this and press Review again to see what is left.');
+const askedBefore = asked.length;
+correctButton().dispatchEvent(new window.Event('click', { bubbles: true }));
+await waitFor('its answer', () => dialog()?.querySelector('[data-repair-close]'));
+check('Correct sends only the ticked ones, each time', corrections, ['51,53', '51,53', '51,53']);
+check('and says what happened, naming a skipped one by when it was made, and why',
+      [...dialog().querySelectorAll('.mm-question-message')].map((p) => p.textContent),
+      ['Corrected 1 generation.', 'The generation of 7 Nov 2026, 09:00 was skipped: it is already gone.']);
+check('its line counts what is left', loraLine()?.querySelector('.mm-upkeep-line')?.textContent,
+      'LoRA weights saved as 1: 1 generation');
+await waitFor('the Generations tab redrawn', () => asked.slice(askedBefore).some((p) => p.startsWith('/model-manager/generations/')));
+check('and the Generations tab drawn again', asked.slice(askedBefore).some((p) => p.startsWith('/model-manager/generations/')), true);
+dialog().querySelector('[data-repair-close]').dispatchEvent(new window.Event('click', { bubbles: true }));
+press(loraLine().querySelector('button'));
+await waitFor('its list again', () => dialog()?.querySelectorAll('[data-repair-id]').length === 3);
+dialog().querySelector('[data-repair-cancel]').dispatchEvent(new window.Event('click', { bubbles: true }));
+check('opened from its line, then Cancel: closed, nothing more sent', [dialog(), corrections.length], [null, 3]);
+press(loraLine().querySelector('button'));
+await waitFor('its list for View all', () => dialog()?.querySelectorAll('[data-repair-id]').length === 3);
+untick(boxes()[0]);
+browsed.length = 0;
+dialog().querySelector('[data-repair-view]').dispatchEvent(new window.Event('click', { bubbles: true }));
+await waitFor('its search', () => browsed.length);
+check('View all, one unticked: the Generations tab searches every one listed',
+      [dialog(), browsed.at(-1)], [null, 'generation:51,52,53']);
+// The last one corrected: the line goes.
+loraListed = LORA_ROWS.slice(1, 2);
+correctAnswer = () => ({ success: true, corrected: [52], skipped: [] });
+press(loraLine().querySelector('button'));
+await waitFor('the last one', () => dialog()?.querySelectorAll('[data-repair-id]').length === 1);
+correctButton().dispatchEvent(new window.Event('click', { bubbles: true }));
+await waitFor('the last answer', () => dialog()?.querySelector('[data-repair-close]'));
+check('none left: its line gone from the settings window', loraLine(), null);
+dialog().querySelector('[data-repair-close]').dispatchEvent(new window.Event('click', { bubbles: true }));
+loraListed = [];
+(await sharedModule('calls.mjs')).call('repairs.lora_weights');
+await waitFor('the empty list', () => !dialog()?.textContent.includes('Looking for them'));
+check('opened with none left: it says so', dialog().querySelector('.mm-question-message')?.textContent,
+      'No generation holds LoRA weights saved as 1 any more.');
+dialog().querySelector('[data-repair-close]').dispatchEvent(new window.Event('click', { bubbles: true }));
+// Listed again, its line back: for the stop below to take away.
+loraListed = LORA_ROWS;
+(await sharedModule('calls.mjs')).call('repairs.lora_weights');
+await waitFor('the list once more', () => dialog()?.querySelectorAll('[data-repair-id]').length === 3);
+dialog().querySelector('[data-repair-cancel]').dispatchEvent(new window.Event('click', { bubbles: true }));
+check('its line back while there are some', loraLine()?.querySelector('.mm-upkeep-line')?.textContent,
+      'LoRA weights saved as 1: 3 generations');
+
 // ----------------------------------------------- stopped with its tab
 (await sharedModule('loading.mjs')).stopTab('generations');
-check('the Generations tab stopped: the repair stops too - its window no longer offered, its line gone',
-      [offered(), line()], [false, null]);
+check('the Generations tab stopped: the repairs stop too - their windows no longer offered, their lines gone',
+      [offered(), line(), loraOffered(), loraLine()], [false, null, false, null]);
 
 done();

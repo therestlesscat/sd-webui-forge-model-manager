@@ -1,5 +1,22 @@
 [
     {
+        "id": "lora-weights-0-78-10",
+        "version": "0.78.10",
+        "kind": "action",
+        "audience": "everyone",
+        "when": "repair:lora_weights",
+        "tabs": [
+            "generations"
+        ],
+        "title": "LoRA weights saved as 1",
+        "text": "Before version 0.78.9, the recorder saved each LoRA of an image's first pass at weight 1, whatever its tag in the prompt said. Review lists the generations it saved so, and corrects the ones you tick from their own prompts. If two WebUIs share this database, update the other one too, or it keeps saving weight 1.",
+        "action": {
+            "id": "repair",
+            "label": "Review",
+            "repair": "lora_weights"
+        }
+    },
+    {
         "id": "checkpoint-list-sort",
         "version": "0.78.1",
         "kind": "feature",

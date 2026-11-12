@@ -10,7 +10,7 @@ computer: every tunnel arrives from it.
 
 One check goes through Gradio 4.40's own app and its real login form; the
 rest stand Gradio's app in, with the attributes Gradio sets. And each of the
-96 routes, with a login set and none given, refuses before its own code runs.
+98 routes, with a login set and none given, refuses before its own code runs.
 """
 import asyncio
 import base64
@@ -250,7 +250,7 @@ app = FastAPI()
 api.setup_api(app)
 routes = {(method, route.path): route for route in app.routes
           if isinstance(route, APIRoute) and route.path.startswith('/model-manager/') for method in route.methods}
-check('all 96 routes', len(routes), 96)
+check('all 98 routes', len(routes), 98)
 login_app = GradioApp(auth={'tester': 'secret'})
 
 
@@ -273,7 +273,7 @@ if ask(gated)[:2] == (401, False):
             walked[key] = answer.status_code
         except Exception as e:
             walked[key] = ('ran', type(e).__name__)
-    check('each of the 96 routes, a login set and none given, its tab on: refused before its own code',
+    check('each of the 98 routes, a login set and none given, its tab on: refused before its own code',
           sorted(key for key, got in walked.items() if got != 401), [])
 else:
     check('the stand-in refuses a request with no login, so the routes can be walked', False)
