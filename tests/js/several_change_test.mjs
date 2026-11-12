@@ -54,9 +54,10 @@ const TASKS = { 30: [ANIME, PHOTO, FLUX], 32: [ANIME, GONE, QWEN] };
 const row = (name, family, model, version, extra = {}) => ({
     name, file: name.split('\\').pop().split(' ')[0], family, read: true, supported: true, model, version,
     base_model: family, ...extra });
-const CHECKPOINTS = [row(ANIME, 'xl', 'Anime Mix', 'v12'), row(PHOTO, 'xl', 'Real Photo', 'v5'),
-                     row(FLUX, 'flux', 'Flux Dev', 'fp8'), row(DREAM, 'sd', 'Dream', 'v8'),
-                     row(QWEN, 'qwen', 'Qwen Image', 'v1', { supported: false })];
+// Each with its size (#415), not in name order: Largest first is Flux, Real Photo, Qwen, Anime, Dream.
+const CHECKPOINTS = [row(ANIME, 'xl', 'Anime Mix', 'v12', { size: 2 }), row(PHOTO, 'xl', 'Real Photo', 'v5', { size: 5 }),
+                     row(FLUX, 'flux', 'Flux Dev', 'fp8', { size: 9 }), row(DREAM, 'sd', 'Dream', 'v8', { size: 1 }),
+                     row(QWEN, 'qwen', 'Qwen Image', 'v1', { supported: false, size: 3 })];
 let listFails = false;
 const asked = [];
 // What each runs with (several.runs_preview), as the server answers it: only
@@ -424,6 +425,10 @@ check('    another order chosen here: kept for both, the search, the tab and the
       [localStorage.getItem('mm-pick-sort'), win()?.querySelector('.mm-pick-search')?.value, activeTab(),
        inputs().map((i) => i.value)], ['file', 'dev', 'All 1', [FLUX]]);
 search('');
+sortTo('size');
+check('    Largest first: the name Forge does not list, which has no size, still first',
+      inputs().map((i) => i.value), [GONE, FLUX, PHOTO, QWEN, ANIME, DREAM]);
+sortTo('file');
 check('    the rows by file name, the ticks on the same rows', [inputs().map((i) => i.value), ticked()],
       [[GONE, ANIME, DREAM, FLUX, PHOTO, QWEN], [GONE, ANIME, QWEN]]);
 // By base model again, Dream shows before Anime: the run order below is the ticks', not the rows'.

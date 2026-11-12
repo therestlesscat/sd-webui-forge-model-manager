@@ -22,7 +22,7 @@ for _p in (ROOT, TESTS):
 
 import webui_stub                                        # noqa: E402
 
-webui_stub.install()
+opts = webui_stub.install()
 
 try:
     from fastapi import FastAPI
@@ -154,6 +154,79 @@ loaded['checkpoint'] = None
 check('named by a hash alone: its own, its version\'s other file, its model\'s other version',
       suggested(answer(hashes='ABABABABAB')),
       [(TITLES[P1], ["the image's own"]), (TITLES[P1_FP16], ['same version, other file']), (TITLES[P2], ['same model'])])
+
+# ------------------------------------------- what the Sort box orders by (#415)
+# Each row carries what the list's Sort box sorts on, from its library row:
+# the file's size and when it came, its version's Civitai numbers - a real 0
+# kept, none for a file with no version - whether it is pinned as the grid
+# shows it, the version's stored Civitai images, and your images made with
+# the version. Set here so each one's source shows.
+raw.execute("UPDATE files SET file_size = 6000, downloaded_at = '2026-11-02T10:00:00', "
+            "file_modified = '2026-11-01T09:00:00' WHERE file_path = ?", (P1,))
+raw.execute("UPDATE files SET file_size = 4000, downloaded_at = NULL, file_modified = '2026-10-05T08:00:00' "
+            "WHERE file_path = ?", (P2,))
+raw.execute("UPDATE versions SET published_at = '2025-03-01T00:00:00.000Z', stats_download_count = 1200, "
+            "stats_thumbs_up = 90 WHERE id = ?", (V1,))
+raw.execute("UPDATE versions SET stats_download_count = 0, stats_thumbs_up = 0 WHERE id = ?", (V2,))
+# Civitai's images stored: three of v1's - both its files' - and one of v2's.
+for image, version in ((901, V1), (902, V1), (903, V1), (904, V2)):
+    raw.execute("INSERT INTO image_galleries (version_id, image_id, page, position, effective_nsfw_level) "
+                "VALUES (?, ?, 1, ?, 1)", (version, image, image))
+# Your images: two made with v1's file and one with its fp16, so three for
+# each; v2's file used as a LoRA and as Hires fix's checkpoint, which count
+# nothing; one made with the file that has no version.
+for image, role, path in ((1, 'checkpoint', P1), (2, 'checkpoint', P1), (3, 'checkpoint', P1_FP16),
+                          (4, 'lora', P2), (5, 'hr_checkpoint', P2), (6, 'checkpoint', QWEN),
+                          (7, 'lora', QWEN), (8, 'refiner', QWEN)):
+    raw.execute("INSERT INTO generation_resources (image_id, generation_id, role, position, name, file_path) "
+                "VALUES (?, ?, ?, 0, ?, ?)", (image, image, role, os.path.basename(path), path))
+# The other model's version has none stored: its count is a real 0, not none.
+raw.execute("DELETE FROM image_galleries WHERE version_id = ?", (OTHER_VERSION,))
+raw.commit()
+# The fixture stores images of its own: each version's count, read straight from the table.
+STORED = {v: raw.execute("SELECT COUNT(*) FROM image_galleries WHERE version_id = ?", (v,)).fetchone()[0]
+          for v in (V1, V2, OTHER_VERSION)}
+# Pinned: the other model by its id, the file with no version by its path.
+db.set_pin(OTHER_MODEL, None, True)
+db.set_pin(None, QWEN, True)
+SORT_KEYS = ('size', 'added', 'published', 'downloads', 'likes', 'pinned', 'civitai_images', 'generated')
+values = lambda body, path: [{k: c.get(k) for k in SORT_KEYS} for c in body['checkpoints'] if c['name'] == TITLES[path]][0]
+body = answer(version_ids=str(V1), model_id=MODEL)
+check('a row carries what the Sort box orders by: its size, its download time, its version\'s Civitai numbers, '
+      'v1\'s stored images and your images of either of its files',
+      values(body, P1), {'size': 6000, 'added': '2026-11-02T10:00:00', 'published': '2025-03-01T00:00:00.000Z',
+                         'downloads': 1200, 'likes': 90, 'pinned': False, 'civitai_images': STORED[V1], 'generated': 3})
+check('    the other file of v1: the same counts, the version\'s',
+      [values(body, P1_FP16)[k] for k in ('civitai_images', 'generated')], [STORED[V1], 3])
+check('    never downloaded: when it came is its modified time; a real 0 stays 0; a LoRA\'s and Hires fix\'s use count nothing',
+      [values(body, P2)[k] for k in ('added', 'downloads', 'likes', 'civitai_images', 'generated')],
+      ['2026-10-05T08:00:00', 0, 0, STORED[V2], 0])
+check('    a file with no version: no publish date, downloads, likes or stored images - none, not 0; '
+      'pinned by its path; your image of it counted',
+      [values(body, QWEN)[k] for k in ('published', 'downloads', 'likes', 'pinned', 'civitai_images', 'generated')],
+      [None, None, None, True, None, 1])
+check('    a model pinned by its id: its file pinned; a version with none stored: 0, not none',
+      [values(body, OTHER)[k] for k in ('pinned', 'civitai_images')], [True, 0])
+check('    a checkpoint the library has no row for: no value at all',
+      values(body, UNREAD), {k: (False if k == 'pinned' else None) for k in SORT_KEYS})
+check('    and the answer says Your generations is on', body.get('generations'), True)
+# Forge spells a path its own way - another case, which Windows ignores - and the
+# counts follow the library's spelling, which is what your generations name.
+listed_before = host.listed_checkpoints
+host.listed_checkpoints = lambda: [(title, path.upper() if path == P1_FP16 else path) for path, title in TITLES.items()]
+check('    a path Forge spells in another case: the same counts',
+      [values(answer(version_ids=str(V1), model_id=MODEL), P1_FP16)[k] for k in ('civitai_images', 'generated')],
+      [STORED[V1], 3])
+host.listed_checkpoints = listed_before
+db.set_pin(None, P1_FP16, True)
+body = answer(version_ids=str(V1), model_id=MODEL)
+check('    a file pinned by its path: every file of its model pinned, as the grid shows the card',
+      [values(body, path)['pinned'] for path in (P1, P1_FP16, P2)], [True, True, True])
+opts.model_manager_record_generations = False
+body = answer(version_ids=str(V1), model_id=MODEL)
+check('Your generations off: the answer says so, and no row counts your images',
+      [body.get('generations'), sorted({str(c.get('generated')) for c in body['checkpoints']})], [False, ['None']])
+opts.model_manager_record_generations = True
 
 check('no file opened, by any of it', opened, [])
 

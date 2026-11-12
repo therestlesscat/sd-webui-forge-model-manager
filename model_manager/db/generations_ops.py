@@ -790,6 +790,35 @@ class GenerationsOps:
                 GROUP BY 1, 2, 3, 4, 5, 6, 7""", paths)
             return [settings_group(row) for row in cursor.fetchall()]
 
+    def checkpoint_image_counts(self, paths: Sequence[str]) -> Dict[str, int]:
+        """
+        How many of your images were made with each file's version, by path
+        (#415): those naming any file of its Civitai version as their
+        checkpoint, as the version's Your generations gallery shows them
+        (gallery_files); a file with no version, its own. Paths as the library
+        spells them; Hires fix's checkpoint and a refiner are roles of their
+        own, and count for nothing here. A path the library does not hold is
+        left out.
+        """
+        paths = [p for p in dict.fromkeys(paths) if p]
+        found: Dict[str, int] = {}
+        with self._cursor() as cursor:
+            for start in range(0, len(paths), 500):
+                chunk = paths[start:start + 500]
+                cursor.execute(f"""
+                    SELECT f.file_path, CASE WHEN f.version_id IS NULL THEN
+                        (SELECT COUNT(DISTINCT r.image_id) FROM generation_resources r INDEXED BY idx_resources_path
+                         WHERE r.file_path = f.file_path AND r.role = 'checkpoint')
+                    ELSE
+                        (SELECT COUNT(DISTINCT r.image_id) FROM files s
+                         JOIN generation_resources r INDEXED BY idx_resources_path
+                              ON r.file_path = s.file_path AND r.role = 'checkpoint'
+                         WHERE s.version_id = f.version_id)
+                    END
+                    FROM files f WHERE f.file_path IN ({', '.join('?' * len(chunk))})""", chunk)
+                found.update({row[0]: row[1] for row in cursor.fetchall()})
+        return found
+
     def gallery_files(self, path: str) -> List[str]:
         """
         The model files whose generations one gallery shows: every file of the

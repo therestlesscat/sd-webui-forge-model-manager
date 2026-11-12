@@ -1276,12 +1276,31 @@ class ModelsOps:
         sync has read it (`read`), its model's name, its version's name and
         base model, and their ids. One read: the list matches Forge's
         checkpoints to it by path, reading no file.
+
+        And what its Sort box orders by (#415): the file's size; when it came
+        (`added`) - its download, else its modified time, as the grid's
+        Downloaded At takes them; the version's publish date and Civitai's
+        download and thumbs-up counts, read from the version's own row, so a
+        file with none says nothing where the library's view says 0; and
+        whether it is pinned as the grid shows it - its model, or any file of
+        its model, or the file itself by its path.
         """
         with self._cursor() as cursor:
             cursor.execute(f"""
+                WITH pinned_models AS (
+                    SELECT model_id FROM pins WHERE model_id IS NOT NULL
+                    UNION
+                    SELECT pv.model_id FROM pins p JOIN files pf ON p.file_path = pf.file_path
+                    JOIN versions pv ON pv.id = pf.version_id WHERE pv.model_id IS NOT NULL)
                 SELECT l.file_path, l.file_type, l.architecture, l.architecture_checked IS NOT NULL AS read,
-                       l.model_id, l.id AS version_id, l.version_name, l.base_model, m.name AS model_name
+                       l.model_id, l.id AS version_id, l.version_name, l.base_model, m.name AS model_name,
+                       l.file_size AS size, COALESCE(l.downloaded_at, l.file_modified) AS added,
+                       v.published_at AS published, v.stats_download_count AS downloads,
+                       v.stats_thumbs_up AS likes,
+                       (l.model_id IN (SELECT model_id FROM pinned_models)
+                        OR EXISTS (SELECT 1 FROM pins p WHERE p.file_path = l.file_path)) AS pinned
                 FROM {LIBRARY} l LEFT JOIN models m ON m.id = l.model_id
+                LEFT JOIN versions v ON v.id = l.version_id
                 WHERE l.file_path IS NOT NULL
             """)
             return [dict(row) for row in cursor.fetchall()]

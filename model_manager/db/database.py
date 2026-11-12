@@ -440,7 +440,7 @@ class ModelsDatabase:
         return self._models.looked_up_file_names(version_ids)
 
     def files_described(self) -> List[Dict[str, Any]]:
-        """Every library file with its model's and version's names. See ModelsOps.files_described()."""
+        """Every library file with its model's and version's names, and what the list's Sort box orders by. See ModelsOps.files_described()."""
         return self._models.files_described()
 
     def library_files(self, model_ids=None, version_ids=None, file_ids=None) -> List[Dict[str, Any]]:
@@ -516,6 +516,10 @@ class ModelsDatabase:
     def get_generation(self, generation_id: int) -> Optional[Dict[str, Any]]:
         """A generation, with its images and the files each used."""
         return self._generations.get_generation(generation_id)
+
+    def generation_checkpoint_image_counts(self, paths) -> Dict[str, int]:
+        """Your images made with each file's version, by path. See GenerationsOps.checkpoint_image_counts()."""
+        return self._generations.checkpoint_image_counts(paths)
 
     def generation_gallery_files(self, path: str) -> List[str]:
         """The model files whose generations one gallery shows."""

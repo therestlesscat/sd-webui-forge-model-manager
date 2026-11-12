@@ -1865,11 +1865,20 @@ def your_checkpoints(db, version_ids: str = "", hashes: str = "", model_id: int 
             checkpoints of the image's base model, in Forge's order, shown
             first in their family's tab, not suggested; loaded: Forge's
             checkpoint now; family: the image's, which the list opens on.
+
+        Each checkpoint also carries what the list's Sort box orders by
+        (#415), from its library row - none for one the library has no row
+        for: size, added, published, downloads, likes, pinned (see
+        files_described); civitai_images, the version's stored Civitai
+        images; generated, your images made with its version
+        (checkpoint_image_counts) - left out while Your generations is off,
+        which `generations` says.
     """
     from .architecture import preset_for_base_model
     from .forge_host import available_presets, checkpoint_file, listed_checkpoints, selected_models
     from .image_text import line_params
     from .send_plan import named_ids
+    from .tabs import on
 
     versions, hash_list = named_ids(str(version_ids or "").split(","), str(hashes or "").split(","))
     own_path = ""
@@ -1893,15 +1902,24 @@ def your_checkpoints(db, version_ids: str = "", hashes: str = "", model_id: int 
 
     checkpoints = []
     by_path: Dict[str, str] = {}
+    held = [r for r in (rows.get(key(path)) for _, path in listed) if r]
+    stored = db.count_images_by_version(sorted({r["version_id"] for r in held if r.get("version_id")}))
+    generations = on("generations")
+    made = db.generation_checkpoint_image_counts([r["file_path"] for r in held]) if generations else {}
     for name, path in listed:
         row = rows.get(key(path)) or {}
         family = row.get("architecture") or None
         by_path[key(path)] = name
+        version = row.get("version_id")
         checkpoints.append({
             "name": name, "file": os.path.basename(path), "family": family, "read": bool(row.get("read")),
             "supported": family is not None and (presets is None or family in presets),
             "model": row.get("model_name") or None, "version": row.get("version_name") or None,
-            "base_model": row.get("base_model") or None})
+            "base_model": row.get("base_model") or None,
+            "size": row.get("size"), "added": row.get("added"), "published": row.get("published"),
+            "downloads": row.get("downloads"), "likes": row.get("likes"), "pinned": bool(row.get("pinned")),
+            "civitai_images": stored.get(version, 0) if version else None,
+            "generated": made.get(row["file_path"], 0) if generations and row else None})
 
     reasons: Dict[str, List[str]] = {}
 
@@ -1957,4 +1975,4 @@ def your_checkpoints(db, version_ids: str = "", hashes: str = "", model_id: int 
         or (rows.get(key(gallery_file)) or {}).get("architecture") or preset_for_base_model(gallery_base_model)
     return {"checkpoints": checkpoints, "suggested": suggested, "picked": picked,
             "same_base": {"base_model": base or None, "names": same_base},
-            "loaded": loaded, "family": family or None}
+            "loaded": loaded, "family": family or None, "generations": generations}
