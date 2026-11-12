@@ -171,15 +171,12 @@ def embedding_folders(cmd_opts=None) -> Optional[List[str]]:
     return [os.path.abspath(f) for f in folders] or None
 
 
-def library_dirs(cmd_opts=None, models_path: Optional[str] = None) -> List[str]:
+def _named_dirs(cmd_opts, models_path: Optional[str]) -> List[str]:
     """
-    Every folder the library walks, as absolute paths: each one an option
-    names, and each kind's folder under the models path. Missing folders and
-    duplicates (case-insensitively on Windows) are left out.
+    Every folder the library names, there or not, as absolute paths: each
+    one an option or a setting names, and each kind's folder under the
+    models path. Duplicates (case-insensitively on Windows) are left out.
     """
-    if cmd_opts is None and models_path is None:
-        cmd_opts, models_path = model_folders()
-
     directories = []
     neo = is_neo()
     for folder in FOLDERS.values():
@@ -194,11 +191,33 @@ def library_dirs(cmd_opts=None, models_path: Optional[str] = None) -> List[str]:
     for directory in directories:
         path = os.path.abspath(str(directory))
         key = os.path.normcase(path)
-        if key in seen or not os.path.isdir(path):
+        if key in seen:
             continue
         seen.add(key)
         result.append(path)
     return result
+
+
+def library_dirs(cmd_opts=None, models_path: Optional[str] = None) -> List[str]:
+    """
+    Every folder the library walks, as absolute paths: each one an option
+    names, and each kind's folder under the models path. Missing folders and
+    duplicates (case-insensitively on Windows) are left out.
+    """
+    if cmd_opts is None and models_path is None:
+        cmd_opts, models_path = model_folders()
+    return [path for path in _named_dirs(cmd_opts, models_path) if os.path.isdir(path)]
+
+
+def missing_library_dirs(cmd_opts=None, models_path: Optional[str] = None) -> List[str]:
+    """
+    The folders the library names that are not there - a drive unplugged, a
+    share asleep, a kind's folder never made - for the sync to say which
+    of them held files it kept (#389).
+    """
+    if cmd_opts is None and models_path is None:
+        cmd_opts, models_path = model_folders()
+    return [path for path in _named_dirs(cmd_opts, models_path) if not os.path.isdir(path)]
 
 
 # .gguf: quantized models Forge loads directly (Flux, Wan, Z-Image...),
@@ -576,12 +595,14 @@ def misplaced_files(db) -> List[Dict[str, Any]]:
     it belongs, what its header says and what said so, and whether a file
     of its name is already there: "same" (the library holds both, with one
     SHA-256), "different" (two SHA-256s), or "exists" (a file it cannot
-    compare). Files whose type is Unknown are never among them.
+    compare). Files whose type is Unknown are never among them, nor files
+    not on disk: a sync keeps the row of one whose drive is away (#389),
+    and its move would fail at every sync.
     """
     found = []
     for row in db.files_with_types():
         to = proper_place(row["file_path"], filed_as(row["file_type"], row["architecture_class"]))
-        if not to:
+        if not to or not os.path.exists(row["file_path"]):
             continue
         clash = None
         if os.path.exists(to):
@@ -650,10 +671,99 @@ def file_modified(path: str) -> Optional[str]:
         return None
 
 
-def gone_from_disk(stored_paths, found_paths) -> List[str]:
+class Sight:
     """
-    The stored paths a walk did not find and that are not on disk - or whose
-    file the walk found by another route.
+    Whether a sync can see the place a file not on disk was in (#389): only
+    then is its absence evidence that it was deleted.
+
+    A file is not there when it was deleted - and when its drive is
+    unplugged, its share asleep, or the junction it was reached through
+    leads to a drive that is away. A sync forgot every file on such a drive,
+    and the first sync after it came back read each one again from scratch.
+    So, going up from the file's folder to the first folder that is there,
+    its absence counts only when that folder is its own, or inside a library
+    folder the walk read, or holds one - the drive is up, and a folder on it
+    was deleted. A link on the way that leads nowhere (there as a link, not a
+    folder: junctions and symbolic links alike, in Python 3.10 as in 3.13)
+    says the drive behind it is away. Each folder is asked once, and each
+    file's folder judged once: on a share asleep every question is a wait.
+    """
+
+    def __init__(self, walked: List[str]):
+        self.walked = [_as_prefix(p) for p in walked]
+        self._folders: Dict[str, bool] = {}
+        self._verdicts: Dict[str, bool] = {}
+
+    def _there(self, folder: str) -> bool:
+        key = os.path.normcase(folder)
+        if key not in self._folders:
+            self._folders[key] = os.path.isdir(folder)
+        return self._folders[key]
+
+    def can_see(self, path: str) -> bool:
+        """Whether the place this file was in can be seen: its absence is a deletion."""
+        folder = os.path.dirname(os.path.abspath(path))
+        key = os.path.normcase(folder)
+        if key not in self._verdicts:
+            self._verdicts[key] = self._judge(folder)
+        return self._verdicts[key]
+
+    def _judge(self, folder: str) -> bool:
+        if self._there(folder):
+            return True
+        while True:
+            if os.path.lexists(folder):
+                return False            # a link that leads nowhere
+            above = os.path.dirname(folder)
+            if above == folder:
+                return False            # nothing there, up to the drive or share
+            folder = above
+            if self._there(folder):
+                break
+        where = _as_prefix(folder)
+        return any(where.startswith(walked) or walked.startswith(where) for walked in self.walked)
+
+
+def _as_prefix(folder: str) -> str:
+    """A folder as the start of every path inside it, as Windows compares paths: X:\\ once, not X:\\\\."""
+    return os.path.normcase(os.path.abspath(folder)).rstrip("\\/") + os.sep
+
+
+def _missed(stored_paths, found_paths, sight: Sight) -> Tuple[List[str], List[str]]:
+    """
+    Of the stored paths a walk did not find: those gone - not on disk where
+    the sync can see, or found by another route - and those kept, not on
+    disk where it cannot.
+    """
+    found = set(found_paths)
+    missed = [p for p in stored_paths if p and p not in found]
+    on_disk = {p for p in missed if os.path.exists(p)}
+    twice = folder_walk.found_elsewhere(on_disk, found) if on_disk else {}
+    gone, kept = [], []
+    for p in missed:
+        if p in on_disk:
+            if p in twice:
+                gone.append(p)
+        elif sight.can_see(p):
+            gone.append(p)
+        else:
+            kept.append(p)
+    return gone, kept
+
+
+def _sight(walked) -> Sight:
+    """The folders walked as a Sight - a sync's own, kept for its length - or the library's, by default."""
+    if isinstance(walked, Sight):
+        return walked
+    return Sight(library_dirs() if walked is None else walked)
+
+
+def gone_from_disk(stored_paths, found_paths, walked=None) -> List[str]:
+    """
+    The stored paths a walk did not find and that are not on disk, where the
+    sync can see (Sight) - or whose file the walk found by another route.
+    `walked`: the folders the walk read, or a Sight of them; the library's
+    by default.
 
     A path the walk missed is not evidence on its own: the walk only looks
     for model files, in the library's folders, and a download can land
@@ -662,27 +772,31 @@ def gone_from_disk(stored_paths, found_paths) -> List[str]:
     a folder reached through a link and directly, gave one file a row by each
     path, and the walk now finds it by one (#348).
     """
-    found = set(found_paths)
-    missed = [p for p in stored_paths if p and p not in found]
-    on_disk = {p for p in missed if os.path.exists(p)}
-    twice = folder_walk.found_elsewhere(on_disk, found) if on_disk else {}
-    return [p for p in missed if p not in on_disk or p in twice]
+    return _missed(stored_paths, found_paths, _sight(walked))[0]
 
 
-def forget_gone(db, found_paths) -> List[str]:
+def kept_unseen(stored_paths, found_paths, walked=None) -> List[str]:
+    """The stored paths a walk did not find, not on disk where the sync cannot see (Sight): kept."""
+    return _missed(stored_paths, found_paths, _sight(walked))[1]
+
+
+def forget_gone(db, found_paths, walked=None, kept: Optional[List[str]] = None) -> List[str]:
     """
     After a walk of the whole library that found `found_paths`, forget the
     rows of files that are gone - and only those (gone_from_disk). A walk
     that found nothing forgets nothing: that is a drive not mounted or a
     folder setting wrong, not a library emptied. Scan Disk and a full sync
-    each did this in their own code, the rule written two ways.
+    each did this in their own code, the rule written two ways. `kept`, a
+    list, takes the paths kept (kept_unseen), from the same look.
 
     Returns the paths forgotten.
     """
     if not found_paths:
         say("Walk found no model files; leaving the database alone")
         return []
-    gone = gone_from_disk(db.get_all_version_paths(), found_paths)
+    gone, unseen = _missed(db.get_all_version_paths(), found_paths, _sight(walked))
+    if kept is not None:
+        kept.extend(unseen)
     for path in gone:
         db.delete_version(path)
     return gone

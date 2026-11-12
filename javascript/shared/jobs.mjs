@@ -201,6 +201,7 @@ async function pollSyncProgress() {
                 const fileInfo = (p.added ? `, ${p.added} new on disk` : '')
                     + (p.removed ? `, ${p.removed} gone from disk` : '')
                     + (p.found_twice ? `, ${p.found_twice} found again by another path` : '')
+                    + (p.kept_unseen ? `, ${p.kept_unseen} kept: their folder is not there` : '')
                     + (p.moved ? `, ${p.moved} moved into their type's folder` : '')
                     + (p.not_moved ? `, ${p.not_moved} left where ${p.not_moved === 1 ? 'it was' : 'they were'} (a file of that name is already there)` : '');
                 setStatus(`Sync ${p.cancelled ? 'cancelled' : 'complete'}: ${p.synced} synced, ${p.not_found} not found, ${p.skipped} skipped${fileInfo}, ${p.errors} errors${errorInfo}`);

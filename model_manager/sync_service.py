@@ -20,8 +20,8 @@ from .civitai import (
     keep_generation_data,
 )
 from .hashing import HashResult, ModelHasher, changed_since_read, fingerprint
-from .model_dirs import (file_modified, find_model_files, forget_gone, library_dirs,
-                         move_misplaced_files)
+from .model_dirs import (Sight, file_modified, find_model_files, forget_gone, kept_unseen, library_dirs,
+                         missing_library_dirs, move_misplaced_files)
 from . import other_records
 from .payload_rows import file_row, model_row, version_row
 from .storage import get_metadata_paths, names_a_version, read_model_payload, write_civitai_info
@@ -70,6 +70,7 @@ class SyncProgress:
     added: int = 0          # files the database had never seen
     removed: int = 0        # rows whose file is no longer on disk
     found_twice: int = 0    # rows of a file the walk found by another path (#348)
+    kept_unseen: int = 0    # rows of files not on disk, kept: their drive or folder cannot be seen (#389)
     moved: int = 0          # files moved into their type's folder
     not_moved: int = 0      # left in another type's: their name is taken there
     # The console's line count when it started (console.said): the page's
@@ -132,6 +133,12 @@ class SyncService:
         # Those lookups, counted on the bar from the sync's start (_reserve_lookups).
         self._lookups_reserved = 0
         self._galleries_lock = threading.Lock()
+        # What this sync's walk read and what it could not see (#389): the
+        # folders, as a Sight the metadata sync's own check asks too, and
+        # the paths kept, each once however many checks keep it.
+        self._sight = Sight([])
+        self._missing_dirs: List[str] = []
+        self._kept: Set[str] = set()
 
     def _first_for_gallery(self, version_id: int) -> bool:
         """Whether this run is still to fetch this version's gallery - and,
@@ -777,7 +784,10 @@ class SyncService:
             say(f"Stored {fixed} file paths as a walk finds them")
         with self._progress_lock:
             self._progress.current_model = "Reading your model folders..."
-        found = find_model_files(library_dirs())
+        walked = library_dirs()
+        self._sight = Sight(walked)
+        self._missing_dirs = missing_library_dirs()
+        found = find_model_files(walked)
         self._progress.added = self._record_found_files(found)
         self._read_headers(found, force=reread_headers)
 
@@ -790,8 +800,11 @@ class SyncService:
                 self._progress.not_moved = len(moves.not_moved)
                 self._progress.errors += len(moves.errors)
                 self._progress.error_messages.extend(moves.errors)
+            # A move can make the folder it moves into: asked again, as the walk's.
             if moves.moved:
-                found = find_model_files(library_dirs())
+                walked = library_dirs()
+                self._sight = Sight(walked)
+                found = find_model_files(walked)
 
         # A cancelled walk forgets nothing: it has not looked everywhere.
         if self._cancel_requested:
@@ -799,6 +812,9 @@ class SyncService:
         if found and not self._cancel_requested:
             self._progress.removed = self._forget_missing_files(found)
             forget_orphans(db)
+        elif not self._cancel_requested:
+            # Nothing found, nothing forgotten; but what is kept is said (#389).
+            self._keep(kept_unseen(db.get_all_version_paths(), [], self._sight))
         return found
 
     #: Files whose header is read at once: a header is small, and the walk
@@ -864,7 +880,9 @@ class SyncService:
         Returns:
             How many rows went with their file gone from disk.
         """
-        gone = forget_gone(get_models_db(), found_paths)
+        kept: List[str] = []
+        gone = forget_gone(get_models_db(), found_paths, self._sight, kept)
+        self._keep(kept)
         twice = sum(1 for path in gone if os.path.exists(path))
         if len(gone) > twice:
             say(f"Removed {len(gone) - twice} model(s) no longer on disk")
@@ -872,6 +890,27 @@ class SyncService:
             say(f"Forgot {twice} row(s) of files found again by another path, through a link")
         self._progress.found_twice = twice
         return len(gone) - twice
+
+    def _keep(self, paths: List[str]) -> None:
+        """
+        Count rows kept because their file's place cannot be seen (#389),
+        each path once - the metadata sync's check sees again what the walk
+        kept - and name each library folder not there that holds them.
+        """
+        new = [p for p in paths if os.path.normcase(p) not in self._kept]
+        self._kept.update(os.path.normcase(p) for p in new)
+        self._progress.kept_unseen = len(self._kept)
+        # Each file under the innermost folder not there that holds it, once.
+        held: Dict[str, int] = {}
+        for p in new:
+            where = os.path.normcase(p)
+            for folder in sorted(self._missing_dirs, key=len, reverse=True):
+                if where.startswith(os.path.normcase(folder).rstrip("\\/") + os.sep):
+                    held[folder] = held.get(folder, 0) + 1
+                    break
+        for folder in self._missing_dirs:
+            if held.get(folder):
+                say(f"Not there: {folder} - its {held[folder]} file(s) in the library are kept until it is back")
 
     def _filter_by_identification(self, model_paths: List[str], targets: str) -> List[str]:
         """
@@ -1041,6 +1080,7 @@ class SyncService:
         self._progress_lock = threading.Lock()
         self._progress = SyncProgress(log_from=said())
         self.keep_image_count = keep_image_count
+        self._kept = set()
 
         if max_workers is None:
             max_workers = configured_hash_threads()
@@ -1278,6 +1318,7 @@ class SyncService:
         self._cancel_requested = False
         self._progress_lock = threading.Lock()
         self._progress = SyncProgress(log_from=said())
+        self._kept = set()
 
         self.keep_image_count = keep_image_count
         if max_workers is None:
@@ -1296,12 +1337,22 @@ class SyncService:
             wanted = set(model_paths)
             versions = [v for v in versions if v["file_path"] in wanted]
 
-        missing = [v for v in versions if not os.path.exists(v["file_path"])]
-        versions = [v for v in versions if os.path.exists(v["file_path"])]
+        # A file the walk kept is not asked again: on a share asleep, each is a wait.
+        there = [os.path.normcase(v["file_path"]) not in self._kept and os.path.exists(v["file_path"])
+                 for v in versions]
+        absent = [v for v, here in zip(versions, there) if not here]
+        versions = [v for v, here in zip(versions, there) if here]
 
         # Proof about one row rather than a diff: this file was about to be
         # refreshed and it is not there, so the row goes. Sound whatever the
-        # scope is, because nothing is inferred from what was not looked at.
+        # scope is, because nothing is inferred from what was not looked at -
+        # where the sync can see the place it was in (#389). One whose drive
+        # or folder cannot be seen is kept, and not refreshed: there is no
+        # file to write its record beside.
+        missing, kept = [], []
+        for version in absent:
+            (missing if self._sight.can_see(version["file_path"]) else kept).append(version)
+        self._keep([v["file_path"] for v in kept])
         for version in missing:
             db.delete_version(version["file_path"])
         if missing:

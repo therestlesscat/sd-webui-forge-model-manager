@@ -121,6 +121,17 @@ file it had not reached, so a cancelled scan dropped the rest of the library.
 What only the forgotten files named - models, images - goes with them
 (`prune_orphans`), where Scan Disk left it orphaned.
 
+**Not there is not deleted** (#389). Either kind holds only where the sync can
+see the place the file was in (`model_dirs.Sight`): its own folder, a library
+folder around it, or a folder holding one - the drive is up. A file whose
+drive is unplugged, share asleep or junction leads nowhere is not there
+either, and both kinds forgot every one on it - the metadata sync's direct
+check with the whole library away, the walk's diff with one library folder
+away - and the first sync after it came back read each file again, its
+download date lost. Such a row is kept, counted once a sync (`kept_unseen`),
+its library folder named in the log, and left out of Move
+(`misplaced_files`).
+
 ### Civitai: sync and downloads
 
 **Civitai is the source; a sidecar is written, not read.** A sync and a
