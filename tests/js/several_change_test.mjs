@@ -451,6 +451,16 @@ check('#415: Untick all: no tick left, the rows not drawn again, the greyed row\
        win()?.querySelector('.mm-pick-tab[data-family="ticked"]')?.textContent.trim()],
       [[], true, true, '0 ticked', true, 'Tick two checkpoints or more. To generate with one, press Leave and use Generate.',
        0, true, 'Ticked 0']);
+// Select all (#415): All's rows by file name, but not the name Forge does not list - unticked, it is
+// there only to be let go - nor the greyed one; the column asked once, with all of them.
+const selectHere = () => win()?.querySelector('.mm-pick-line [data-action="resources.pickAll"]');
+const runsBeforeAll = runsAsked.length;
+if (selectHere()) press(selectHere());
+await waitFor('the column asked', () => runsAsked.length > runsBeforeAll);
+check('#415: Select all in All: every row it can tick, by file name; not the one Forge does not list, not the greyed; '
+      + 'the column asked once, with them; Use these on', [ticked(), runsAsked.length - runsBeforeAll, runsAsked.at(-1)?.names,
+       tickedText(), use()?.disabled], [[ANIME, DREAM, FLUX, PHOTO], 1, [ANIME, DREAM, FLUX, PHOTO], '4 ticked', false]);
+if (untickHere()) press(untickHere());
 tick(ANIME, true);
 // By base model again, Dream shows before Anime: the run order below is the ticks', not the rows'.
 sortTo('base');

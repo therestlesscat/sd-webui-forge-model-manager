@@ -1,5 +1,19 @@
 [
     {
+        "id": "checkpoint-list-sort",
+        "version": "0.78.1",
+        "kind": "feature",
+        "audience": "everyone",
+        "tabs": [
+            "queue",
+            "gallery",
+            "generations",
+            "model_manager"
+        ],
+        "title": "Sort your checkpoints, and tick them all at once",
+        "text": "The list of your checkpoints - under Choose the checkpoint to send with in the Resources dialog, and in Checkpoints to queue with, from Several checkpoints… under Generate in txt2img - has a Sort box beside its search: by name, by when a file came, its size, Civitai's numbers, pinned first, or, while Your generations is on, how many of your images were made with it. Where the list has tick boxes - with Select several ticked in the Resources dialog, and always in Checkpoints to queue with - Select all ticks every checkpoint the tab and the search show that can be ticked, Untick all clears the ticks, and the Ticked tab lists them in the order they run."
+    },
+    {
         "id": "other-tools-prompts-0-77-1",
         "version": "0.77.1",
         "kind": "action",

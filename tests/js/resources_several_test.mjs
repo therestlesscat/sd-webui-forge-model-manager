@@ -392,6 +392,9 @@ await showImageResources(image, null, { note: 'Not in your library.', send: line
 await waitFor('the line in tick mode, the list held', () => untickAll() && modal()?.querySelector('.mm-pick-wait'));
 check('#415: tick boxes, the list being read: Untick all there, off, saying so',
       [Boolean(untickAll()), untickAll()?.disabled, untickAll()?.title], [true, true, 'Your checkpoints are still being read.']);
+const selectAllWhileRead = modal()?.querySelector('.mm-pick-line [data-action="resources.pickAll"]');
+check('    and Select all, off, saying so', [selectAllWhileRead?.disabled, selectAllWhileRead?.title],
+      [true, 'Your checkpoints are still being read.']);
 releaseList();
 await shown();
 pressSeveral(false);
@@ -444,6 +447,89 @@ check('Select several off with the Ticked tab open: round buttons, All shown, no
 pressSeveral(true);
 check('    on again: the Ticked tab back, open, the one picked ticked; no held place beside it', [activeTab(), ticked(), Boolean(heldTab())],
       ['Ticked 1', [REAL.name], false]);
+pressSeveral(false);
+close();
+
+// ------------------------------------------------------------- Select all (#415)
+// What the open tab and the search show and can be ticked - not greyed - top to bottom, after the
+// ticks there are; in the dialog the first ticked is what Send loads. Its state follows a search,
+// a tick and a tab press; in the Ticked tab, and once nothing shown is left, it is off.
+const selectAll = () => modal()?.querySelector('.mm-pick-line [data-action="resources.pickAll"]');
+const lineActions = () => [...(modal()?.querySelectorAll('.mm-pick-line [data-action]') || [])].map((e) => e.dataset.action);
+await open();
+const askedFrom = usualAsked.length;
+check('#415: round buttons: no Select all', Boolean(selectAll()), false);
+pressSeveral(true);
+check('tick boxes: Select all on the line, before Untick all, saying how many it ticks - not the greyed, not the ticked',
+      [lineActions(), selectAll()?.disabled, selectAll()?.title],
+      [['resources.pickSort', 'resources.pickAll', 'resources.untickAll'], false, 'Tick the 5 checkpoints shown.']);
+if (untickAll()) press(untickAll());
+search('v1');
+check('    after a search: what it shows - Anime Mix v12, Lean v1, Own v1; Qwen, greyed, not counted',
+      [rowNames(), selectAll()?.title], [[MIX.name, LEAN.name, OWN.name, GREY.name], 'Tick the 3 checkpoints shown.']);
+const rowsAtSelect = modal()?.querySelector('.mm-pick-rows');
+if (selectAll()) press(selectAll());
+await waitFor('their usual settings', () => answered(MIX.name) && answered(LEAN.name));
+const askedHere = usualAsked.slice(askedFrom);
+check('    pressed, nothing ticked before: those three, top to bottom, the top one what Send loads; the rows not drawn again',
+      [ticked(), status(), modal()?.querySelector('.mm-pick-rows') === rowsAtSelect],
+      [[MIX.name, LEAN.name, OWN.name], 'Sends with Anime Mix v12, then Generate or Queue for 3 checkpoints in txt2img queues them all.',
+       true]);
+check('    each newly ticked one\'s usual settings asked, none twice', [askedHere.includes(MIX.name), askedHere.includes(LEAN.name),
+       new Set(askedHere).size === askedHere.length], [true, true, true]);
+check('    then off: nothing shown is left to tick', [selectAll()?.disabled, selectAll()?.title],
+      [true, 'Every checkpoint shown that can be ticked is ticked.']);
+search('');
+check('    the search cleared: the rest of All', [selectAll()?.disabled, selectAll()?.title], [false, 'Tick the 3 checkpoints shown.']);
+tick(FLUX.name);
+check('    one of them ticked by hand: one fewer', selectAll()?.title, 'Tick the 2 checkpoints shown.');
+pickTab('flux');
+check('    Flux\'s tab, its one checkpoint ticked: off', [selectAll()?.disabled, selectAll()?.title],
+      [true, 'Every checkpoint shown that can be ticked is ticked.']);
+pickTab('ticked');
+check('    the Ticked tab: off, saying to open another', [selectAll()?.disabled, selectAll()?.title],
+      [true, 'Open another tab to tick what it shows.']);
+pickTab('all');
+if (selectAll()) press(selectAll());
+pickTab('ticked');
+check('    All\'s rest ticked after the ticks there were - the run order; the greyed one never',
+      [rowNames(), ticked().includes(GREY.name)], [[MIX.name, LEAN.name, OWN.name, FLUX.name, UNREAD.name, REAL.name], false]);
+pressSeveral(false);
+close();
+
+// A family's tab in two parts - the image's base model first - ticked top to bottom across them:
+// not by name, which would put Anime Mix first.
+shownList = { ...list, checkpoints: list.checkpoints.map((c) => (c === MIX ? { ...MIX, base_model: 'Pony' } : c)),
+              same_base: { base_model: 'SDXL 1.0', names: [LEAN.name, OWN.name, REAL.name] } };
+await open();
+pressSeveral(true);
+if (untickAll()) press(untickAll());
+pickTab('flux');
+check('#415: one row to tick: Select all says it the short way', selectAll()?.title, 'Tick the checkpoint shown.');
+pickTab('xl');
+check('    a family\'s tab in two parts', modal()?.querySelectorAll('.mm-pick-head').length, 2);
+if (selectAll()) press(selectAll());
+pickTab('ticked');
+check('    Select all there: the image\'s base model\'s part, then the other, each top to bottom', rowNames(),
+      [LEAN.name, OWN.name, REAL.name, MIX.name]);
+pressSeveral(false);
+close();
+shownList = list;
+
+// The list asked again, failing (a download landed, a recheck): it keeps its last answer and shows
+// the error alone - Select all and Untick all off, saying the list could not be read.
+let readyAgain = false;
+await open('txt2img', { check: async () => (readyAgain ? '' : 'missing') });
+pressSeveral(true);
+tick(MIX.name);
+shownList = { success: false, error: 'the library is busy' };
+readyAgain = true;
+call('resources.checkAgain');
+await waitFor('the list asked again, failing', () => modal()?.querySelector('.mm-pick-wait')?.textContent.includes('busy'));
+check('#415: the list asked again, failing: Select all and Untick all off, saying it could not be read',
+      [selectAll()?.disabled, selectAll()?.title, untickAll()?.disabled, untickAll()?.title],
+      [true, 'Your checkpoints could not be read.', true, 'Your checkpoints could not be read.']);
+shownList = list;
 pressSeveral(false);
 close();
 

@@ -964,32 +964,46 @@ function tickedShown(holder, shown) {
  */
 function lineState(holder) {
     const count = holder?.ticked?.length || 0;
-    const reading = !holder?.pickList?.data;
     const failed = Boolean(holder?.pickList?.error);
+    // A list asked again that failed keeps its last answer, and shows only the error: not read either.
+    const reading = !holder?.pickList?.data || failed;
+    // Select all: what the open tab shows, top to bottom, that is not ticked - and can be: not greyed,
+    // nor a checkpoint Forge no longer lists, which a list holds only to let go (#400).
+    const view = reading || !Array.isArray(holder?.ticked) ? null : pickView(holder);
+    const inTicked = view?.tab === 'ticked';
+    const toTick = !view || inTicked ? [] : view.parts.flatMap(([, rows]) => rows)
+        .filter((r) => pickable(r) && !r.unlisted && !holder.ticked.includes(r.name));
+    const unread = failed ? 'Your checkpoints could not be read.' : 'Your checkpoints are still being read.';
     return {
+        all: { disabled: !toTick.length, names: toTick.map((r) => r.name),
+               title: reading ? unread : inTicked ? 'Open another tab to tick what it shows.'
+                   : !toTick.length ? 'Every checkpoint shown that can be ticked is ticked.'
+                       : toTick.length === 1 ? 'Tick the checkpoint shown.' : `Tick the ${toTick.length} checkpoints shown.` },
         untick: { disabled: reading || !count,
-                  title: failed ? 'Your checkpoints could not be read.' : reading ? 'Your checkpoints are still being read.'
+                  title: reading ? unread
                       : !count ? 'Nothing is ticked.'
                       : count === 1 ? 'Untick the checkpoint ticked.' : `Untick the ${count} checkpoints ticked.` },
     };
 }
 
-/** The line's buttons: Untick all, for tick boxes. */
+/** The line's buttons: Select all and Untick all, for tick boxes. */
 function lineButtonsHtml(holder) {
     if (!Array.isArray(holder?.ticked)) return '';
-    const { untick } = lineState(holder);
-    return `<button type="button" class="mm-btn secondary mm-btn-small" data-action="resources.untickAll"${
-        untick.disabled ? ' disabled' : ''} title="${escapeHtml(untick.title)}">Untick all</button>`;
+    const { all, untick } = lineState(holder);
+    const button = (action, state, label) => `<button type="button" class="mm-btn secondary mm-btn-small" data-action="${
+        action}"${state.disabled ? ' disabled' : ''} title="${escapeHtml(state.title)}">${label}</button>`;
+    return button('resources.pickAll', all, 'Select all') + button('resources.untickAll', untick, 'Untick all');
 }
 
 /** The line's buttons and the Ticked tab's count, set in place - the rows and their scroll left as they are. */
 function drawLineState(root, holder) {
     if (!root || !holder || !Array.isArray(holder.ticked)) return;
-    const { untick } = lineState(holder);
-    const button = root.querySelector('[data-action="resources.untickAll"]');
-    if (button) {
-        button.disabled = untick.disabled;
-        button.title = untick.title;
+    const state = lineState(holder);
+    for (const [action, { disabled, title }] of [['resources.pickAll', state.all], ['resources.untickAll', state.untick]]) {
+        const button = root.querySelector(`[data-action="${action}"]`);
+        if (!button) continue;
+        button.disabled = disabled;
+        button.title = title;
     }
     const count = root.querySelector('.mm-pick-tab[data-family="ticked"] .mm-pick-count');
     if (count && holder.pickList?.data) count.textContent = String(tickedShown(holder, shownRows(holder)).length);
@@ -1010,21 +1024,8 @@ function sortBoxHtml(disabled, data) {
  * family's tab holds every checkpoint of it, suggested or not, the image's base model first.
  */
 function pickBodyHtml(holder, name) {
-    const list = holder.pickList;
-    const data = list.data;
-    const rows = sortedRows(pickRows(holder), data);
-    const words = String(list.search || '').toLowerCase().split(/\s+/).filter(Boolean);
-    const shown = rows.filter((r) => matches(r, words));
-    // By the name each tab shows: in the order Forge listed them, the tabs moved as files were added or read.
-    const families = [...new Set(rows.map((r) => r.family).filter(Boolean))]
-        .sort((a, b) => familyName(a).localeCompare(familyName(b), undefined, { sensitivity: 'base' }) || (a < b ? -1 : 1));
-    const suggested = (data.suggested || []).map((s) => shown.find((r) => r.name === s.name)).filter(Boolean);
-    const hasSuggested = Boolean(data.suggested?.length);
-    // Tick boxes (#415): a Ticked tab, last, so no other tab moves as it comes - the ticked in run order.
-    const ticks = Array.isArray(holder.ticked);
-    const ticked = ticks ? tickedShown(holder, shown) : [];
-    const tab = families.includes(list.tab) || list.tab === 'all' || (list.tab === 'suggested' && hasSuggested)
-        || (list.tab === 'ticked' && ticks) ? list.tab : 'all';
+    const view = pickView(holder);
+    const { shown, families, suggested, hasSuggested, ticks, ticked, tab } = view;
     const count = (n) => ` <span class="mm-pick-count">${n}</span>`;
     const tabs = [...(hasSuggested ? [['suggested', 'Suggested', suggested.length, 'What suits this image']] : []),
                   ...families.map((f) => [f, familyName(f), shown.filter((r) => r.family === f).length,
@@ -1040,24 +1041,49 @@ function pickBodyHtml(holder, name) {
         // families (#415).
         + (ticks ? '' : '<button type="button" class="mm-pick-tab mm-pick-tab-held" disabled tabindex="-1" '
                         + `aria-hidden="true">Ticked${count(0)}</button>`);
-    const section = (title, list2, family) => (list2.length
+    const section = ([title, list2, family]) => (list2.length
         ? (title ? `<div class="mm-pick-head">${escapeHtml(title)}${count(list2.length)}</div>` : '')
           + list2.map((r) => pickRowHtml(holder, name, r, family)).join('') : '');
-    let body;
-    if (tab === 'suggested') body = section('', suggested, true);
-    else if (tab === 'all') body = section('', shown, true);
-    else if (tab === 'ticked') body = section('', ticked, true) || (holder.ticked.length ? '' : '<div class="mm-pick-wait">Nothing is ticked.</div>');
+    const body = view.parts.map(section).join('')
+        || (tab === 'ticked' && !holder.ticked.length ? '<div class="mm-pick-wait">Nothing is ticked.</div>' : '');
+    return `<div class="mm-pick-tabs" role="tablist">${tabs}</div>
+            <div class="mm-pick-rows">${body || '<div class="mm-pick-wait">No checkpoint matches.</div>'}</div>`;
+}
+
+/**
+ * What a list shows now, worked out once for its drawing and for Select all (#415): the rows its
+ * search leaves, the tabs, the tab open, and that tab's parts top to bottom - each `[heading, rows,
+ * whether a row says its family]`. Suggested is the suggestions, closest first; a family's tab its
+ * rows, the image's base model first, each part sorted on its own; Ticked the ticked in run order.
+ */
+function pickView(holder) {
+    const list = holder.pickList;
+    const data = list.data;
+    const shown = shownRows(holder);
+    // By the name each tab shows: in the order Forge listed them, the tabs moved as files were added or read.
+    const families = [...new Set(pickRows(holder).map((r) => r.family).filter(Boolean))]
+        .sort((a, b) => familyName(a).localeCompare(familyName(b), undefined, { sensitivity: 'base' }) || (a < b ? -1 : 1));
+    const suggested = (data.suggested || []).map((s) => shown.find((r) => r.name === s.name)).filter(Boolean);
+    const hasSuggested = Boolean(data.suggested?.length);
+    // Tick boxes (#415): a Ticked tab, last, so no other tab moves as it comes - the ticked in run order.
+    const ticks = Array.isArray(holder.ticked);
+    const ticked = ticks ? tickedShown(holder, shown) : [];
+    const tab = families.includes(list.tab) || list.tab === 'all' || (list.tab === 'suggested' && hasSuggested)
+        || (list.tab === 'ticked' && ticks) ? list.tab : 'all';
+    let parts;
+    if (tab === 'suggested') parts = [['', suggested, true]];
+    else if (tab === 'all') parts = [['', shown, true]];
+    else if (tab === 'ticked') parts = [['', ticked, true]];
     else {
         const inTab = shown.filter((r) => r.family === tab);
         const base = data.same_base?.base_model;
         const sameBase = base ? inTab.filter((r) => r.base_model === base) : [];
         const rest = inTab.filter((r) => !sameBase.includes(r));
-        body = sameBase.length
-            ? section(`${base}, like the image`, sameBase, false) + section(`Other ${familyName(tab)}`, rest, false)
-            : section('', rest, false);
+        parts = sameBase.length
+            ? [[`${base}, like the image`, sameBase, false], [`Other ${familyName(tab)}`, rest, false]]
+            : [['', rest, false]];
     }
-    return `<div class="mm-pick-tabs" role="tablist">${tabs}</div>
-            <div class="mm-pick-rows">${body || '<div class="mm-pick-wait">No checkpoint matches.</div>'}</div>`;
+    return { shown, families, suggested, hasSuggested, ticks, ticked, tab, parts };
 }
 
 /**
@@ -1959,6 +1985,22 @@ export function start(scope) {
         const list = listOf(input);
         if (!list || !input?.value) return;
         list.picked(input.value, input);
+        drawLineState(list.root, list.holder());
+    });
+    // Select all (#415): what the open tab shows and can be ticked, top to bottom, after the ticks
+    // there are - set at once, the boxes ticked in place, the rows and their scroll kept. In the
+    // Resources dialog the first ticked is what Send loads: with none ticked, the top row shown.
+    scope.provide('resources.pickAll', (data, button) => {
+        const list = listOf(button);
+        if (!list?.setTicked || !Array.isArray(list.state.ticked)) return;
+        const { all } = lineState(list.state);
+        if (!all.names.length) return;
+        list.setTicked([...list.state.ticked, ...all.names]);
+        for (const input of list.root.querySelectorAll('.mm-pick-row input[type="checkbox"]')) {
+            if (!all.names.includes(input.value)) continue;
+            input.checked = true;
+            input.closest('.mm-pick-row')?.classList.add('picked');
+        }
         drawLineState(list.root, list.holder());
     });
     // Untick all (#415): every tick of the list it is in, set at once; the boxes unticked in place,

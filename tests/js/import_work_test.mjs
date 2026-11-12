@@ -81,7 +81,7 @@ const STARTED = {
     'update_notice.mjs': ['fetch /model-manager/update', 'onAfterUiUpdate', 'setInterval 3600000',
                           'window listener: mm-settings-page-applied', 'window listener: mm-settings-saved'],
     'image_card.mjs': ['document listener: input', 'provide resources.checkAgain', 'provide resources.chooseTick',
-                       'provide resources.download', 'provide resources.pickRow', 'provide resources.pickSort',
+                       'provide resources.download', 'provide resources.pickAll', 'provide resources.pickRow', 'provide resources.pickSort',
                        'provide resources.pickTab',
                        'provide resources.sendAgain', 'provide resources.severalTick', 'provide resources.untickAll',
                        'provide resources.usualTick',

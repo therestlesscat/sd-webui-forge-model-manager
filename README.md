@@ -14,6 +14,15 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.78 - Sort your checkpoints, and tick them all at once.** The list of your checkpoints - in the
+Resources dialog, and in txt2img's Checkpoints to queue with window - has a Sort box beside its search:
+by name, file name or base model, by when a file came or its size, by Civitai's publish date, downloads
+or likes, pinned first, by how many of your images were made with it while Your generations is on, or
+how many of Civitai's images are stored for it. The choice is kept. Where the list has tick boxes - with
+Select several ticked in the Resources dialog, and always in Checkpoints to queue with - Select all ticks
+what the open tab and the search show, Untick all clears the ticks, and the Ticked tab lists them in the
+order they run.
+
 **0.77 - Prompts from other tools' images.** Sync images reads the prompts SwarmUI, Fooocus,
 InvokeAI, NovelAI, Easy Diffusion and other tools write into their images, where it read only
 Forge's infotext. They are stored and searched, an image's NSFW level is judged from them, and

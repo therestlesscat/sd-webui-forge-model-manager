@@ -2549,7 +2549,7 @@ body.mm-modal-open {
 .mm-pick-line > .mm-pick-search {
     flex: 1 1 auto;
     width: auto;
-    min-width: 10em;
+    min-width: 6em;
 }
 
 /* "Sort" and its box - the dialogs' select - its text the search's size: the dialogs' select is
@@ -2558,7 +2558,8 @@ body.mm-modal-open {
    0.2 px taller; at 1.25 it is shorter, and stretched to the search. */
 .mm-pick-sort {
     display: flex;
-    flex: none;
+    flex: 0 1 auto;
+    min-width: 0;
     align-items: center;
     gap: 6px;
     font-size: 0.9em;
@@ -2569,6 +2570,16 @@ body.mm-modal-open {
     align-self: stretch;
     font-size: inherit;
     line-height: 1.25;
+    min-width: 7em;
+}
+
+/* Select all and Untick all (#415), at their own width, their words on one line. On a narrow line
+   the search and the Sort box give up width together, the search down to 6em and the box - as wide
+   as its longest order - down to 7em: with the search held at 10em, the line ran past the Resources
+   dialog by 19 px at an 800 px window and 99 at 700. */
+.mm-pick-line > .mm-btn {
+    flex: none;
+    white-space: nowrap;
 }
 
 /* The tabs (#377, R4): Suggested, a family each, All - an underlined strip, each its name and a
