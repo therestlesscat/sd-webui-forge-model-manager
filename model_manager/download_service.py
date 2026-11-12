@@ -64,6 +64,12 @@ PART_TRIES = 3
 
 # Bound once: what the speed is measured by, whatever later replaces `time`.
 _clock = time.monotonic
+# The waits between tries of a finished download's rename (#390), 7.5 s in
+# all: an antivirus scan or the search indexer holding the new file lets go
+# within seconds, and the download then finishes by itself. A module name,
+# as _clock is, so the suite runs the tries without waiting.
+RENAME_WAITS = (0.5, 1, 2, 4)
+_wait = time.sleep
 
 #: A download asked for and not yet over: asked for again, it is not started again.
 ON_ITS_WAY = ("pending", "downloading", "finishing", "paused")
@@ -145,6 +151,23 @@ def _remove_partial(partial_path: str) -> None:
         try:
             if os.path.exists(path):
                 os.remove(path)
+        except OSError as e:
+            say(f"Could not remove {path}: {e}")
+
+
+def _same_path(path: str) -> str:
+    """A path as Windows tells two apart: case ignored, ".." resolved. Short names and junctions are not."""
+    return os.path.normcase(os.path.abspath(path))
+
+
+def _remove_parts(partial_path: str) -> None:
+    """
+    The part files beside a .partial, not the .partial itself: strays a join
+    could not remove (#390), which a later resume would read as its split.
+    """
+    for path in [f"{partial_path}.{n}" for n in _part_numbers(partial_path)]:
+        try:
+            os.remove(path)
         except OSError as e:
             say(f"Could not remove {path}: {e}")
 
@@ -552,6 +575,11 @@ class DownloadService:
                 return
             if job.get("version_data") is None:
                 key = self._fetch_job(key, job)
+                if job.get("version_data") is not None and self._is_cancelled(key):
+                    # Cancelled while Civitai was asked: download_version
+                    # starts by clearing the flag, and would fetch it all.
+                    self._cancel_kept(key, job)
+                    return
             if job.get("version_data") is None:
                 return
             self.download_version(job["version_id"], job["model_data"], job["version_data"],
@@ -592,6 +620,41 @@ class DownloadService:
             progress.status = "complete"
         say(f"Already in your library, not downloaded again: {found[0]}")
         return True
+
+    @staticmethod
+    def _kept_partial(job: Dict[str, Any]) -> Optional[str]:
+        """The .partial a download kept, while it is still on disk."""
+        kept = job.get("partial_path")
+        return kept if kept and kept.endswith(PARTIAL) and os.path.exists(kept) else None
+
+    def _cancel_kept(self, key: int, job: Dict[str, Any]) -> None:
+        """A download cancelled before it began fetching: cancelled, the .partial it kept removed."""
+        partial = job.pop("partial_path", None)
+        if partial:
+            _remove_partial(partial)
+        progress = self._active_downloads.get(key)
+        if progress:
+            progress.status = "cancelled"
+            progress.error = "Download cancelled"
+
+    def _stop_keeping(self, key: int, job: Dict[str, Any], progress: "DownloadProgress",
+                      why: str, again: str, kept: str = "What was downloaded is kept") -> None:
+        """
+        A download that cannot go on now (#390): Civitai could not be asked,
+        refused a resumed download, or its file is already in another row.
+        Cancelled meanwhile, it is cancelled, the .partial it kept removed.
+        Holding a .partial, it pauses, saying why, and keeps it - an Error row
+        is not kept across a restart, and the file was left with nothing
+        naming it. With none, it is an error, as before.
+        """
+        if self._is_cancelled(key):
+            self._cancel_kept(key, job)
+        elif self._kept_partial(job):
+            self._pause_saying(progress, f"{why}{'' if why.endswith('.') else '.'} {kept}; {again}")
+        else:
+            progress.status = "error"
+            progress.error = why
+        self._save()
 
     def _held(self, file_id: Optional[int]) -> List[str]:
         """
@@ -684,8 +747,8 @@ class DownloadService:
             job.update(model_data=model_data, version_data=version_data)
         except Exception as e:
             if progress:
-                progress.status = "error"
-                progress.error = f"Could not ask Civitai about this version: {e}"
+                self._stop_keeping(key, job, progress, f"Could not ask Civitai about this version: {e}",
+                                   "Resume to try again.")
             return key
         if key < 0:
             named = download_key(version_id, version_data, job.get("file_index"))
@@ -696,28 +759,44 @@ class DownloadService:
     def _rekey(self, key: int, named: int, job: Dict[str, Any]) -> int:
         """
         A download that went by a stand-in, found by its file from here on, in
-        its place in the list. Its file already on its way in another row is
-        not fetched twice: this row says so, and ends.
+        its place in the list. Its file already in another row is not fetched
+        twice: this row says so, and ends - keeping what it had downloaded
+        where the other row has begun at another place, or is over (#390). A
+        row not begun, or writing the very same .partial, would be named by
+        this one's Cancel too, which would delete the other download's file.
         """
+        apart = False
         with self._lock:
             progress = self._active_downloads.get(key)
             if named in self._active_downloads:
                 job["version_data"] = None
-                if progress:
+                mine, theirs = job.get("partial_path"), (self._jobs.get(named) or {}).get("partial_path")
+                over = self._active_downloads[named].status in ("complete", "error", "cancelled")
+                apart = bool(mine and (over or (theirs and _same_path(mine) != _same_path(theirs))))
+                if progress and not apart:
                     progress.status = "error"
                     progress.error = "This file is already in the list"
-                return key
-            self._active_downloads = {(named if k == key else k): p for k, p in self._active_downloads.items()}
-            self._jobs[named] = self._jobs.pop(key, job)
-            self._jobs[named]["file_id"] = named
-            for flags in (self._cancel_flags, self._pause_flags, self._tqdm_positions):
-                if key in flags:
-                    flags[named] = flags.pop(key)
-            if key in self._running:
-                self._running.discard(key)
-                self._running.add(named)
+                if not apart:
+                    return key
+            else:
+                self._active_downloads = {(named if k == key else k): p
+                                          for k, p in self._active_downloads.items()}
+                self._jobs[named] = self._jobs.pop(key, job)
+                self._jobs[named]["file_id"] = named
+                for flags in (self._cancel_flags, self._pause_flags, self._tqdm_positions):
+                    if key in flags:
+                        flags[named] = flags.pop(key)
+                if key in self._running:
+                    self._running.discard(key)
+                    self._running.add(named)
+                if progress:
+                    progress.file_id = named
+        if apart:
             if progress:
-                progress.file_id = named
+                self._stop_keeping(key, job, progress, "This file is already in the list, in another row",
+                                   "Resume once that row has finished and been dismissed, or Cancel to remove it.",
+                                   kept="What this download kept is kept")
+            return key
         self._save()
         return named
 
@@ -1336,9 +1415,16 @@ class DownloadService:
             return None if end is None else end - start + 1 - os.path.getsize(paths[i])
 
         hasher = hashlib.sha256()
-        with open(paths[0], "rb") as done_part:     # part 1, resumed: read once to begin with
-            for block in iter(lambda: done_part.read(4 * 1024 * 1024), b""):
-                hasher.update(block)
+        try:
+            with open(paths[0], "rb") as done_part:     # part 1, resumed: read once to begin with
+                for block in iter(lambda: done_part.read(4 * 1024 * 1024), b""):
+                    hasher.update(block)
+        except OSError as e:
+            # Another program holds it: raised, every other part was deleted (#390).
+            first.close()
+            return self._pause_saying(progress, f"Another program has part 1 of {progress.file_name} open, "
+                                                f"so it could not be read: {e}. Every part is kept; "
+                                                "Resume tries again.")
         progress.total_bytes = total
         progress.downloaded_bytes = sum(os.path.getsize(p) for p in paths)
         progress.restart_rate()
@@ -1411,7 +1497,12 @@ class DownloadService:
             progress.error = message
             return False
 
-        self._join_parts(paths, hasher)
+        refused = self._join_parts(paths, hasher)
+        if refused:
+            number, error = refused
+            return self._pause_saying(progress, f"Another program has part {number} of {progress.file_name} "
+                                                f"open, so the parts could not be joined: {error}. Every part "
+                                                "is kept; Resume joins them.")
         size = os.path.getsize(partial_path)
         if total and size != total:
             _remove_partial(partial_path)
@@ -1506,21 +1597,174 @@ class DownloadService:
         return ("pause", f"{failure[0].upper()}{failure[1:]}. Resume to try again.")
 
     @staticmethod
-    def _join_parts(paths: List[str], hasher) -> None:
-        """Parts 2 to N appended to the .partial in order, each hashed on the way and gone once added."""
-        with open(paths[0], "ab") as out:
-            for path in paths[1:]:
-                with open(path, "rb") as part:
+    def _join_parts(paths: List[str], hasher) -> Optional[Tuple[int, OSError]]:
+        """
+        Parts 2 to N appended to the .partial in order, each hashed on the way
+        and gone once added. Every part is opened before any is added: one
+        another program holds stops the join before anything is touched,
+        returned as (its number from 1, the error) for the download to pause,
+        every part kept - opened as it came, a refusal partway lost the joined
+        file (#390). Each part is closed before it is removed, so the join's
+        own handle never refuses that; a part Windows still will not remove
+        is left, and removed once the file is in place.
+        """
+        handles = []
+        try:
+            for index, path in enumerate(paths):
+                handles.append(open(path, "ab" if index == 0 else "rb"))
+        except OSError as e:
+            for handle in handles:
+                handle.close()
+            return len(handles) + 1, e
+        out = handles[0]
+        try:
+            for path, part in zip(paths[1:], handles[1:]):
+                with part:
                     for block in iter(lambda: part.read(4 * 1024 * 1024), b""):
                         hasher.update(block)
                         out.write(block)
-                os.remove(path)
+                try:
+                    os.remove(path)
+                except OSError as e:
+                    say(f"Could not remove {path} once joined ({e}): it is removed once the file is in place")
+        finally:
+            for handle in handles:
+                handle.close()
+        return None
 
     def _pause_saying(self, progress: DownloadProgress, why: str) -> bool:
         """A download that cannot go on for now - in parts (#282), or one connection out of tries (#291): paused, what it has kept, saying why."""
         say(f"Download of {progress.file_name} paused: {why}")
         progress.status = "paused"
         progress.error = why
+        return False
+
+    def _refused(self, key: int, job: Dict[str, Any], progress: DownloadProgress, why: str,
+                 kept: Optional[str]) -> DownloadProgress:
+        """
+        Civitai's answer refuses a download before it fetches: paid and not
+        bought, no files, no address. A resumed one holding its .partial is
+        paused, the answer dropped as Retry drops it, so Resume asks again - a
+        version bought since downloads the rest (#390). Any other: an error.
+        """
+        if kept:
+            job["model_data"] = job["version_data"] = None
+            self._stop_keeping(key, job, progress, why if why.endswith(".") else f"{why}.",
+                               "Resume to ask Civitai again, or Cancel to remove it.")
+        else:
+            progress.status = "error"
+            progress.error = why
+        return progress
+
+    def _pause_whole(self, job: Dict[str, Any], progress: DownloadProgress, partial_path: str,
+                     expected: str, why: str) -> None:
+        """
+        A whole, checked file that could not be put in place, paused with it
+        kept (#390): its size recorded as the file's - which Resume compares -
+        and its SHA-256 kept with the size and time it had, so Resume need
+        not read it again while it is unchanged.
+        """
+        stat = os.stat(partial_path)
+        progress.total_bytes = progress.downloaded_bytes = stat.st_size
+        job["checked"] = (progress.sha256, stat.st_size, stat.st_mtime_ns)
+        matches = "matches Civitai's SHA-256" if expected else "came to its full length"
+        self._pause_saying(progress, f"{why}. It is whole and {matches}, kept as "
+                                     f"{os.path.basename(partial_path)}. Resume puts it in place "
+                                     "without downloading it again.")
+        self._save()
+
+    def _kept_whole(self, job: Dict[str, Any], progress: DownloadProgress, partial_path: str,
+                    expected: str) -> Optional[str]:
+        """
+        A resumed download's .partial that is already the whole file (#390) -
+        a rename Windows refused, a connection dropped after the last byte.
+        "whole" when its own size, part files not counted, is the size the
+        download recorded and its SHA-256 is Civitai's (with none listed, the
+        size alone); "wrong" when only the size is; "unread" when it cannot be
+        read to tell - paused, kept: another program holds it; else None. The
+        SHA-256 worked out when it arrived serves while the file is as it was;
+        after a restart it is read again.
+        """
+        if not progress.total_bytes or not os.path.exists(partial_path):
+            return None
+        stat = os.stat(partial_path)
+        if stat.st_size != progress.total_bytes:
+            return None
+        if expected:
+            checked = job.get("checked")
+            if checked and checked[0] and checked[1:] == (stat.st_size, stat.st_mtime_ns):
+                sha = checked[0]
+            else:
+                from .hashing import file_sha256
+                sha = file_sha256(partial_path)
+                if sha is None:
+                    self._pause_saying(progress, f"{os.path.basename(partial_path)} could not be read to check "
+                                                 "it: another program may have it open. Everything downloaded "
+                                                 "is kept; Resume tries again.")
+                    self._save()
+                    return "unread"
+            if sha.upper() != expected:
+                return "wrong"
+            progress.sha256 = sha.upper()
+        progress.downloaded_bytes = stat.st_size
+        return "whole"
+
+    def _into_place(self, key: int, job: Dict[str, Any], progress: DownloadProgress, partial_path: str,
+                    target_path: str, expected: str) -> bool:
+        """
+        A whole, checked download renamed to its own name. Another program
+        holding the new file - an antivirus scan, the search indexer, a backup
+        tool - makes Windows refuse, and the file was deleted (#390): it is
+        tried again over RENAME_WAITS, then paused with the file kept, which
+        Resume puts in place without fetching it again. Pause and Cancel
+        pressed meanwhile are read between tries. True once renamed; else
+        the progress says what became of it.
+        """
+        folder, name = os.path.split(target_path)
+
+        def appeared() -> bool:
+            # Never over a file: one may have arrived under this name meanwhile.
+            _remove_partial(partial_path)
+            progress.status = "error"
+            progress.error = (f"A file named {name} appeared in {folder} while "
+                              "downloading, so the download was not put in its place")
+            progress.file_path = target_path
+            return False
+
+        # Pressed while the transfer ended, or while Resume read the file
+        # again (a few seconds a GB): heard now, before the file is placed.
+        if self._is_cancelled(key):
+            _remove_partial(partial_path)
+            progress.status = "cancelled"
+            progress.error = "Download cancelled"
+            return False
+        if self._is_paused(key):
+            self._pause_whole(job, progress, partial_path, expected, "Paused")
+            return False
+        refused = None
+        for wait in RENAME_WAITS + (None,):
+            if os.path.exists(target_path):
+                return appeared()
+            try:
+                os.rename(partial_path, target_path)
+                return True
+            except FileExistsError:
+                return appeared()
+            except OSError as e:
+                refused = e
+            if wait is None:
+                break
+            say(f"Windows would not let {name} be renamed into place ({refused}): trying again in {wait} s")
+            _wait(wait)
+            if self._is_cancelled(key):
+                _remove_partial(partial_path)
+                progress.status = "cancelled"
+                progress.error = "Download cancelled"
+                return False
+            if self._is_paused(key):
+                break
+        self._pause_whole(job, progress, partial_path, expected,
+                          f"Windows would not let the finished file be renamed into place: {refused}")
         return False
 
     def download_version(
@@ -1538,6 +1782,8 @@ class DownloadService:
         (download_key).
         """
         partial_path = None
+        checked = False                     # whole and checked, not yet in place (#390)
+        expected = ""
         key = download_key(version_id, version_data, file_index, file_id)
         with self._lock:
             # The progress the queue made, or a paused one being resumed, is
@@ -1561,42 +1807,36 @@ class DownloadService:
             model_id = (model_data or {}).get("id")
             if model_id:
                 progress.page_url = f"https://civitai.com/models/{model_id}?modelVersionId={version_id}"
+            # A resume carries on where its .partial is: the folder template
+            # changed, or a sync forgot the row it was fetched back to, while
+            # it was paused, and it started over elsewhere, its .partial left.
+            # Looked up first, so a refusal below keeps it (#390).
+            kept = self._kept_partial(job) if resume else None
             # A paid version downloads when the API key's account bought it.
             # One it did not is refused before anything is created: its
             # download answers 403, and _download_file would burn three
             # retries on it. Unknown - Civitai not asked - it is tried.
             refused = self.paid_refusal(version_id, version_data)
             if refused:
-                progress.status = "error"
-                progress.error = refused
-                return progress
+                return self._refused(key, job, progress, refused, kept)
 
             model_type = model_data.get("type", "Other")
 
             files = version_data.get("files", [])
             if not files:
-                progress.status = "error"
-                progress.error = "No files available for download"
-                return progress
+                return self._refused(key, job, progress, "No files available for download", kept)
 
             file_info = files[pick_file_index(files, file_index, file_id)]
             file_name = file_info.get("name", f"model_{version_id}.safetensors")
             download_url = file_info.get("downloadUrl") or version_data.get("downloadUrl")
 
             if not download_url:
-                progress.status = "error"
-                progress.error = "No download URL available"
-                return progress
+                return self._refused(key, job, progress, "No download URL available", kept)
 
             # The library first (#276): only the path below was ever looked
             # at, so a copy moved into a subfolder of one's own, or filed by
             # an older template, was fetched again beside it.
             place, library_path = self.library_place(file_info.get("id"))
-            # A resume carries on where its .partial is: the folder template
-            # changed, or a sync forgot the row it was fetched back to, while
-            # it was paused, and it started over elsewhere, its .partial left.
-            kept = job.get("partial_path") if resume else None
-            kept = kept if kept and kept.endswith(PARTIAL) and os.path.exists(kept) else None
             if place == "held":
                 if kept:
                     _remove_partial(kept)    # only ever this download's own
@@ -1675,49 +1915,60 @@ class DownloadService:
             # name - one a scan would take for the model - and whatever the
             # download deletes is only ever its own .partial.
             partial_path = target_path + PARTIAL
-            # In parts (#282), its split is in its part files: a resume keeps
-            # it, and a paused one-connection download stays on one.
-            kept_parts = _part_count(partial_path) if resume else 0
-            if kept_parts < 0:
-                say(f"A join of {file_name}'s parts was cut short: starting it again")
+            # Resumed whole - a rename Windows refused, a connection dropped
+            # after the last byte (#390): put in place, nothing fetched.
+            whole = self._kept_whole(job, progress, partial_path, expected) if resume else None
+            if whole == "unread":
+                partial_path = None              # kept: another program holds it
+                return progress
+            if whole == "wrong":
+                say(f"{file_name}'s kept file is its full size but not Civitai's file: starting it again")
                 _remove_partial(partial_path)
-                kept_parts = 0
-            resume_from = os.path.getsize(partial_path) if kept_parts == 1 else 0
-            parts = kept_parts or self._parts_for(int((file_info.get("sizeKB") or 0) * 1024))
-            # Kept in the database while it runs, so a restart - or a crash -
-            # leaves it paused, to be resumed, rather than a stray .partial.
-            job["partial_path"] = partial_path
-            self._save()
-            if parts > 1:
-                success = self._download_parts(download_url, partial_path, headers, progress, parts,
-                                               resumed=kept_parts > 1)
-            else:
-                success = self._download_file(download_url, partial_path, headers, progress, resume_from)
+            if whole != "whole":
+                if not resume:
+                    # Strays a join could not remove (#390): a later resume
+                    # would read them as its split.
+                    _remove_parts(partial_path)
+                # In parts (#282), its split is in its part files: a resume keeps
+                # it, and a paused one-connection download stays on one.
+                kept_parts = _part_count(partial_path) if resume else 0
+                if kept_parts < 0:
+                    say(f"A join of {file_name}'s parts was cut short: starting it again")
+                    _remove_partial(partial_path)
+                    kept_parts = 0
+                resume_from = os.path.getsize(partial_path) if kept_parts == 1 else 0
+                parts = kept_parts or self._parts_for(int((file_info.get("sizeKB") or 0) * 1024))
+                # Kept in the database while it runs, so a restart - or a crash -
+                # leaves it paused, to be resumed, rather than a stray .partial.
+                job["partial_path"] = partial_path
+                self._save()
+                if parts > 1:
+                    success = self._download_parts(download_url, partial_path, headers, progress, parts,
+                                                   resumed=kept_parts > 1)
+                else:
+                    success = self._download_file(download_url, partial_path, headers, progress, resume_from)
 
-            if not success:
-                if progress.status == "paused":
-                    partial_path = None          # kept, to resume from
-                    self._save()
-                return progress
+                if not success:
+                    if progress.status == "paused":
+                        partial_path = None          # kept, to resume from
+                        self._save()
+                    return progress
 
-            if expected and progress.sha256 != expected:
-                os.remove(partial_path)
-                progress.status = "error"
-                progress.error = ("The downloaded file does not match Civitai's SHA-256, "
-                                  "so it was removed. Try downloading it again.")
-                return progress
+                if expected and progress.sha256 != expected:
+                    _remove_partial(partial_path)
+                    progress.status = "error"
+                    progress.error = ("The downloaded file does not match Civitai's SHA-256, "
+                                      "so it was removed. Try downloading it again.")
+                    return progress
 
-            # Never over a file: one may have arrived under this name while
-            # the download ran. (Windows' rename refuses one anyway.)
-            if os.path.exists(target_path):
-                os.remove(partial_path)
-                progress.status = "error"
-                progress.error = (f"A file named {file_name} appeared in {target_dir} while "
-                                  "downloading, so the download was not put in its place")
-                progress.file_path = target_path
+            # Whole and checked - or, with no SHA-256 listed, whole: from here
+            # until it is in place, a failure keeps it (#390).
+            checked = True
+            if not self._into_place(key, job, progress, partial_path, target_path, expected):
+                partial_path = None              # kept and paused, or gone as the progress says
                 return progress
-            os.rename(partial_path, target_path)
             partial_path = None
+            _remove_parts(target_path + PARTIAL)
             target_path = self._file_by_what_it_is(target_path, progress)
 
             write_civitai_info(target_path, download_payload(model_data, version_data, model_type))
@@ -1735,6 +1986,10 @@ class DownloadService:
 
         except Exception as e:
             say_failure(f"Download error: {e}")
+            if partial_path and checked and os.path.exists(partial_path):
+                # Whole and checked, not yet in place: kept, never deleted (#390).
+                self._pause_whole(job, progress, partial_path, expected, f"Download error: {e}")
+                return progress
             progress.status = "error"
             progress.error = str(e)
             # Only ever this download's own unfinished files.

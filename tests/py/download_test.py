@@ -636,6 +636,7 @@ bad = service.download_version(511, CHECKPOINT, hashed(511, 'F' * 64))
 check('a file whose SHA-256 is not Civitai\'s is corrupt: an error, not a model',
       (bad.status, 'SHA-256' in (bad.error or '')), ('error', True))
 check('removed', os.path.exists(os.path.join(CKPT_DIR, 'hashed_511.safetensors')), False)
+check('its .partial too', os.path.exists(os.path.join(CKPT_DIR, 'hashed_511.safetensors.partial')), False)
 check('and never added to the library', synced, [])
 again = service.download_version(500, CHECKPOINT, version())
 check('downloading it twice is refused', again.status, 'error')
@@ -2030,6 +2031,531 @@ check('one whose file is already in the list is not fetched: it says so, and end
       ['error', 'This file is already in the list', 0])
 named_later.cancel(9071)
 civitai_pkg.CivitaiClient = real_client
+
+# ------------------------------------------- a finished download kept (#390)
+# Another program holding a finished download - an antivirus scan, the search
+# indexer, a backup tool - makes Windows refuse its rename and its deletion
+# (WinError 32). Held here for real: a file this process keeps open with
+# open() is refused both, as for another program; one opened with
+# _winapi.CreateFile sharing nothing cannot even be read. Every hold is let go
+# in a `finally`, so a failure leaves no held file for the checks after.
+import _winapi                                           # noqa: E402
+held = []
+
+
+def hold(path):
+    held.append(io.open(path, 'rb'))
+
+
+def hold_against_reading(path):
+    held.append(_winapi.CreateFile(path, 0x80000000, 0, 0, 3, 0x80, 0))   # GENERIC_READ, no sharing
+
+
+def let_go():
+    while held:
+        handle = held.pop()
+        handle.close() if hasattr(handle, 'close') else _winapi.CloseHandle(handle)
+
+
+waits = []
+real_wait = getattr(ds, '_wait', None)
+ds._wait = lambda seconds: waits.append(seconds)
+
+
+def whole_version(version_id, sha=SHA, **extra):
+    hashes = {'SHA256': sha} if sha else {}
+    data = version(id=version_id, files=[{'id': F(version_id), 'name': 'whole_%d.safetensors' % version_id,
+                                          'primary': True, 'downloadUrl': 'https://example.invalid/w',
+                                          'hashes': hashes}])
+    data.update(extra)
+    return data
+
+
+def whole_path(version_id):
+    return os.path.join(CKPT_DIR, 'whole_%d.safetensors' % version_id)
+
+
+def fresh():
+    """A service as a restart leaves it, its sync stood in for."""
+    restarted = DownloadService(max_concurrent=2)
+    restarted._sync_downloaded_file = fake_sync
+    return restarted
+
+
+def kept_row(version_id, partial, total, file_id=None):
+    return {'version_id': version_id, 'model_id': 42, 'file_id': F(version_id) if file_id is None else file_id,
+            'file_index': None, 'file_name': os.path.basename(partial)[:-len('.partial')],
+            'partial_path': partial, 'total_bytes': total}
+
+
+def asked_ranges():
+    return [(headers or {}).get('Range') for _, headers in FakeSession.asked]
+
+
+def kept_for(file_id):
+    return [r.get('partial_path') for r in kept['rows'] if r['file_id'] == file_id]
+
+
+# 1. Held for every try: paused, the file kept; let go and resumed, it is put
+# in place and nothing is asked of Civitai.
+del synced[:]
+waits.clear()
+target = whole_path(1201)
+civitai_says(FakeResponse([BODY[:5], lambda: hold(target + '.partial'), BODY[5:]]))
+try:
+    first = service.download_version(1201, CHECKPOINT, whole_version(1201))
+    check('#390: a checked file Windows will not rename is paused, kept whole, and not under its name',
+          [first.status, bytes_of(target + '.partial'), os.path.exists(target), waits],
+          ['paused', BODY, False, [0.5, 1, 2, 4]])
+    check('saying why, and that Resume puts it in place without downloading it again',
+          ['WinError 32' in (first.error or ''), "matches Civitai's SHA-256" in (first.error or ''),
+           'Resume puts it in place without downloading it again' in (first.error or '')], [True, True, True])
+    check('kept across a restart, its size the file\'s', [kept_for(F(1201)), first.total_bytes],
+          [[target + '.partial'], len(BODY)])
+finally:
+    let_go()
+civitai_says()
+again = service.download_version(1201, CHECKPOINT, whole_version(1201), resume=True)
+check('let go and resumed: in place, complete, added to the library, and Civitai asked nothing',
+      [again.status, bytes_of(target), os.path.exists(target + '.partial'), synced[-1:], FakeSession.asked],
+      ['complete', BODY, False, [target], []])
+
+# 2. Held for the first try only: the second try puts it in place.
+waits.clear()
+ds._wait = lambda seconds: (waits.append(seconds), let_go())
+target = whole_path(1202)
+civitai_says(FakeResponse([BODY[:5], lambda: hold(target + '.partial'), BODY[5:]]))
+try:
+    second = service.download_version(1202, CHECKPOINT, whole_version(1202))
+finally:
+    let_go()
+ds._wait = lambda seconds: waits.append(seconds)
+check('held for a moment only: tried again, and complete, never paused',
+      [second.status, bytes_of(target), waits], ['complete', BODY, [0.5]])
+
+# 7. Pause pressed during the tries pauses at once; Cancel removes the file.
+waits.clear()
+ds._wait = lambda seconds: (waits.append(seconds), service._pause_flags.__setitem__(F(1207), True))
+target = whole_path(1207)
+civitai_says(FakeResponse([BODY[:5], lambda: hold(target + '.partial'), BODY[5:]]))
+try:
+    paused_in_tries = service.download_version(1207, CHECKPOINT, whole_version(1207))
+finally:
+    let_go()
+check('Pause pressed between tries: paused at once, the file kept',
+      [paused_in_tries.status, bytes_of(target + '.partial'), waits], ['paused', BODY, [0.5]])
+waits.clear()
+ds._wait = lambda seconds: (waits.append(seconds), service._cancel_flags.__setitem__(F(1207), True), let_go())
+target = whole_path(1207)
+os.remove(target + '.partial')
+civitai_says(FakeResponse([BODY[:5], lambda: hold(target + '.partial'), BODY[5:]]))
+try:
+    cancelled_in_tries = service.download_version(1207, CHECKPOINT, whole_version(1207))
+finally:
+    let_go()
+ds._wait = lambda seconds: waits.append(seconds)
+check('Cancel pressed between tries: cancelled, the file removed once let go',
+      [cancelled_in_tries.status, os.path.exists(target + '.partial'), os.path.exists(target)],
+      ['cancelled', False, False])
+
+# 8. A stray part file beside a fresh one-connection download is cleared at
+# its start: paused and resumed, it carries on from where it stopped.
+target = whole_path(1208)
+io.open(target + '.partial.3', 'wb').write(b'a stray part a join left')
+civitai_says(FakeResponse([BODY[:5], lambda: service._pause_flags.__setitem__(F(1208), True), BODY[5:]]))
+stray = service.download_version(1208, CHECKPOINT, whole_version(1208))
+civitai_says(FakeResponse([BODY[5:]], status_code=206))
+stray = service.download_version(1208, CHECKPOINT, whole_version(1208), resume=True)
+check('a stray part beside a fresh download is cleared; Resume carries on from where it stopped',
+      [os.path.exists(target + '.partial.3'), asked_ranges(), stray.status, bytes_of(target)],
+      [False, ['bytes=5-'], 'complete', BODY])
+
+# 9. No SHA-256 from Civitai: a transfer that came to its full length is kept
+# and paused the same way, and Resume puts it in place.
+waits.clear()
+target = whole_path(1209)
+civitai_says(FakeResponse([BODY[:5], lambda: hold(target + '.partial'), BODY[5:]]))
+try:
+    unlisted = service.download_version(1209, CHECKPOINT, whole_version(1209, sha=None))
+finally:
+    let_go()
+check('with no SHA-256 listed, a whole file is kept and paused too, saying it came to its full length',
+      [unlisted.status, bytes_of(target + '.partial'), 'came to its full length' in (unlisted.error or '')],
+      ['paused', BODY, True])
+civitai_says()
+unlisted = service.download_version(1209, CHECKPOINT, whole_version(1209, sha=None), resume=True)
+check('and Resume puts it in place, asking nothing', [unlisted.status, bytes_of(target), FakeSession.asked],
+      ['complete', BODY, []])
+
+# 3 and 4. After a restart: a whole .partial is read again - Civitai's, it is
+# put in place with nothing fetched; not Civitai's, it starts over.
+target = whole_path(1203)
+io.open(target + '.partial', 'wb').write(BODY)
+kept['rows'] = [kept_row(1203, target + '.partial', len(BODY))]
+restarted = fresh()
+restarted.restore()
+civitai_says(FakeResponse(error=http_error(416)), FakeResponse([BODY]))
+back = restarted.download_version(1203, CHECKPOINT, whole_version(1203), resume=True)
+check('after a restart, a whole checked .partial resumed: read again, put in place, no download request',
+      [back.status, bytes_of(target), len(FakeSession.asked)], ['complete', BODY, 0])
+
+target = whole_path(1204)
+io.open(target + '.partial', 'wb').write(b'X' * len(BODY))
+kept['rows'] = [kept_row(1204, target + '.partial', len(BODY))]
+restarted = fresh()
+restarted.restore()
+civitai_says(FakeResponse([BODY]), FakeResponse([BODY]), FakeResponse([BODY]))
+wrong = restarted.download_version(1204, CHECKPOINT, whole_version(1204), resume=True)
+check('a whole-length .partial that is not Civitai\'s file is never put in place: downloaded again, right',
+      [wrong.status, bytes_of(target)], ['complete', BODY])
+check('started over at once: the first request asks for the whole file, no Range', asked_ranges()[:1], [None])
+
+# 4b. A whole .partial that cannot be read to check it - another program
+# holds it against reading - is kept and paused, never taken for wrong bytes.
+target = whole_path(1210)
+io.open(target + '.partial', 'wb').write(BODY)
+kept['rows'] = [kept_row(1210, target + '.partial', len(BODY))]
+restarted = fresh()
+restarted.restore()
+civitai_says()
+hold_against_reading(target + '.partial')
+try:
+    unread = restarted.download_version(1210, CHECKPOINT, whole_version(1210), resume=True)
+    check('a whole .partial that cannot be read to check it: paused, kept, nothing asked',
+          [unread.status, 'could not be read' in (unread.error or ''), FakeSession.asked], ['paused', True, []])
+finally:
+    let_go()
+check('its bytes untouched', bytes_of(target + '.partial'), BODY)
+unread = restarted.download_version(1210, CHECKPOINT, whole_version(1210), resume=True)
+check('let go: Resume reads it, and puts it in place', [unread.status, bytes_of(target), FakeSession.asked],
+      ['complete', BODY, []])
+
+# 1b. A server that gave no size: the paused file's size is recorded as its own,
+# so Resume can tell it whole.
+target = whole_path(1211)
+civitai_says(FakeResponse([BODY[:5], lambda: hold(target + '.partial'), BODY[5:]], total=0))
+try:
+    unsized = service.download_version(1211, CHECKPOINT, whole_version(1211))
+    check('no size from the server: paused, its size recorded as the file\'s',
+          [unsized.status, unsized.total_bytes, kept_for(F(1211))], ['paused', len(BODY), [target + '.partial']])
+finally:
+    let_go()
+civitai_says()
+unsized = service.download_version(1211, CHECKPOINT, whole_version(1211), resume=True)
+check('and Resume puts it in place, asking nothing', [unsized.status, bytes_of(target), FakeSession.asked],
+      ['complete', BODY, []])
+
+# 17, 18, 19, 25, 31. After a restart a resumed download first asks Civitai
+# about its version, at its turn.
+civitai_pkg.CivitaiClient = TurnClient
+
+
+class CancellingClient(TurnClient):
+    """Civitai as asked while the page's Cancel is pressed: then it answers, or fails."""
+    cancel = None
+
+    def get_model(self, model_id):
+        CancellingClient.cancel()
+        return super().get_model(model_id)
+
+
+TurnClient.fails, TurnClient.asked = Exception('Civitai is down'), []
+target = whole_path(1217)
+io.open(target + '.partial', 'wb').write(BODY[:5])
+kept['rows'] = [kept_row(1217, target + '.partial', len(BODY))]
+turns = fresh()
+turns.restore()
+turns.resume(F(1217))
+turns.wait()
+half = turns.get_progress(F(1217))
+check('Civitai not answering a resumed download\'s turn: paused, saying so, its bytes kept and still kept',
+      [getattr(half, 'status', None), 'Could not ask Civitai' in (getattr(half, 'error', '') or ''),
+       bytes_of(target + '.partial'), kept_for(F(1217))],
+      ['paused', True, BODY[:5], [target + '.partial']])
+TurnClient.fails, TurnClient.model = None, dict(CHECKPOINT, modelVersions=[whole_version(1217)])
+civitai_says(FakeResponse([BODY[5:]], status_code=206))
+turns.resume(F(1217))
+turns.wait()
+check('once Civitai answers, Resume asks for the rest from where it stopped',
+      [getattr(turns.get_progress(F(1217)), 'status', None), asked_ranges(), bytes_of(target)],
+      ['complete', ['bytes=5-'], BODY])
+
+TurnClient.fails, TurnClient.asked = Exception('Civitai is down'), []
+target = whole_path(1218)
+io.open(target + '.partial', 'wb').write(BODY)
+kept['rows'] = [kept_row(1218, target + '.partial', len(BODY))]
+turns = fresh()
+turns.restore()
+turns.resume(F(1218))
+turns.wait()
+check('a whole one, Civitai not answering: paused, kept',
+      [getattr(turns.get_progress(F(1218)), 'status', None), bytes_of(target + '.partial')], ['paused', BODY])
+TurnClient.fails, TurnClient.model = None, dict(CHECKPOINT, modelVersions=[whole_version(1218)])
+civitai_says()
+turns.resume(F(1218))
+turns.wait()
+check('once Civitai answers, it is put in place, no download request',
+      [getattr(turns.get_progress(F(1218)), 'status', None), bytes_of(target), FakeSession.asked, len(TurnClient.asked)],
+      ['complete', BODY, [], 2])
+
+TurnClient.fails = Exception('Civitai is down')
+target = whole_path(1219)
+io.open(target + '.partial', 'wb').write(BODY[:5])
+kept['rows'] = [kept_row(1219, target + '.partial', len(BODY))]
+turns = fresh()
+turns.restore()
+os.remove(target + '.partial')
+turns.resume(F(1219))
+turns.wait()
+check('one whose .partial was deleted while it sat paused: an error, as before',
+      getattr(turns.get_progress(F(1219)), 'status', None), 'error')
+
+target = whole_path(1225)
+io.open(target + '.partial', 'wb').write(BODY[:5])
+kept['rows'] = [kept_row(1225, target + '.partial', len(BODY))]
+turns = fresh()
+turns.restore()
+civitai_pkg.CivitaiClient = CancellingClient
+CancellingClient.cancel = lambda: turns.cancel(F(1225))
+turns.resume(F(1225))
+turns.wait()
+check('Cancel pressed while Civitai is asked, and Civitai failing: cancelled, the .partial removed',
+      [getattr(turns.get_progress(F(1225)), 'status', None), os.path.exists(target + '.partial')],
+      ['cancelled', False])
+
+TurnClient.fails, TurnClient.model = None, dict(CHECKPOINT, modelVersions=[whole_version(1231)])
+target = whole_path(1231)
+io.open(target + '.partial', 'wb').write(BODY[:5])
+kept['rows'] = [kept_row(1231, target + '.partial', len(BODY))]
+turns = fresh()
+turns.restore()
+CancellingClient.cancel = lambda: turns.cancel(F(1231))
+civitai_says(FakeResponse([BODY[5:]], status_code=206))
+turns.resume(F(1231))
+turns.wait()
+check('Cancel pressed while Civitai is asked, and Civitai answering: cancelled, the .partial removed, '
+      'nothing downloaded',
+      [getattr(turns.get_progress(F(1231)), 'status', None), os.path.exists(target + '.partial'), FakeSession.asked],
+      ['cancelled', False, []])
+civitai_pkg.CivitaiClient = TurnClient
+
+# 26, 27. A download kept from before 0.73.0 under a stand-in, whose file is
+# already in another row: kept only where that row has begun at another place.
+TurnClient.fails, TurnClient.model = None, dict(CHECKPOINT, modelVersions=[whole_version(1226)])
+mine = whole_path(1226) + '.partial'
+theirs = os.path.join(ELSEWHERE, 'whole_1226.safetensors.partial')
+for path in (mine, theirs):
+    io.open(path, 'wb').write(BODY[:5])
+kept['rows'] = [kept_row(1226, mine, 0, file_id=-1226), kept_row(1226, theirs, len(BODY))]
+stand = fresh()
+stand.restore()
+stand.resume(-1226)
+stand.wait()
+standing = stand.get_progress(-1226)
+check('a stand-in whose file is already in a row begun elsewhere: paused, saying so, its .partial kept',
+      [getattr(standing, 'status', None), 'already in the list' in (getattr(standing, 'error', '') or ''),
+       os.path.exists(mine), kept_for(-1226)], ['paused', True, True, [mine]])
+stand.cancel(-1226)
+check('and its Cancel removes only its own .partial', [os.path.exists(mine), os.path.exists(theirs)], [False, True])
+
+for others in ([kept_row(1226, mine, 0, file_id=-1226), dict(kept_row(1226, theirs, 0), partial_path=None)],
+               [kept_row(1226, mine, 0, file_id=-1226), kept_row(1226, mine, len(BODY))]):
+    io.open(mine, 'wb').write(BODY[:5])
+    kept['rows'] = others
+    stand = fresh()
+    stand.restore()
+    stand.resume(-1226)
+    stand.wait()
+    check('the other row not begun, or writing the very same .partial: an error, nothing removed',
+          [getattr(stand.get_progress(-1226), 'status', None), os.path.exists(mine)], ['error', True])
+    if others[1]['partial_path'] == mine:
+        civitai_says(FakeResponse([BODY[5:]], status_code=206))
+        stand.resume(F(1226))
+        stand.wait()
+        check('and the other download, writing that .partial, completes with its own bytes',
+              [getattr(stand.get_progress(F(1226)), 'status', None), bytes_of(whole_path(1226))],
+              ['complete', BODY])
+        os.remove(whole_path(1226))
+
+# The other row over - finished, failed or cancelled, not yet dismissed: no
+# download's file is at stake, so the stand-in keeps its own and pauses.
+io.open(mine, 'wb').write(BODY[:5])
+kept['rows'] = [kept_row(1226, mine, 0, file_id=-1226), dict(kept_row(1226, theirs, 0), partial_path=None)]
+stand = fresh()
+stand.restore()
+stand.get_progress(F(1226)).status = 'complete'
+stand.resume(-1226)
+stand.wait()
+check('the other row over, not yet dismissed: the stand-in pauses, its .partial kept',
+      [getattr(stand.get_progress(-1226), 'status', None), os.path.exists(mine)], ['paused', True])
+stand.cancel(-1226)
+io.open(mine, 'wb').write(BODY[:5])
+kept['rows'] = [kept_row(1226, mine, 0, file_id=-1226), dict(kept_row(1226, theirs, 0), partial_path=None)]
+stand = fresh()
+stand.restore()
+civitai_pkg.CivitaiClient = CancellingClient
+CancellingClient.cancel = lambda: stand.cancel(-1226)
+stand.resume(-1226)
+stand.wait()
+civitai_pkg.CivitaiClient = TurnClient
+check('and with Cancel pressed meanwhile, still nothing removed', os.path.exists(mine), True)
+os.remove(theirs)
+
+# 28, 30. A resumed download Civitai now refuses: paused, its .partial kept,
+# Civitai asked again at the next Resume.
+opts.model_manager_civitai_api_key = 'test-key'
+owned_says({1228: False})
+TurnClient.fails, TurnClient.asked = None, []
+TurnClient.model = dict(CHECKPOINT, modelVersions=[whole_version(1228, paidAccess={'permanent': True})])
+target = whole_path(1228)
+io.open(target + '.partial', 'wb').write(BODY[:5])
+kept['rows'] = [kept_row(1228, target + '.partial', len(BODY))]
+turns = fresh()
+turns.restore()
+real_template = opts.model_manager_civitai_folder_template
+opts.model_manager_civitai_folder_template = 'moved_{modelId}'
+turns.resume(F(1228))
+turns.wait()
+refused_row = turns.get_progress(F(1228))
+check('a resumed download Civitai refuses as not bought: paused, saying why, its .partial kept',
+      [getattr(refused_row, 'status', None), 'has not bought it' in (getattr(refused_row, 'error', '') or ''),
+       bytes_of(target + '.partial'), kept_for(F(1228))], ['paused', True, BODY[:5], [target + '.partial']])
+owned_says({1228: True})
+civitai_says(FakeResponse([BODY[5:]], status_code=206))
+turns.resume(F(1228))
+turns.wait()
+check('bought since: Resume asks Civitai again, then asks for the rest from where it stopped',
+      [len(TurnClient.asked), getattr(turns.get_progress(F(1228)), 'status', None), asked_ranges(), bytes_of(target)],
+      [2, 'complete', ['bytes=5-'], BODY])
+opts.model_manager_civitai_folder_template = real_template
+ds.owned_versions = real_owned
+opts.model_manager_civitai_api_key = ''
+
+for version_id, refusal, said in ((1229, {'files': []}, 'No files available for download'),
+                                  (1232, {'files': [{'id': F(1232), 'name': 'whole_1232.safetensors'}]},
+                                   'No download URL available')):
+    TurnClient.asked = []
+    TurnClient.model = dict(CHECKPOINT, modelVersions=[dict(whole_version(version_id), **refusal)])
+    target = whole_path(version_id)
+    io.open(target + '.partial', 'wb').write(BODY[:5])
+    kept['rows'] = [kept_row(version_id, target + '.partial', len(BODY))]
+    turns = fresh()
+    turns.restore()
+    turns.resume(F(version_id))
+    turns.wait()
+    turns.resume(F(version_id))
+    turns.wait()
+    refused_row = turns.get_progress(F(version_id))
+    check('refused as "%s": paused, its .partial kept, and a second Resume asks Civitai again' % said,
+          [getattr(refused_row, 'status', None), said in (getattr(refused_row, 'error', '') or ''),
+           os.path.exists(target + '.partial'), len(TurnClient.asked)], ['paused', True, True, 2])
+    turns.cancel(F(version_id))
+
+TurnClient.model = dict(CHECKPOINT, modelVersions=[whole_version(1230, files=[])])
+target = whole_path(1230)
+io.open(target + '.partial', 'wb').write(BODY[:5])
+kept['rows'] = [kept_row(1230, target + '.partial', len(BODY))]
+turns = fresh()
+turns.restore()
+os.remove(target + '.partial')
+turns.resume(F(1230))
+turns.wait()
+check('one whose .partial is gone from disk, refused: an error, as before, and kept no longer',
+      [getattr(turns.get_progress(F(1230)), 'status', None), kept_for(F(1230))], ['error', []])
+civitai_pkg.CivitaiClient = real_client
+
+# 5, 6, 20, 23, 24. In parts: a part held at the join.
+ds.PART_MIN = 10
+ds.requests = types.SimpleNamespace(Session=PartsSession, exceptions=real_requests.exceptions)
+real_join = service._join_parts
+
+
+def join_holding(*which, reading=False, keep=False):
+    """The join, with the parts `which` (0 for the .partial) held from its start - let go after it, unless kept."""
+    def join(paths, hasher):
+        for index in which:
+            (hold_against_reading if reading else hold)(paths[index])
+        try:
+            return real_join(paths, hasher)
+        finally:
+            if not keep:
+                let_go()
+    return join
+
+
+storage_says(BIG)
+service._join_parts = join_holding(1)
+try:
+    joined = service.download_version(1205, CHECKPOINT, in_parts(1205, BIG))
+finally:
+    service._join_parts = real_join
+    let_go()
+check('a part Windows will not remove once joined is left, and the download completes, the part removed after',
+      [joined.status, bytes_of(joined.file_path) == BIG if joined.file_path else None, part_files(1205)],
+      ['complete', True, []])
+
+storage_says(BIG)
+service._join_parts = join_holding(1, 0, keep=True)
+try:
+    joined = service.download_version(1206, CHECKPOINT, in_parts(1206, BIG))
+    check('a part held through the join and the rename refused: paused, the joined file kept whole',
+          [joined.status, sizes(1206)[0]], ['paused', 300])
+finally:
+    service._join_parts = real_join
+    let_go()
+storage_says(BIG)
+joined = service.download_version(1206, CHECKPOINT, in_parts(1206, BIG), resume=True)
+check('let go and resumed: in place, the part removed, no download request',
+      [joined.status, part_files(1206), PartsSession.asked], ['complete', [], []])
+
+storage_says(BIG)
+service._join_parts = join_holding(2, reading=True)
+try:
+    joining = service.download_version(1220, CHECKPOINT, in_parts(1220, BIG))
+    check('part 3 of 4 held against reading when the join starts: paused, every part kept, nothing joined',
+          [joining.status, sizes(1220), 'part 3' in (joining.error or '')], ['paused', [75, 75, 75, 75], True])
+finally:
+    service._join_parts = real_join
+    let_go()
+storage_says(BIG)
+joining = service.download_version(1220, CHECKPOINT, in_parts(1220, BIG), resume=True)
+check('let go: Resume joins them - one request for the size, no part downloaded again - and puts it in place',
+      [joining.status, PartsSession.asked, joining.sha256, part_files(1220)],
+      ['complete', [(PARTS_URL, 'bytes=75-')], BIG_SHA, []])
+
+storage_says(BIG)
+service._join_parts = join_holding(0, reading=True, keep=True)
+try:
+    joining = service.download_version(1223, CHECKPOINT, in_parts(1223, BIG))
+    check('part 1 held when the join starts: paused, every part kept',
+          [joining.status, sizes(1223)], ['paused', [75, 75, 75, 75]])
+    service._join_parts = real_join
+    storage_says(BIG)
+    joining = service.download_version(1223, CHECKPOINT, in_parts(1223, BIG), resume=True)
+    check('still held at the first Resume: paused again, nothing deleted',
+          [joining.status, sizes(1223)], ['paused', [75, 75, 75, 75]])
+finally:
+    service._join_parts = real_join
+    let_go()
+storage_says(BIG)
+joining = service.download_version(1223, CHECKPOINT, in_parts(1223, BIG), resume=True)
+check('let go: the next Resume joins them and puts the file in place',
+      [joining.status, joining.sha256, part_files(1223)], ['complete', BIG_SHA, []])
+
+said_from = console.said()
+storage_says(BIG)
+plain = service.download_version(1224, CHECKPOINT, in_parts(1224, BIG))
+check('a plain parts download leaves no part, and no part was refused its removal',
+      [plain.status, part_files(1224),
+       any('Could not remove' in line['text'] for line in console.since(said_from)[0])],
+      ['complete', [], False])
+
+ds.requests = types.SimpleNamespace(Session=FakeSession, exceptions=real_requests.exceptions)
+if real_part_min is not None:
+    ds.PART_MIN = real_part_min
+if real_wait is not None:
+    ds._wait = real_wait
+let_go()
 
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)
