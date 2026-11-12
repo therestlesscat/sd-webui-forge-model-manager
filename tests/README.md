@@ -154,6 +154,15 @@ that the WebUI does not - and ask a real browser ("Probes").
 
 ## Traps suites fell into
 
+- **A suite that finds a stylesheet rule by its text takes the first
+  match.** `toolbar_test.py` slices from `CSS.index('.mm-dialog-select {')`;
+  #415's `.mm-pick-sort > .mm-dialog-select {`, earlier in the file, matched
+  first and failed 3 of its checks. A new rule's selector does not end in
+  one a suite searches for (`.mm-pick-sort > select`).
+- **`press` acts on a disabled control.** The harness dispatches the click
+  or change whatever `disabled` says (`harness.mjs`, `press`), so a check
+  that a control can be used reads `.disabled` itself: #415's Sort box,
+  drawn always disabled, passed both list suites until one did.
 - **A `{ once: true }` listener goes without a `removeEventListener`.** A suite
   that tracks listeners by wrapping `addEventListener` drops one when it
   fires: `service_stop_test` counted core's `DOMContentLoaded` as left behind

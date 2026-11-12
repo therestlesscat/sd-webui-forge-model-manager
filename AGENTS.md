@@ -710,6 +710,12 @@ content - live, a tab of 17 drew them in full, the whole foot scrolled, and the
 settings block kept a scrollbar of its own. The owner's screenshot found it.
 With 46 checkpoints the probe showed it on that build: rows 2,024 px tall, the
 foot scrolling 1,616 to 2,156 px.
+And alignment is measured where the text ends, not where its box does: a
+grid cell stretches across its column, so #415's base model, left-aligned
+in a column a longer value had widened, ended at the row's edge by its box
+(8 px) while its text ended 49 to 68 px short. The probe read "aligned";
+the owner's screenshot found it. A Range over the text
+(`document.createRange().selectNodeContents(el)`) measures what is seen.
 
 ## Conventions
 
