@@ -55,6 +55,7 @@ generation.
 import dataclasses
 import enum
 import os
+import re
 import sys
 import threading
 from datetime import datetime
@@ -331,11 +332,81 @@ def _loaded_files(p) -> Dict[str, Any]:
     return loaded
 
 
-def _number(value: Any) -> Any:
+# A prompt's extra-network tags, matched as Forge matches them
+# (modules/extra_networks.py, re_extra_net): "<lora:x:0.7>" and no other
+# spelling - "<LORA:x>" reaches no network.
+_EXTRA_NETWORK_TAG = re.compile(r"<(\w+):([^>]+)>")
+
+Weights = Tuple[Optional[float], Optional[float]]
+
+
+def lora_tag_weights(items: List[Any]) -> Tuple[Optional[str], Weights]:
+    """
+    One LoRA tag's name and two weights - text encoder, UNet - from its
+    parts, "x:0.7:0.4" split at the colons, as Forge's LoRA extension reads
+    them (extra_networks_lora.py, activate; parts as ExtraNetworkParams
+    splits them): the text encoder's is the first number or te=, else 1; the
+    UNet's the second or unet=, else the text encoder's.
+
+    Forge's LoRA objects keep 1.0 whatever the tag says (#392): the tag is
+    the only record of the weight. Any part that is not a number leaves both
+    None, whatever else the tag gives: Neo's weight schedule, "1.25@0,0@0.5",
+    which Neo applies as 0 while it changes over the steps, and text Forge
+    cannot read, which fails the batch's LoRAs.
+    """
+    positional, named = [], {}
+    for item in items:
+        parts = item.split("=", 2) if isinstance(item, str) else [item]
+        if len(parts) == 2:
+            named[parts[0]] = parts[1]
+        else:
+            positional.append(item)
+    if not positional:
+        return None, (None, None)
     try:
-        return float(value)
+        te = float(positional[1]) if len(positional) > 1 else 1.0
+        if "te" in named:
+            te = float(named["te"])
+        unet = float(positional[2]) if len(positional) > 2 else te
+        if "unet" in named:
+            unet = float(named["unet"])
     except (TypeError, ValueError):
-        return value
+        return str(positional[0]), (None, None)
+    return str(positional[0]), (te, unet)
+
+
+def prompt_lora_tags(prompt: Any) -> List[Tuple[str, Weights]]:
+    """A prompt's LoRA tags in order, each its name - as written, which is
+    how Forge names the LoRA it loads - and its two weights."""
+    tags = []
+    for match in _EXTRA_NETWORK_TAG.finditer(prompt if isinstance(prompt, str) else ""):
+        if match.group(1) != "lora":
+            continue
+        name, weights = lora_tag_weights(match.group(2).split(":"))
+        if name is not None:
+            tags.append((name, weights))
+    return tags
+
+
+def pair_lora_weights(names: List[Any], tags: List[Tuple[str, Weights]]) -> List[Optional[Weights]]:
+    """
+    The weights of each loaded LoRA, in Forge's order, from the tags it was
+    loaded from: each takes the next tag of exactly its name. A tag whose
+    LoRA did not load is passed over. A LoRA no tag names - one Forge left
+    loaded from an earlier batch - is None, told apart from a tag that gives
+    no fixed weight, (None, None): the repair of rows written before (#392)
+    leaves the first as it is.
+    """
+    weights: List[Optional[Weights]] = []
+    start = 0
+    for name in names:
+        found = next((i for i in range(start, len(tags)) if tags[i][0] == name), None)
+        if found is None:
+            weights.append(None)
+        else:
+            weights.append(tags[found][1])
+            start = found + 1
+    return weights
 
 
 def _networks_module():
@@ -347,14 +418,22 @@ def _iteration_loras(p) -> List[Dict[str, Any]]:
     networks = _networks_module()
     if networks is None:
         return []
+    loaded = list(getattr(networks, "loaded_networks", None) or [])
+    # Forge loads a batch's LoRAs from its first prompt, as the run holds it:
+    # styles applied, and the "Add network to prompt" setting's tag written
+    # in - which Forge's parsed list for the batch lacks on the first batch.
+    first = int(getattr(p, "iteration", 0) or 0) * int(getattr(p, "batch_size", 1) or 1)
+    weights = pair_lora_weights([getattr(net, "name", None) for net in loaded],
+                                prompt_lora_tags(_at(getattr(p, "all_prompts", None), first)))
     loras = []
-    for net in getattr(networks, "loaded_networks", None) or []:
+    for net, paired in zip(loaded, weights):
+        te, unet = paired or (None, None)
         on_disk = getattr(net, "network_on_disk", None)
         loras.append({
             "name": getattr(net, "name", None),
             "path": _path(getattr(on_disk, "filename", None)),
-            "te_multiplier": getattr(net, "te_multiplier", None),
-            "unet_multiplier": getattr(net, "unet_multiplier", None),
+            "te_multiplier": te,
+            "unet_multiplier": unet,
             "pass": "base",
         })
     # The hires pass loads its own when its prompt names them, during
@@ -370,8 +449,8 @@ def _iteration_loras(p) -> List[Dict[str, Any]]:
             loras.append({
                 "name": items[0],
                 "path": _path(getattr(on_disk, "filename", None)),
-                # The prompt's text, "0.7"; a number, as the base pass's are.
-                "weight": _number(items[1]) if len(items) > 1 else None,
+                # The text encoder's weight, by the base pass's rule.
+                "weight": lora_tag_weights(items)[1][0],
                 "pass": "hires",
             })
     return loras

@@ -72,7 +72,8 @@ def image_resources(row: Dict[str, Any]) -> List[Dict[str, Any]]:
     chips in txt2img as it does a Civitai image's, by the same code.
 
     The LoRAs are the record's - what Forge loaded for the image's own
-    iteration, at the weight it loaded them - each with its hash from the
+    iteration, at the weight its batch's prompt gave each (#392; before
+    0.78.9, recorded at 1) - each with its hash from the
     infotext's "Lora hashes"; the embeddings are the infotext's "TI hashes".
     """
     meta = row.get("meta") or {}

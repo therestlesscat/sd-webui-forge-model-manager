@@ -75,8 +75,10 @@ networks = types.ModuleType('networks')
 sys.modules['networks'] = networks
 
 
-def lora(name, path, weight):
-    return types.SimpleNamespace(name=name, te_multiplier=weight, unet_multiplier=weight,
+def lora(name, path=None):
+    """A LoRA Forge loaded, as its LoRA extension makes one: at 1.0 whatever
+    the tag said (network.py) - the tag's weight goes only into the model (#392)."""
+    return types.SimpleNamespace(name=name, te_multiplier=1.0, unet_multiplier=1.0,
                                  network_on_disk=types.SimpleNamespace(filename=path))
 
 
@@ -205,8 +207,8 @@ p = Processing()
 p.scripts = types.SimpleNamespace(alwayson_scripts=[Always('ADetailer', 0, 2)])
 p.script_args = [True, {'ad_model': 'face_yolov8n.pt', 'image': Image('input')}]
 PROMPTS = ['a fox, cinematic <lora:a:0.7>', 'a cat, cinematic <lora:a:0.7>',
-           'a fox, cinematic <lora:b:0.5>', 'a cat, cinematic <lora:b:0.5>']
-generation_id = generate(p, PROMPTS, [[lora('a', LORA_A, 0.7)], [lora('b', LORA_B, 0.5)]],
+           'a fox, cinematic <lora:b:0.5:0.2>', 'a cat, cinematic <lora:b:0.5:0.2>']
+generation_id = generate(p, PROMPTS, [[lora('a', LORA_A)], [lora('b', LORA_B)]],
                          replace={1})
 check('a generation is recorded', isinstance(generation_id, int))
 g = db.get_generation(generation_id)
@@ -258,6 +260,81 @@ check('each always-on script\'s arguments, by its title, images left out and sai
                                               'image': {'omitted': 'Image'}}]})
 check('the prompts are judged, as nobody rated these images',
       [i['prompt_nsfw_level'] for i in g['images']], [PG] * 4)
+
+# ------------------------------------------------------- a LoRA's weights (#392)
+# Forge's LoRA objects stay at 1.0; the weight is in the tag of the prompt
+# Forge loaded the batch's LoRAs from - its first image's.
+check('each LoRA is recorded at its tag\'s weight, both of them',
+      [[(l['name'], l['te_multiplier'], l['unet_multiplier']) for l in i['loras']] for i in g['images']],
+      [[('a', 0.7, 0.7)], [('a', 0.7, 0.7)], [('b', 0.5, 0.2)], [('b', 0.5, 0.2)]])
+check('and the index keeps the text encoder\'s, not the UNet\'s',
+      [r[0] for r in db._get_connection().execute(
+          "SELECT weight FROM generation_resources WHERE generation_id = ? AND role = 'lora' "
+          "ORDER BY image_id", (g['id'],))],
+      [0.7, 0.7, 0.5, 0.5])
+
+
+def iteration_loras(prompts, loaded, iteration=0, batch_size=1, hires=None, typed='x', parsed=None):
+    """The LoRAs the recorder reads for one batch: (name, te, unet) for the
+    base pass, (name, weight) for the hires pass's tags (each its parts).
+    `typed` is the prompt as typed, `parsed` the parts of each tag Forge's
+    list for the batch holds - neither where a LoRA's weight is (#392)."""
+    run = types.SimpleNamespace(
+        all_prompts=prompts, iteration=iteration, batch_size=batch_size, enable_hr=bool(hires),
+        prompt=typed,
+        extra_network_data={'lora': [types.SimpleNamespace(items=i) for i in parsed or []]},
+        hr_extra_network_data={'lora': [types.SimpleNamespace(items=i) for i in hires or []]})
+    networks.loaded_networks = loaded
+    return [(l['name'], l['te_multiplier'], l['unet_multiplier']) if l['pass'] == 'base'
+            else (l['name'], l['weight']) for l in generations._iteration_loras(run)]
+
+
+check('a tag\'s two weights, as Forge reads them: a second number, te= and unet=, te= over the first',
+      iteration_loras(['x <lora:a:0.7:0.4> <lora:b:te=0.7:unet=0.4> <lora:c:0.7:te=0.5>'],
+                      [lora('a'), lora('b'), lora('c')]),
+      [('a', 0.7, 0.4), ('b', 0.7, 0.4), ('c', 0.5, 0.5)])
+check('a tag with no weight: 1, as Forge applies it',
+      iteration_loras(['x <lora:a>'], [lora('a')]), [('a', 1.0, 1.0)])
+check('a tag whose LoRA did not load is passed over: the next keeps its own',
+      iteration_loras(['x <lora:gone:0.3> <lora:b:0.6>'], [lora('b')]), [('b', 0.6, 0.6)])
+check('a LoRA Forge left loaded that no tag names: no weight',
+      iteration_loras(['x <lora:b:0.6>'], [lora('stale'), lora('b')]),
+      [('stale', None, None), ('b', 0.6, 0.6)])
+check('one LoRA named twice: each its own weight',
+      iteration_loras(['x <lora:a:0.5> <lora:a:0.8>'], [lora('a'), lora('a')]),
+      [('a', 0.5, 0.5), ('a', 0.8, 0.8)])
+check('a batch\'s LoRAs come from its first prompt, as Forge loads them',
+      iteration_loras(['<lora:a:0.3>', '<lora:a:0.9>', '<lora:a:0.4>', '<lora:a:0.9>'],
+                      [lora('a')], iteration=1, batch_size=2),
+      [('a', 0.4, 0.4)])
+# "Add network to prompt" (sd_lora): Forge writes its tag into the prompts,
+# while its parsed list for the first batch lacks it.
+check('the "Add network to prompt" LoRA, in the first batch and the next',
+      [iteration_loras(['a fox <lora:extra:0.6>', 'a cat <lora:extra:0.6>'], [lora('extra')], iteration=n,
+                       parsed=[] if n == 0 else [['extra', '0.6']])
+       for n in (0, 1)],
+      [[('extra', 0.6, 0.6)], [('extra', 0.6, 0.6)]])
+check('a tag a style added: in the prompt Forge ran, not the one typed',
+      iteration_loras(['a fox, <lora:a:0.6> cinematic'], [lora('a')], typed='a fox', parsed=[['a', '0.6']]),
+      [('a', 0.6, 0.6)])
+check('a name exactly as the tag spells it: <LORA:...> is no LoRA tag, " b " is not "b"',
+      iteration_loras(['<LORA:a:0.7> <lora: b :0.7>'], [lora('a'), lora(' b '), lora('b')]),
+      [('a', None, None), (' b ', 0.7, 0.7), ('b', None, None)])
+check('a weight schedule, in the second part or the third, or beside a fixed UNet weight: no weight',
+      iteration_loras(['<lora:a:1.25@0,0@0.5> <lora:b:0.5:1@0,0@0.5> <lora:c:1.25@0,0@0.5:0.4>'],
+                      [lora('a'), lora('b'), lora('c')]),
+      [('a', None, None), ('b', None, None), ('c', None, None)])
+# The repair of rows written before 0.78.9 leaves a LoRA no tag names as it
+# is, and so has to tell it from a tag that gives no fixed weight.
+pair = getattr(generations, 'pair_lora_weights', None)
+check('pairing tells a LoRA no tag names (None) from a tag with no fixed weight',
+      pair(['stale', 'a'], generations.prompt_lora_tags('<lora:a:1.25@0,0@0.5>')) if pair else 'no pairing',
+      [None, (None, None)])
+hires = iteration_loras(['x'], [], hires=[['h', 'te=0.3'], ['h2', '0.6'], ['h3'], ['h4', '1.25@0,0@0.5']])
+check('the hires pass\'s tags, by the same rule: te=', hires[0], ('h', 0.3))
+check('a schedule: no weight', hires[3], ('h4', None))
+check('a plain weight, as before', hires[1], ('h2', 0.6))
+check('and no weight: 1, as Forge applies it', hires[2], ('h3', 1.0))
 
 # ------------------------------------------------------- what is not recorded
 p = Processing(n_iter=1)
