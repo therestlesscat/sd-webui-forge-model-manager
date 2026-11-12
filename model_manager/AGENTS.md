@@ -578,6 +578,16 @@ LoRAs from); anything that shows one says whose it is (a whole path).
   Windows remembers the dead server was not measured. Code that asks about
   each kept row - `held_here` on every Civitai Browser search - pays the
   first wait again once it has forgotten.
+- **A file another program holds is refused its rename and its deletion
+  alike.** Opened without delete sharing - an antivirus scan, the search
+  indexer, a backup tool - it answers both `os.rename` and `os.remove` with
+  `[WinError 32]`, under Neo's 3.13.15 and the original Forge's 3.10.6
+  (probe, 2026-11-12). #390, drafted from the code on 2026-11-04, said a
+  refused rename deleted the checked download; the handler's deletion was
+  refused too, and the file was left on disk with nothing naming it - a
+  review caught it, and the live check on 7880 showed it. Only the parts
+  join, removing an unheld file, really deleted. A path that cleans up after
+  a refusal is read for what Windows refuses it too.
 
 ## Kept elsewhere, and true here too
 

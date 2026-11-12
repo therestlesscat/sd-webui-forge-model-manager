@@ -218,7 +218,17 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   file is in both places. A reviewer's probe on a really held file, under
   Neo's 3.13.15 and the original Forge's 3.10.6, found it: the fix's first
   version left that copy in the new folder. The stand-in now copies, then
-  raises.
+  raises. Holding the file for real does it with no stand-in: Python's
+  `open()` shares reading and writing but not deleting, so a file the suite
+  keeps open is refused its rename and deletion as for another program;
+  `_winapi.CreateFile(path, 0x80000000, 0, 0, 3, 0x80, 0)`, sharing nothing,
+  refuses even reading. The hold is taken where the code meets it - a
+  scripted reply's step, a stand-in for a call the code makes (`identify`),
+  a wrapper around a method (`_join_parts`) - and let go in a `finally`, or
+  the next check meets a held file (#390). And a part of a check can pass on
+  any code inside a tuple that fails on the old: #422's "added to the
+  library" read `synced[-1:]`, which an earlier check had left at that path.
+  Count from the length before.
 - **A suite's subject is in its docstring, not its name.** #363's plan put
   NSFW checks in `generations_switch_test` (the Your generations on/off
   switch, #27) and `gallery_count_test` (a refresh's size, #103), going by
