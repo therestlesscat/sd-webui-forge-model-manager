@@ -140,6 +140,15 @@ with the others asleep, would have forgotten every identified row (0.78.5).
 A library folder there but emptied by hand still loses its rows to that
 check, ticked or not.
 
+Outside a sync, what the page and Send say of a file not there - the
+details panel, Delete, Sync, Send's stop, the Resources dialog's row -
+comes from the same rule: `model_dirs.absence` / `absences`, "unseen" or
+"gone" (#418). It is asked only once the file is not there, and only of the
+library folders on the file's own line (`_on_line`, shared with `Sight`).
+Not `os.path.isfile` alone, which called every absent file deleted and told
+the user to sync; nor every library folder, one of which may be a share
+asleep - 42 s for its first question.
+
 ### Civitai: sync and downloads
 
 **Civitai is the source; a sidecar is written, not read.** A sync and a
@@ -513,7 +522,13 @@ LoRAs from); anything that shows one says whose it is (a whole path).
   (`list_models`, its `modules/sd_models.py` line 133), so the order changes
   at every start; the original Forge keeps its loader's order. A list the
   extension shows sorts itself: the Resources dialog's checkpoint list showed
-  Forge's order until 0.76.12.
+  Forge's order until 0.76.12. And Forge's checkpoint list keeps a file
+  whose drive went after its last refresh: `checkpoint_name` names it, and its
+  load fails. On 7880 (2026-11-12), the drive letter removed after the
+  start, a checkpoint's own gallery Send would have selected it, and the
+  Resources dialog pre-picked it ("The image comes out as made"). Send asks
+  the file first (`send.away_here`); the dialog's list shows it but never
+  picks it to begin with (0.78.8).
 - **"Leave as is" is not nothing in Gradio 4.** For each output an event
   answers with `gr.update()`, Gradio swaps into the session a copy of that
   component, rebuilt from its constructor arguments. In Neo a ForgeCanvas

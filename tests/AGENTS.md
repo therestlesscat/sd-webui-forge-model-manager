@@ -196,12 +196,15 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   server's too: `send.your_checkpoints` picks the image's own checkpoint and
   suggests the one Forge has loaded. Two #400 suites answered neither, so
   Change's window opening on Suggested (6a) and the dialog's pre-ticked first
-  tick (6b) went unchecked until each commit's review. And it judges what it
-  is handed: `queue_several_test`'s `family_pick` gave picks by path,
-  whatever family it was handed, and its file with no library row was of
-  the selected one's family, so the press's bug for such a file of another
-  family - no VAE or text encoder, no refusal - never showed from #400 to
-  #406 (0.76.17).
+  tick (6b) went unchecked until each commit's review. #418 again:
+  `send_absent_test`'s `/send/checkpoints` stand-in answered `picked: null`,
+  and every suite and five reviews passed a dialog that pre-picked a
+  checkpoint whose drive was away; the live check on 7880 found it (0.78.8).
+  And it judges what it is handed: `queue_several_test`'s `family_pick` gave
+  picks by path, whatever family it was handed, and its file with no library
+  row was of the selected one's family, so the press's bug for such a file
+  of another family - no VAE or text encoder, no refusal - never showed from
+  #400 to #406 (0.76.17).
 - **A stand-in for a failure fails as the system does.** #388's check of a
   move failing partway raised before anything moved. A file another program
   holds does not fail that way on Windows: `shutil.move`'s rename is
