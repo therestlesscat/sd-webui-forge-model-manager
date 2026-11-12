@@ -547,6 +547,14 @@ LoRAs from); anything that shows one says whose it is (a whole path).
 - To run Neo's detector outside the WebUI, put Neo's root and its
   `modules_forge/packages` on `sys.path`: with the packages alone, every
   checkpoint came out without a class.
+- **A share whose server does not answer costs its first question, not
+  every one.** Windows took 42 s for `os.path.isfile` on the first file of an
+  unreachable server, and answered every later one, and every `isdir`, at
+  once; a server name that does not resolve took 2.6 s; an unmapped drive
+  letter, nothing (#389, `tests/work/i389/probe/unc_time.py`). How long
+  Windows remembers the dead server was not measured. Code that asks about
+  each kept row - `held_here` on every Civitai Browser search - pays the
+  first wait again once it has forgotten.
 
 ## Kept elsewhere, and true here too
 

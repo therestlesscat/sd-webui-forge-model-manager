@@ -1177,6 +1177,12 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   and 7870's arguments are there: `webui-user.bat`'s are overridden, and were
   once read as the real ones. What a running WebUI was given: ui-options'
   `path_roots`.
+- **A start file's `COMMANDLINE_ARGS` is split as a shell splits it**
+  (`shlex.split`, Neo's `modules/paths_internal.py`), so a backslash escapes
+  the next character: `--lora-dirs X:\` at the end of the line died at launch
+  with "ValueError: No escaped character", and a detached start showed
+  nothing - twice, for #389's live check, until the owner ran it in a
+  console. Double every backslash, as `webui-user.bat` does (`X:\\`).
 - **A WebUI that dies without a traceback: read Windows' event log.** One Neo
   died in `c10.dll` (0xc0000005) five seconds after System's
   Resource-Exhaustion-Detector (id 2004) named it at 55.1 GB of commit,
