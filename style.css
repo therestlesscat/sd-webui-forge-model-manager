@@ -2275,14 +2275,16 @@ body.mm-modal-open {
 
 /* A row's second line, in the dialog and in the list. */
 .mm-res-sub,
-.mm-pick-sub {
+.mm-pick-sub,
+.mm-pick-value {
     font-size: 0.8em;
     color: #6b7280;
     overflow-wrap: anywhere;
 }
 
 .dark .mm-res-sub,
-.dark .mm-pick-sub {
+.dark .mm-pick-sub,
+.dark .mm-pick-value {
     color: var(--body-text-color-subdued, #9ca3af);
 }
 
@@ -2687,6 +2689,7 @@ body.mm-modal-open {
 }
 
 .mm-pick-base {
+    justify-self: end;
     font-size: 0.85em;
     color: #4b5563;
     white-space: nowrap;
@@ -2698,6 +2701,21 @@ body.mm-modal-open {
 
 .mm-pick-sub {
     grid-column: 2 / 4;
+}
+
+/* The chosen order's value (#415), at the second line's end, under the base model, in the grey
+   line's look (its rules name both): the grey line gives that column up while a row shows one.
+   Both end at the row's edge: the column is as wide as the wider of the two, and a base model
+   at its start stood further left on a row whose value was the wider - "349 images" beside
+   "Anima" - than on the rows below it. */
+.mm-pick-row:has(> .mm-pick-value) > .mm-pick-sub {
+    grid-column: 2;
+}
+
+.mm-pick-value {
+    grid-column: 3;
+    justify-self: end;
+    white-space: nowrap;
 }
 
 .mm-pick-file {
