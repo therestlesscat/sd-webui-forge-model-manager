@@ -253,19 +253,24 @@ def local_checkpoint(db, file_path: str, version_ids, hashes, here: Callable[[st
     """
     The library's checkpoint the image names, read as a scan reads it: one in
     this WebUI's folders before another's - a library shared with the other
-    WebUI holds its copies too - else the first. {} for none.
+    WebUI holds its copies too - and of those one on disk before one whose
+    drive or folder is not there (#418), else the first. {} for none.
     """
     here = here or loads_here
     found = []
+    away = None
     for row in db.versions_named_by(list(version_ids), list(hashes)):
         if row.get("file_path") == file_path:
             continue
         row = _read(db, row["file_path"])
         if row.get("file_type") == "Checkpoint" and row.get("architecture"):
             if here(row["file_path"]):
-                return row
-            found.append(row)
-    return found[0] if found else {}
+                if os.path.exists(row["file_path"]):
+                    return row
+                away = away or row
+            else:
+                found.append(row)
+    return away or (found[0] if found else {})
 
 
 def _read(db, path: str) -> dict:

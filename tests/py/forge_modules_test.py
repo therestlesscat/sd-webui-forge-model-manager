@@ -404,6 +404,45 @@ check('one in this WebUI\'s folders that Forge does not list yet: said so',
 check('and the gallery\'s own file there, not listed yet: said so, as the gallery\'s',
       [(sent_from(flux_path).get('checkpoint_problem') or {}).get(key) for key in ('reason', 'own')],
       ['not_listed', True])
+
+# Its file not there (#418): the row kept by a sync while its drive is away.
+# Asked before Forge's list, which may still name a file whose drive went
+# after its last refresh - the load would fail.
+def unmapped_drive():
+    import string
+    return next((d + ':\\' for d in reversed(string.ascii_uppercase) if not os.path.isdir(d + ':\\')), None)
+
+
+AWAY = os.path.join(unmapped_drive() or 'Q:\\', 'sd', os.path.basename(flux_path))
+db.move_version(flux_path, AWAY)
+names[AWAY] = 'flux.safetensors [abcd1234]'
+try:
+    check('a checkpoint\'s gallery, its file\'s drive away, Forge still listing it: unseen, as the gallery\'s',
+          (sent_from(AWAY).get('checkpoint'), sent_from(AWAY).get('checkpoint_problem')),
+          (None, {'reason': 'unseen', 'name': os.path.basename(AWAY), 'path': AWAY, 'own': True}))
+    body = sent_from(lora_path, version_ids=str(flux_id))
+    check('an image naming it, from another gallery: unseen, by where it was - not "not listed yet"',
+          (body.get('checkpoint'), body.get('checkpoint_problem')),
+          (None, {'reason': 'unseen', 'name': os.path.basename(AWAY), 'path': AWAY}))
+    # A second copy of the same version, on disk: Send takes it.
+    COPY = os.path.join(os.path.dirname(flux_path), 'flux_copy.safetensors')
+    names[COPY] = 'flux_copy.safetensors [cc]'
+    open(COPY, 'wb').write(b'copy')
+    row = db.get_version(AWAY)
+    db.upsert_version({'id': row['id'], 'model_id': row['model_id'], 'file_path': COPY, 'file_name': 'flux_copy.safetensors',
+                       'file_size': 4, 'file_extension': '.safetensors', 'has_civitai_data': True})
+    db.set_architecture(COPY, 'flux', row.get('architecture_class'), False, False, '9999', file_type='Checkpoint')
+    body = sent_from(lora_path, version_ids=str(flux_id))
+    check('the library holding a copy on disk: sent with it, not stopped for the one away',
+          (body.get('checkpoint'), body.get('checkpoint_problem')), ('flux_copy.safetensors [cc]', None))
+finally:
+    if db.get_version(COPY):
+        db.delete_version(COPY)
+    if os.path.exists(COPY):
+        os.remove(COPY)
+    names.pop(COPY, None)
+    names.pop(AWAY, None)
+    db.move_version(AWAY, flux_path)
 dirs.loads_here = sp.loads_here = here
 body = sent_from(lora_path, model_name='a_checkpoint_i_lack', hashes='0123456789')
 check('one the library lacks: missing, by its name',

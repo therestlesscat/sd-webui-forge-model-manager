@@ -440,10 +440,27 @@ models_before = getattr(forge_paths, 'models_path', None)
 forge_paths.models_path = facts['models_dir']
 moved_here = os.path.join(facts['models_dir'], 'Stable-diffusion', 'away_' + os.path.basename(away_from))
 db.move_version(away, moved_here)
-code, body = get('/model-manager/models/details', path=moved_here)
-check('a file not there in a folder this WebUI loads: said so', (body.get('model') or {}).get('loads_here'), True)
-db.move_version(moved_here, away)
-forge_paths.models_path = models_before
+type_before = db.get_version(moved_here).get('file_type')
+try:
+    code, body = get('/model-manager/models/details', path=moved_here)
+    check('a file not there in a folder this WebUI loads: said so', (body.get('model') or {}).get('loads_here'), True)
+    # The Resources dialog's lookup (#418): a checkpoint in the library, not
+    # there, is no Download - marked away, by its version and its hashes;
+    # not "held". Another kind keeps its row as before.
+    moved_row = db.get_version(moved_here)
+    moved_hash = (moved_row.get('file_hashes') or {}).get('sha256', '').lower()
+    db.set_architecture(moved_here, 'xl', None, False, False, '1', file_type='Checkpoint')
+    code, body = get('/model-manager/image-resources', version_ids=str(moved_row['id']), hashes=moved_hash)
+    check('the image lookup: a checkpoint not there is away, by version and hash, and not held',
+          (body.get('away'), body.get('away_hashes'), body.get('versions'), body.get('hashes')),
+          ({str(moved_row['id']): 'gone'}, {moved_hash: 'gone'}, {}, {}))
+    db.set_architecture(moved_here, 'xl', None, False, False, '1', file_type='VAE')
+    code, body = get('/model-manager/image-resources', version_ids=str(moved_row['id']), hashes=moved_hash)
+    check('a VAE not there: not marked - its row as before', (body.get('away'), body.get('away_hashes')), ({}, {}))
+finally:
+    db.set_architecture(moved_here, 'xl', None, False, False, '1', file_type=type_before)
+    db.move_version(moved_here, away)
+    forge_paths.models_path = models_before
 check('with its version, its model and its gallery, as for any file',
       ['civitai_version' in shown, 'civitai_model' in shown, 'images_state' in shown], [True, True, True])
 check('its size and date as the library last saw them',

@@ -124,6 +124,11 @@ def _image_checkpoint(db, file_path: str, version_ids: str, hashes: str, model_n
         return {}
     path = found.get("path")
     if path:
+        # Asked before Forge's list (#418): it still lists a file whose drive
+        # went away after its last refresh, and its load would fail.
+        why = away_here(path)
+        if why:
+            return {"checkpoint_problem": {"reason": why, "name": os.path.basename(path), "path": path}}
         name = checkpoint_name(path)
         if name:
             return {"checkpoint": name}
@@ -268,14 +273,33 @@ def _gallery_checkpoint(path: str) -> dict:
     """
     from .forge_host import checkpoint_name
     from .model_dirs import loads_here
-    name = checkpoint_name(path)
+    # Not there, in this WebUI's folders (#418): "unseen", its drive or folder
+    # away, which no sync changes, or "gone" - asked before Forge's list,
+    # which may still name it. A file outside them not there is "gone", as
+    # before.
+    why = away_here(path)
+    name = None if why else checkpoint_name(path)
     if name:
         return {"checkpoint": name}
-    if not os.path.isfile(path):
+    if why:
+        reason = why
+    elif not os.path.isfile(path):
         reason = "gone"
     else:
         reason = "not_listed" if loads_here(path) else "elsewhere"
     return {"checkpoint_problem": {"reason": reason, "name": os.path.basename(path), "path": path, "own": True}}
+
+
+def away_here(path: str) -> Optional[str]:
+    """
+    Why a library file in this WebUI's folders is not there - "unseen" or
+    "gone" (model_dirs.absence) - or None: on disk, or outside them - the
+    other WebUI's, which Send names as before (#418).
+    """
+    from .model_dirs import absence, loads_here
+    if not path or os.path.exists(path) or not loads_here(path):
+        return None
+    return absence(path)
 
 
 def _family_takes(own: Optional[str], own_vae: bool, installed: Dict[str, str], found, answer: dict) -> Optional[str]:
@@ -396,11 +420,13 @@ def civitai_plan(db, file_path: str = "", base_model: str = "", version_ids: str
         checkpoint_problem, why it cannot be - {reason: missing, name},
         {reason: elsewhere | not_listed, name, path} for one the library has
         in a folder this WebUI does not load, or that Forge has not listed
-        yet, {reason: unsupported, name, base_model} for one of a family no
-        UI preset runs, {reason: not_checkpoint} - and the page sends
-        nothing. From a
-        checkpoint's, the same two for its own file (#323), the problem
-        marked `own` - {reason: gone} for a file no longer on disk. From a
+        yet, {reason: unseen | gone, name, path} for one in this WebUI's
+        folders not on disk - its drive or folder away, or deleted (#418) -
+        {reason: unsupported, name, base_model} for one of a family no UI
+        preset runs, {reason: not_checkpoint} - and the page sends nothing.
+        From a checkpoint's, the same two for its own file (#323), the
+        problem marked `own` - {reason: unseen | gone} for a file not on
+        disk. From a
         VAE's or a text encoder's, that file is in `target` in its kind's
         place; own_not_listed, its name when Forge does not list it. From an
         upscaler's, upscaler: the name Forge lists it under, for Hires fix's;
@@ -1691,6 +1717,16 @@ def generation_plan(db, generation_id: int, use_checkpoint: Optional[str] = None
         plan["inputs"] = bool(generation.get("inputs"))
         return plan
     plan = plan_for(db, path, modules)
+    # Its checkpoint not there, in this WebUI's folders (#418): Forge may
+    # still list it, and its load would fail - a copy by its hash is taken
+    # below, else Send stops saying why: "unseen" or "gone" for one the
+    # library keeps a row of, "missing" for one deleted or forgotten.
+    away = away_here(path)
+    if away:
+        plan["checkpoint"] = None
+        plan["checkpoint_missing"] = plan.get("checkpoint_missing") or os.path.basename(path)
+        if not db.get_version(path):
+            away = None
     if not plan["checkpoint"]:
         # Forge does not list the file it was made with (#233). The library's
         # file with the hash the image names - a download from the Resources
@@ -1710,6 +1746,9 @@ def generation_plan(db, generation_id: int, use_checkpoint: Optional[str] = None
             plan["checkpoint_missing"] = os.path.basename(found)
             plan["checkpoint_problem"] = {"reason": "not_listed" if loads_here(found) else "elsewhere",
                                           "name": os.path.basename(found), "path": found}
+        elif away:
+            plan["checkpoint_missing"] = os.path.basename(path)
+            plan["checkpoint_problem"] = {"reason": away, "name": os.path.basename(path), "path": path}
         else:
             # Synced from a folder, its text may name a checkpoint by name alone.
             # Naming none, it stops all the same (#408): sent onto whatever

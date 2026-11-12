@@ -825,6 +825,41 @@ if has_fastapi:
         check('a generation nobody recorded has no plan',
               plan_of(999999).status_code, 404)
 
+        # Its checkpoint in the library, its folder away (#418): Forge may
+        # still list it - its load would fail - so Send stops, saying why;
+        # one deleted through the panel - no row - is missing, as before.
+        import model_manager.model_dirs as dirs_mod             # noqa: E402
+        real_here = dirs_mod.loads_here
+        dirs_mod.loads_here = lambda path, *a, **k: True
+        sd_models.checkpoints_list = {'m': types.SimpleNamespace(filename=CHECKPOINT, title='linked/m.safetensors [abc]')}
+        folder = os.path.dirname(CHECKPOINT)
+        os.rename(folder, folder + '_away')
+        try:
+            plan = plan_of(generation_id).json()
+            check('its checkpoint\'s folder away, Forge still listing it: stopped, unseen, by where it was',
+                  (plan.get('checkpoint'), plan.get('checkpoint_missing'), plan.get('checkpoint_problem')),
+                  (None, os.path.basename(CHECKPOINT),
+                   {'reason': 'unseen', 'name': os.path.basename(CHECKPOINT), 'path': CHECKPOINT}))
+            # The part the queue's Load to UI shares goes by Forge's list, as before (Decided 10).
+            import model_manager.send as send_mod                 # noqa: E402
+            check('the queue\'s part, plan_for: Forge\'s name, as before - its load fails as Forge\'s own would',
+                  send_mod.plan_for(db, CHECKPOINT, [])['checkpoint'], 'linked/m.safetensors [abc]')
+            # No row - deleted or forgotten - and Forge still listing it: missing, not selected.
+            row = db.get_version(CHECKPOINT)
+            db.delete_version(CHECKPOINT)
+            try:
+                plan = plan_of(generation_id).json()
+                check('its checkpoint with no row, Forge still listing it: missing, by its name - not selected',
+                      (plan.get('checkpoint'), plan.get('checkpoint_problem')),
+                      (None, {'reason': 'missing', 'name': os.path.basename(CHECKPOINT)}))
+            finally:
+                db.upsert_version(row)
+                db.set_architecture(CHECKPOINT, 'sd', 'SD15', True, True, '1', file_type='Checkpoint')
+        finally:
+            os.rename(folder + '_away', folder)
+            dirs_mod.loads_here = real_here
+            sd_models.checkpoints_list = {}
+
         # Sent with a checkpoint picked in the Resources dialog (#377): one of
         # another model takes none of the recorded modules - its family's
         # instead, as a Civitai image's Send picks them.

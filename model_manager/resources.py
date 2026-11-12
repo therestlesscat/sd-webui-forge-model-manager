@@ -158,10 +158,30 @@ def image_files(db, version_ids: List[int], hashes: List[str],
     embeddings: [file]}. Only files the running WebUI would load
     (_loadable_here). `embeddings` is every embedding it loads: a prompt can
     name one no resource lists, as a word, and the page looks for each (#179).
+    And {away: version id -> why, away_hashes: hash -> why} (#418): of the
+    checkpoints the library holds no usable file for, those whose file is in
+    this WebUI's folders but not there - "unseen", its drive or folder away,
+    or "gone" - so their row offers no Download: the file is there again
+    once its drive is. Other kinds keep their row as before.
     """
-    from .model_dirs import held_here
+    from .hashing import hash_key
+    from .model_dirs import absences, held_here, loads_here
     loadable = _loadable_here(lora_folders(), embedding_folders())
     types = {}
+
+    def kind_of(path: str) -> Optional[str]:
+        if path not in types:
+            types[path] = (db.get_version(path) or {}).get("file_type")
+        return types[path]
+
+    def held_kind(kind: Optional[str]) -> bool:
+        return kind is not None and kind != "TextualInversion" and kind not in LORA_FAMILY
+
+    def away_here(path: str) -> bool:
+        return bool(path) and kind_of(path) == "Checkpoint" and loads_here(path) and not os.path.exists(path)
+    # Whether the lookup met a checkpoint here, not on disk (#418): only then
+    # is the library asked again for them.
+    met_away = []
 
     def usable(path: str) -> bool:
         # The key lookup knows paths; what each file is, its row says. A
@@ -169,20 +189,31 @@ def image_files(db, version_ids: List[int], hashes: List[str],
         # is held here (#377): the other WebUI's copy, sharing the database,
         # read Installed with no Download while Send said this WebUI could not
         # load it. LoRAs and embeddings keep their own folders' rule.
-        if path not in types:
-            types[path] = (db.get_version(path) or {}).get("file_type")
-        kind = types[path]
-        if kind is not None and kind != "TextualInversion" and kind not in LORA_FAMILY:
-            return held_here(path)
+        kind = kind_of(path)
+        if held_kind(kind):
+            if held_here(path):
+                return True
+            if away_here(path):
+                met_away.append(path)
+            return False
         return loadable(path, kind)
     by_id, by_hash = db.local_versions_by_key(version_ids, hashes, usable)
+
+    away_by_id, away_by_hash = {}, {}
+    if met_away:
+        away_by_id, away_by_hash = db.local_versions_by_key(
+            [v for v in version_ids if v not in by_id],
+            [h for h in hashes if h and hash_key(h) not in by_hash], away_here)
+    why = absences([row.get("file_path") for row in list(away_by_id.values()) + list(away_by_hash.values())])
     by_name = files_by_name(db, named, by_hash, loadable)
     embeddings = [row for row in db.local_embeddings() if loadable(row.get("file_path"), "TextualInversion")]
     return {"versions": {str(k): _as_file(v) for k, v in by_id.items()},
             "hashes": {k: _as_file(v) for k, v in by_hash.items()},
             "names": {k: _as_file(v) for k, v in by_name.items()},
             "embeddings": [_as_file(row) for row in embeddings],
-            "other_files": other_files(db, hashes, by_hash)}
+            "other_files": other_files(db, hashes, by_hash),
+            "away": {str(k): why[v["file_path"]] for k, v in away_by_id.items() if v.get("file_path") in why},
+            "away_hashes": {k: why[v["file_path"]] for k, v in away_by_hash.items() if v.get("file_path") in why}}
 
 
 def other_files(db, hashes: List[str], by_hash: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
