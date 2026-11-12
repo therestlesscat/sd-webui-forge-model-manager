@@ -142,12 +142,14 @@ check('without forcing', asked['force'], False)
 check('and targeting all of them', asked['targets'], 'all')
 check('its walk reading headers only for new or changed files, and moving nothing',
       (asked['reread_headers'], asked['move_misplaced']), (False, False))
+check('and keeping the files it cannot see (#389)', asked.get('forget_unseen'), False)
 
 reset()
-post('/model-manager/sync', reread_headers='true', move_misplaced='true')
+post('/model-manager/sync', reread_headers='true', move_misplaced='true', forget_unseen='true')
 finished()
 check('the Files section\'s boxes reach the sync',
-      (Job.asked[0][1]['reread_headers'], Job.asked[0][1]['move_misplaced']), (True, True))
+      (Job.asked[0][1]['reread_headers'], Job.asked[0][1]['move_misplaced'], Job.asked[0][1].get('forget_unseen')),
+      (True, True, True))
 
 for spelling in ('true', 'True', '1', 'yes'):
     reset()
@@ -229,12 +231,14 @@ check('with no staleness window', asked['synced_before'], None)
 check('and no download window', asked['downloaded_after'], None)
 check('its walk reading headers only for new or changed files, and moving nothing',
       (asked['reread_headers'], asked['move_misplaced']), (False, False))
+check('and keeping the files it cannot see (#389)', asked.get('forget_unseen'), False)
 
 reset()
-post('/model-manager/sync/metadata', reread_headers='true', move_misplaced='true')
+post('/model-manager/sync/metadata', reread_headers='true', move_misplaced='true', forget_unseen='true')
 finished()
 check('the Files section\'s boxes reach the metadata sync too',
-      (Job.asked[0][1]['reread_headers'], Job.asked[0][1]['move_misplaced']), (True, True))
+      (Job.asked[0][1]['reread_headers'], Job.asked[0][1]['move_misplaced'], Job.asked[0][1].get('forget_unseen')),
+      (True, True, True))
 
 reset()
 status, body = post('/model-manager/sync/metadata', include_images='true',

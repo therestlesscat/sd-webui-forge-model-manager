@@ -762,15 +762,16 @@ class SyncService:
         return added
 
     def walk_library(self, reread_headers: bool = False,
-                     move_misplaced: bool = False) -> List[str]:
+                     move_misplaced: bool = False, forget_unseen: bool = False) -> List[str]:
         """
         Bring the library's rows in line with the disk, before any request:
         every file found has a row, with its size and date as they are now,
         and its header read if it is new or changed since (every header, with
         `reread_headers`); a file in another type's folder is moved into its
         own when asked; and the rows of files gone from disk are forgotten,
-        with what only they kept. What Scan Disk did, but for reading the
-        sidecars.
+        with what only they kept - where the walk can see their place, or
+        everywhere with `forget_unseen` (#389). What Scan Disk did, but for
+        reading the sidecars.
 
         The walk covers every folder of the library, whatever the sync goes on
         to work on: what a walk did not find is evidence only against the
@@ -785,7 +786,7 @@ class SyncService:
         with self._progress_lock:
             self._progress.current_model = "Reading your model folders..."
         walked = library_dirs()
-        self._sight = Sight(walked)
+        self._sight = Sight(walked, everywhere=forget_unseen)
         self._missing_dirs = missing_library_dirs()
         found = find_model_files(walked)
         self._progress.added = self._record_found_files(found)
@@ -803,7 +804,7 @@ class SyncService:
             # A move can make the folder it moves into: asked again, as the walk's.
             if moves.moved:
                 walked = library_dirs()
-                self._sight = Sight(walked)
+                self._sight = Sight(walked, everywhere=forget_unseen)
                 found = find_model_files(walked)
 
         # A cancelled walk forgets nothing: it has not looked everywhere.
@@ -815,6 +816,9 @@ class SyncService:
         elif not self._cancel_requested:
             # Nothing found, nothing forgotten; but what is kept is said (#389).
             self._keep(kept_unseen(db.get_all_version_paths(), [], self._sight))
+            if forget_unseen:
+                say("The walk found no model files, so it forgot nothing, though forgetting files"
+                    " whose drive or folder is not there was asked for.")
         return found
 
     #: Files whose header is read at once: a header is small, and the walk
@@ -910,7 +914,9 @@ class SyncService:
                     break
         for folder in self._missing_dirs:
             if held.get(folder):
-                say(f"Not there: {folder} - its {held[folder]} file(s) in the library are kept until it is back")
+                say(f"Not there: {folder} - its {held[folder]} file(s) in the library are kept until it is back."
+                    " If it is gone for good, tick \"Also forget files whose drive or folder is not there\""
+                    " in the Sync dialog to forget them.")
 
     def _filter_by_identification(self, model_paths: List[str], targets: str) -> List[str]:
         """
@@ -1051,6 +1057,7 @@ class SyncService:
         keep_image_count: bool = False,
         reread_headers: bool = False,
         move_misplaced: bool = False,
+        forget_unseen: bool = False,
     ) -> SyncProgress:
         """
         Sync multiple models with Civitai using multiple threads.
@@ -1071,7 +1078,7 @@ class SyncService:
                 a full sync.
             keep_image_count: Refetch as many images as each gallery has
                 stored, rather than its first page (refresh_size).
-            reread_headers, move_misplaced: the walk's (walk_library).
+            reread_headers, move_misplaced, forget_unseen: the walk's (walk_library).
 
         Returns:
             Final SyncProgress with summary.
@@ -1091,7 +1098,8 @@ class SyncService:
         found = None
         if model_paths is None:
             found = model_paths = self.walk_library(reread_headers=reread_headers,
-                                                    move_misplaced=move_misplaced)
+                                                    move_misplaced=move_misplaced,
+                                                    forget_unseen=forget_unseen)
 
         if targets in ("identified", "unidentified"):
             model_paths = self._filter_by_identification(model_paths, targets)
@@ -1273,6 +1281,7 @@ class SyncService:
         keep_image_count: bool = False,
         reread_headers: bool = False,
         move_misplaced: bool = False,
+        forget_unseen: bool = False,
     ) -> SyncProgress:
         """
         Refresh Civitai data for models that already resolve, without hashing
@@ -1310,7 +1319,7 @@ class SyncService:
                 bounds the sync - a thread beyond that only waits for a token.
             keep_image_count: With images, refetch as many as each gallery
                 has stored, rather than its first page (refresh_size).
-            reread_headers, move_misplaced: the walk's (walk_library).
+            reread_headers, move_misplaced, forget_unseen: the walk's (walk_library).
 
         Returns:
             Final SyncProgress with summary.
@@ -1326,7 +1335,8 @@ class SyncService:
 
         # The whole disk, whatever this sync refreshes: see walk_library().
         found = self.walk_library(reread_headers=reread_headers,
-                                  move_misplaced=move_misplaced)
+                                  move_misplaced=move_misplaced,
+                                  forget_unseen=forget_unseen)
         db = get_models_db()
         new_files, changed = files_to_identify(found)
 

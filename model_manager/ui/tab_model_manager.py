@@ -323,6 +323,10 @@ def create_ui():
                                 <summary>Show which</summary>
                                 <ul id="mm_sync_misplaced_list"></ul>
                             </details>
+                            <label class="mm-dialog-option" title="A sync keeps the files of a drive, a network share or a folder it cannot see - unplugged, asleep, not mapped yet - until it is back, and counts them in its summary. Ticked, this sync forgets every such file, on every drive, share or folder that is not there at this moment, as files deleted, with their details and galleries. Tick it when one is gone for good, with the others connected.">
+                                <input type="checkbox" id="mm_sync_forget">
+                                <span>Also forget files whose drive or folder is not there</span>
+                            </label>
                         </div>
 
                         <div class="mm-dialog-estimate" id="mm_sync_estimate">Estimating...</div>

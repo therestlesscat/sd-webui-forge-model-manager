@@ -594,21 +594,24 @@ check('with prompts', body.get('include_prompts'), 'true');
 check('as many images as each has', body.get('keep_image_count'), 'true');
 check('and no window, since the scope is results', body.get('stale_days'), '0');
 check('nor a download window', body.get('downloaded_days'), '0');
-check('nor anything the walk does besides', [body.get('reread_headers'), body.get('move_misplaced')],
-      ['false', 'false']);
+check('nor anything the walk does besides',
+      [body.get('reread_headers'), body.get('move_misplaced'), body.get('forget_unseen')],
+      ['false', 'false', 'false']);
 
 // --- the Files section: what the walk every sync starts with does besides -----
 await waitFor('the metadata sync to finish', () => $('mm_sync_btn').disabled === false);
 posts.length = 0;
 click('mm_sync_btn');
 await estimated('the estimate the dialog asks for');
-check('both boxes start unticked, the move one usable once its list has come',
-      [$('mm_sync_reread').checked, $('mm_sync_move').checked, $('mm_sync_move').disabled], [false, false, false]);
+check('the boxes start unticked, the move one usable once its list has come',
+      [$('mm_sync_reread').checked, $('mm_sync_move').checked, $('mm_sync_move').disabled,
+       $('mm_sync_forget').checked], [false, false, false, false]);
 check('the box counts the files it can move',
       $('mm_sync_move_label').textContent, 'Move files into their type\'s folder (1)');
 $('mm_sync_reread').checked = true;
 $('mm_sync_move').checked = true;
 change($('mm_sync_move'));
+$('mm_sync_forget').checked = true;
 // How the sync will end, set before it starts: its first poll closes it, one
 // poll after Start, and set after the checks below it raced that poll (#272).
 WALKED.added = 2;
@@ -620,7 +623,10 @@ WALKED.moved = 1;
 click('mm_sync_dialog_start');
 await waitFor('the sync to be posted', () => posts.length > 0);
 const walkBody = new URLSearchParams(posts[0]?.body || '');
-check('Start sends both boxes', [walkBody.get('reread_headers'), walkBody.get('move_misplaced')], ['true', 'true']);
+check('Start sends the boxes, to the metadata sync',
+      [new URL(posts[0]?.url || '', 'http://x').pathname,
+       walkBody.get('reread_headers'), walkBody.get('move_misplaced'), walkBody.get('forget_unseen')],
+      ['/model-manager/sync/metadata', 'true', 'true', 'true']);
 check('every sync so far changed no file, whatever was ticked: Forge\'s lists not refreshed', refreshed, []);
 await waitFor('that sync to finish', () => $('mm_sync_btn').disabled === false);
 await waitFor('Forge\'s two refreshes, one after the other', () => refreshed.length >= 2);
@@ -634,16 +640,17 @@ for (const key of Object.keys(WALKED)) delete WALKED[key];
 posts.length = 0;
 click('mm_sync_btn');
 await estimated('the estimate the dialog asks for');
-check('the next time the dialog opens, both are unticked again',
-      [$('mm_sync_reread').checked, $('mm_sync_move').checked], [false, false]);
+check('the next time the dialog opens, they are unticked again',
+      [$('mm_sync_reread').checked, $('mm_sync_move').checked, $('mm_sync_forget').checked], [false, false, false]);
 forceRadio.checked = true;
 change(forceRadio);
 $('mm_sync_reread').checked = true;
+$('mm_sync_forget').checked = true;
 click('mm_sync_dialog_start');
 const forceWalk = new URLSearchParams(posts[0]?.body || '');
 check('a force sync sends them too',
-      [posts[0]?.url, forceWalk.get('reread_headers'), forceWalk.get('move_misplaced')],
-      ['/model-manager/sync', 'true', 'false']);
+      [posts[0]?.url, forceWalk.get('reread_headers'), forceWalk.get('move_misplaced'), forceWalk.get('forget_unseen')],
+      ['/model-manager/sync', 'true', 'false', 'true']);
 await waitFor('the force sync to finish', () => $('mm_sync_btn').disabled === false);
 check('no opening of the dialog asked for a count of new files', newFilesAsked, 0);
 

@@ -115,7 +115,7 @@ function appendSyncLog(lines) {
  * `targets` picks which of the files on disk to read: all of them, only the
  * ones that already resolve to a Civitai model, or only the ones that do not.
  * `walk` is what the walk every sync starts with does besides: rereadHeaders,
- * moveMisplaced.
+ * moveMisplaced, forgetUnseen.
  */
 async function startSync(targets = 'all', keepImageCount = false, walk = {}) {
     if (isSyncing) return;
@@ -126,7 +126,8 @@ async function startSync(targets = 'all', keepImageCount = false, walk = {}) {
 
     try {
         const bodyData = `force=true&targets=${encodeURIComponent(targets)}&keep_image_count=${keepImageCount}`
-            + `&reread_headers=${!!walk.rereadHeaders}&move_misplaced=${!!walk.moveMisplaced}`;
+            + `&reread_headers=${!!walk.rereadHeaders}&move_misplaced=${!!walk.moveMisplaced}`
+            + `&forget_unseen=${!!walk.forgetUnseen}`;
         console.log('[ModelManager] Sending sync request with body:', bodyData);
 
         const response = await fetch('/model-manager/sync', {
@@ -323,6 +324,7 @@ function syncDialogChoice() {
         // What the walk every sync starts with does besides (walk_library).
         rereadHeaders: document.getElementById('mm_sync_reread')?.checked || false,
         moveMisplaced: document.getElementById('mm_sync_move')?.checked || false,
+        forgetUnseen: document.getElementById('mm_sync_forget')?.checked || false,
         // A force sync reads files rather than asking about ids, so it is a
         // scope of its own rather than a depth.
         forceMode: scope === 'force'
@@ -620,12 +622,14 @@ function openSyncDialog() {
     syncResultPaths = null;
     const dialog = document.getElementById('mm_sync_dialog');
     if (!dialog) return;
-    // Every sync starts as the usual one: reading every header, or moving
-    // files, is asked for each time.
+    // Every sync starts as the usual one: reading every header, moving
+    // files, or forgetting those it cannot see, is asked for each time.
     const reread = document.getElementById('mm_sync_reread');
     if (reread) reread.checked = false;
     const move = document.getElementById('mm_sync_move');
     if (move) move.checked = false;
+    const forget = document.getElementById('mm_sync_forget');
+    if (forget) forget.checked = false;
     // In the dialog container (#292): Esc and a click beside it close it.
     if (!syncWindow) {
         syncWindow = openDialog(dialog, {
@@ -667,7 +671,8 @@ async function startSyncFromDialog() {
     const choice = syncDialogChoice();
     closeSyncDialog();
 
-    const walk = { rereadHeaders: choice.rereadHeaders, moveMisplaced: choice.moveMisplaced };
+    const walk = { rereadHeaders: choice.rereadHeaders, moveMisplaced: choice.moveMisplaced,
+                   forgetUnseen: choice.forgetUnseen };
     if (choice.scope === 'force') {
         startSync(choice.forceMode || 'all', choice.keepImageCount, walk);
         return;
@@ -686,7 +691,8 @@ async function startSyncFromDialog() {
 
 async function startMetadataSync({ includeImages = false, includePrompts = true, keepImageCount = false,
                                    staleDays = 0, downloadedDays = 0,
-                                   filters = null, rereadHeaders = false, moveMisplaced = false } = {}) {
+                                   filters = null, rereadHeaders = false, moveMisplaced = false,
+                                   forgetUnseen = false } = {}) {
     if (isSyncing) return;
 
     isSyncing = true;
@@ -704,6 +710,7 @@ async function startMetadataSync({ includeImages = false, includePrompts = true,
             downloaded_days: String(downloadedDays),
             reread_headers: String(rereadHeaders),
             move_misplaced: String(moveMisplaced),
+            forget_unseen: String(forgetUnseen),
         });
         // The grid's filters go in the address, as the grid's own request sends them.
         if (filters) body.set('scope', 'results');

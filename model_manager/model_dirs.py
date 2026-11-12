@@ -689,8 +689,11 @@ class Sight:
     file's folder judged once: on a share asleep every question is a wait.
     """
 
-    def __init__(self, walked: List[str]):
+    def __init__(self, walked: List[str], everywhere: bool = False):
         self.walked = [_as_prefix(p) for p in walked]
+        # Asked to forget what it cannot see (the Sync dialog's box): every
+        # place counts as seen, and a missing file as deleted, as before #389.
+        self.everywhere = everywhere
         self._folders: Dict[str, bool] = {}
         self._verdicts: Dict[str, bool] = {}
 
@@ -702,6 +705,8 @@ class Sight:
 
     def can_see(self, path: str) -> bool:
         """Whether the place this file was in can be seen: its absence is a deletion."""
+        if self.everywhere:
+            return True
         folder = os.path.dirname(os.path.abspath(path))
         key = os.path.normcase(folder)
         if key not in self._verdicts:

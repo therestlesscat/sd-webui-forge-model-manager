@@ -130,7 +130,10 @@ check with the whole library away, the walk's diff with one library folder
 away - and the first sync after it came back read each file again, its
 download date lost. Such a row is kept, counted once a sync (`kept_unseen`),
 its library folder named in the log, and left out of Move
-(`misplaced_files`).
+(`misplaced_files`). The way out for a drive gone for good is the Sync
+dialog's own box, "Also forget files whose drive or folder is not there"
+(`forget_unseen`, unticked at each opening): the user decides what goes, as
+with every deletion of user data (the root `AGENTS.md`).
 
 ### Civitai: sync and downloads
 

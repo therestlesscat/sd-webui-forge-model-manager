@@ -16,7 +16,9 @@ counted once, and its library folder named; a file deleted by hand, a
 subfolder of the library deleted, a kind's whole folder deleted, the other
 WebUI's file deleted from a folder that is there - each forgotten, as
 before; a metadata sync with every library folder away, over every scope,
-keeps every row; a kept file is not offered to Move.
+keeps every row; a kept file is not offered to Move. And the Sync dialog's
+box, "Also forget files whose drive or folder is not there", forgets them as
+before - but a walk that found nothing still forgets nothing.
 
 The headers are stood in for: what a file "is" comes from its folder, or
 "vae" in its name.
@@ -202,6 +204,8 @@ check('the other WebUI\'s file on a drive not there is kept', has(OTHER_AWAY), T
 check('each kept file counted once', getattr(progress, 'kept_unseen', None), 6)
 check('the folder away is named, with what it holds',
       'Not there: %s - its 4 file(s) in the library are kept until it is back' % USB in log, True)
+check('and points to the box that forgets them',
+      'tick "Also forget files whose drive or folder is not there" in the Sync dialog to forget them.' in log, True)
 check('a kind\'s folder never made, holding nothing, is not named',
       [line for line in log.splitlines() if 'Not there:' in line and USB not in line], [])
 check('the kept VAE is not moved, and no move failed; the loose one is',
@@ -283,6 +287,31 @@ progress = SyncService(client=Client()).sync_all()
 # Still away: the stick behind the junction, and the other WebUI's drive.
 check('the drive back: its files are where they were, nothing new; the rest still kept',
       (progress.added, getattr(progress, 'kept_unseen', None)), (0, 2))
+
+# ------------------------------------- the Sync dialog's box: gone for good
+# The drive away again, and "Also forget files whose drive or folder is not
+# there" ticked: the sync forgets what it cannot see, as before #389.
+os.rename(os.path.join(DRIVES, 'usb'), os.path.join(DRIVES, 'usb_away'))
+mark = console.said()
+progress = SyncService(client=Client()).sync_all(forget_unseen=True)
+check('ticked, a full sync forgets the files on the drive away, behind the link, on the other WebUI\'s drive',
+      [has(p) for p in ON_USB + [MOVED_LORA, THROUGH_LINK, OTHER_AWAY]], [False] * 6)
+check('and keeps none', getattr(progress, 'kept_unseen', None), 0)
+check('nor names a folder', 'Not there:' in said_since(mark), False)
+
+# Everything away, ticked: the walk finds nothing and forgets nothing; the
+# metadata sync's own check forgets the identified rows, as before.
+os.rename(models, models + '_away')
+rows_before = rows()
+mark = console.said()
+progress = SyncService(client=Client()).sync_all(forget_unseen=True)
+check('ticked, a walk that found nothing still forgets nothing', rows(), rows_before)
+check('and says so', 'The walk found no model files, so it forgot nothing' in said_since(mark), True)
+linked_now = [v['file_path'] for v in db.get_linked_versions()]
+progress = SyncService(client=Client()).sync_metadata(forget_unseen=True)
+check('ticked, the metadata sync forgets every identified row away', [has(p) for p in linked_now],
+      [False] * len(linked_now))
+os.rename(models + '_away', models)
 
 try:
     os.rmdir(LINK)
