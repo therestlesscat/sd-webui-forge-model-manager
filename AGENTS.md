@@ -318,6 +318,15 @@ the code (2026-10-16).
   the version bumped if a user can see the change ("Versions"); and a message
   that says what was wrong, its numbers read from the staged diff
   ("Conventions"). Then ask. Never commit without asking.
+- **The owner reviews the change in localpr before it is committed.** Once
+  it is prepared - and its build review and any planned live check are done
+  - the `localpr` plugin's review (`/localpr:review`) is opened on the
+  uncommitted change, and the commit is asked for only after the owner
+  finishes it there. Its `--check` is read against `git diff --cached
+  --shortstat` first: on a tree already committed it shows 0 files, as
+  #333's first review did, opened after its commit (2026-11-13). Each
+  comment gets a reply on the page; a fix goes back through `--all`, and the
+  ask names what the review changed.
 - **Push only when asked.** The repository is public, so a push publishes.
   "Push to dev/main" means both branches and every tag ("Branches").
 - **Commit only as the project's own identity**, set repo-locally. A global git
