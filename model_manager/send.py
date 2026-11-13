@@ -1173,21 +1173,34 @@ SHAPE_TOLERANCE = 0.03
 def civitai_meta(record: Dict[str, Any], frames: Any = None, video: bool = False) -> Dict[str, Any]:
     """
     A Civitai image's data as Send reads it: its own (`record_meta`), with a
-    `Size` when it gives none - the picture's, else its width and height - and
-    the picture's size where the data's shape differs from it by more than 3%
-    (#299). For an image-to-video model, its size as Wan makes it and its
-    frames.
+    `Size` when it gives none - its width and height, else the picture's -
+    and the picture's size where the data's shape differs from it by more
+    than 3% (#299). Width and height are kept only where they hold the size
+    Send sets: Neo's paste reads them over `Size`, the original Forge's does
+    not (#333). For a Wan model, its size as Wan makes it and its frames.
     """
     meta = record_meta(record)
     width, height = record.get("width"), record.get("height")
-    if not _truthy(meta.get("Size")):
-        if _truthy(width) and _truthy(height):
-            meta["Size"] = f"{_js_text(width)}x{_js_text(height)}"
-        elif _truthy(meta.get("width")) and _truthy(meta.get("height")):
-            meta["Size"] = f"{_js_text(meta['width'])}x{_js_text(meta['height'])}"
-    # The size Forge's paste ends with: `width` and `height`, which it reads
-    # after `Size`, else `Size`.
+    # A value build_infotext writes as a field of its own.
     passed = lambda v: v is not None and v != "" and not isinstance(v, (dict, list))  # noqa: E731
+    data = _size_of(f"{_js_text(meta['width'])}x{_js_text(meta['height'])}") \
+        if passed(meta.get("width")) and passed(meta.get("height")) else None
+    if not (data and all(data)):
+        # Width and height that form no size - 0, a fraction, one alone - are
+        # read by Neo's paste over Size, and not by the original Forge's (#333).
+        data = None
+        meta.pop("width", None)
+        meta.pop("height", None)
+    if not _truthy(meta.get("Size")):
+        # The data's size first (#333). Both WebUIs then read it: the original
+        # Forge's paste from Size, which it reads alone; Neo's from width and
+        # height, which it reads after Size.
+        if data:
+            meta["Size"] = f"{data[0]}x{data[1]}"
+        elif _truthy(width) and _truthy(height):
+            meta["Size"] = f"{_js_text(width)}x{_js_text(height)}"
+    # The size Neo's paste ends with: `width` and `height` where given, else
+    # `Size`.
     if passed(meta.get("width")) and passed(meta.get("height")):
         given = _size_of(f"{_js_text(meta['width'])}x{_js_text(meta['height'])}")
     else:
@@ -1209,6 +1222,9 @@ def civitai_meta(record: Dict[str, Any], frames: Any = None, video: bool = False
         if _truthy(w) and _truthy(h):
             snapped = video_size(w, h)
             meta["Size"] = f"{snapped['width']}x{snapped['height']}"
+            # Neo's paste would read the data's unrounded width and height over it (#333).
+            meta.pop("width", None)
+            meta.pop("height", None)
         if _truthy(frames):
             meta["Batch size"] = int(frames)
     return meta

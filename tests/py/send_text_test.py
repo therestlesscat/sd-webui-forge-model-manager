@@ -256,9 +256,63 @@ other = text({**{k: v for k, v in IMAGE.items() if k != 'Size'}, 'width': 512, '
 check('width and height of another shape: the picture\'s Size, and neither of them, which Forge reads over it',
       ('Size: 2304x1664' in other, 'width:' in other, 'height:' in other), (True, False, False))
 kept = text({**{k: v for k, v in IMAGE.items() if k != 'Size'}, 'width': 416, 'height': 608}, 832, 1216)
-check('width and height of the same shape: passed on as they are',
-      ('width: 416' in kept, 'height: 608' in kept), (True, True))
+check('width and height of the same shape: passed on as they are, and Size is theirs, not the picture\'s (#333)',
+      ('width: 416' in kept, 'height: 608' in kept, 'Size: 416x608' in kept), (True, True, True))
 check('within 3%: the data\'s', 'Size: 832x1216' in text(IMAGE, 840, 1216), True)
+
+# ------------------------------------ the data's size, in both WebUIs (#333)
+# The original Forge's paste reads Size alone; Neo's reads width and height
+# after it. They set one size only where Size holds width and height's numbers.
+NO_SIZE = {k: v for k, v in IMAGE.items() if k != 'Size'}
+
+
+def one_size(t):
+    """Wherever the line carries width or height, Size holds their numbers."""
+    line = settings(t)
+    w, h = re.search(r'(?:^|, )width: ([^,]*)', line), re.search(r'(?:^|, )height: ([^,]*)', line)
+    if not w and not h:
+        return True
+    size = re.search(r'(?:^|, )Size: (\d+)x(\d+)(?:,|$)', line)
+    return bool(w and h and size and (w.group(1), h.group(1)) == size.groups())
+
+
+hires = text({**{k: v for k, v in HIRES.items() if k != 'Size'}, 'width': 832, 'height': 1216}, 1664, 2432)
+check('Hires fix\'s picture, its data\'s width and height: the data\'s size, Hires fix to enlarge it once',
+      ('Size: 832x1216' in hires, 'Hires upscale: 2' in hires, 'Denoising strength: 0.4' in hires), (True, True, True))
+as_text = text({**NO_SIZE, 'width': '832', 'height': '1216'}, 1664, 2432)
+as_float = text({**NO_SIZE, 'width': 832.0, 'height': 1216.0}, 1664, 2432)
+check('width and height written as text, or as 832.0: the data\'s size',
+      ('Size: 832x1216' in as_text, 'Size: 832x1216' in as_float), (True, True))
+smaller = text({**NO_SIZE, 'width': 832, 'height': 1216}, 416, 608)
+check('a picture smaller than the data: the data\'s size', 'Size: 832x1216' in smaller, True)
+LINKS = {'width': {'_meta': {'title': 'Width'}, 'inputs': {'value': 832}}, 'height': ['12', 0]}
+linked = text({**NO_SIZE, **LINKS}, 1664, 2432)
+check('width and height that are links between workflow steps: the picture\'s size, neither written',
+      ('Size: 1664x2432' in linked, 'width:' in linked, 'height:' in linked), (True, False, False))
+check('the same links, the picture\'s size not known: no Size made of them',
+      'Size:' in text({**NO_SIZE, **LINKS}, None, None), False)
+zeros = text({**NO_SIZE, 'width': 0, 'height': 0}, 1664, 2432)
+check('width and height of 0: the picture\'s size, and neither, which Neo\'s paste would read as 0',
+      ('Size: 1664x2432' in zeros, 'width:' in zeros, 'height:' in zeros), (True, False, False))
+beside = text({**IMAGE, 'width': 0, 'height': 0})
+check('width and height of 0 beside a Size: neither written, whatever Size says',
+      ('Size: 832x1216' in beside, 'width:' in beside, 'height:' in beside), (True, False, False))
+fraction = text({**NO_SIZE, 'width': 832.5, 'height': 1216}, 1664, 2432)
+check('a fraction: the picture\'s size, and neither, which Neo\'s paste would read',
+      ('Size: 1664x2432' in fraction, 'width:' in fraction, 'height:' in fraction), (True, False, False))
+alone = text({**NO_SIZE, 'width': 832}, 1664, 2432)
+check('width alone: the picture\'s size, and no width, which Neo\'s paste would read over it',
+      ('Size: 1664x2432' in alone, 'width:' in alone), (True, False))
+wan = text({**NO_SIZE, 'width': 830, 'height': 470}, 1660, 940, video=True)
+check('a Wan model: the data\'s size rounded to its steps of 16, and no unrounded width and height',
+      ('Size: 832x464' in wan, 'width:' in wan, 'height:' in wan), (True, False, False))
+check('both WebUIs read one size: wherever width or height is written, Size holds their numbers',
+      [one_size(t) for t in (kept, other, hires, as_text, as_float, smaller, linked, zeros, beside, fraction, alone, wan)],
+      [True] * 12)
+plan = send.civitai_settings(type('Db', (), {'stored_records': lambda self, ids: [
+    {'meta': {**NO_SIZE, 'width': 416, 'height': 608}, 'width': 832, 'height': 1216}]})(), {'image': 1})
+check('the road every Civitai Send takes, to txt2img and img2img: the data\'s size',
+      'Size: 416x608' in plan['text'], True)
 
 # ----------------------------------- what the loader sets in the paste's event
 def control(elem_id, choices=None):

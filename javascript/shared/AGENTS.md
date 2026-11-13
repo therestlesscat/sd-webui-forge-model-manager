@@ -140,10 +140,11 @@ as it does every field it has no rule for, overrides its `Size`: a 2304 x
 1664 picture whose metadata said 512 x 512 went in at 512 x 512. That rewrite
 is Neo's alone: the original Forge's paste ignores `width` and `height`, and
 `Size` wins - an image whose data gives its size only as width and height
-comes out there at the picture's size (#333: 11 of 151 Civitai Sends in the
-original Forge, 2026-10-22; 9,000 stored images). Since
-0.67.0 the size rule leaves the data's width and height out where their
-shape is not the picture's (`send.civitai_meta`, #302). A line of two
+came out there at the picture's size until 0.78.16 (#333: 11 of 151 Civitai
+Sends in the original Forge, 2026-10-22; 11,150 stored images). So
+`send.civitai_meta` takes Size from them where the data gives no Size, and leaves
+them out where they form no size, where their shape is not the picture's
+(0.67.0, #302), and after a Wan model's rounding. A line of two
 fields became prompt text, so a short one writes `Size-1` and `Size-2`, and a
 value with a line break is quoted as Forge quotes it (0.67.5, #313). A sampler
 Forge does not know becomes its first, DPM++ 2M, without a word
