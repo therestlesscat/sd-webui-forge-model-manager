@@ -47,6 +47,19 @@ because that would mean the assumption no longer holds.
   without (#262). Rapid single lookups get 429 after about 30. Every model
   payload carries `nsfw` (300 of 300); a thin sidecar may not (8 of 1,032
   here), and the flag is then stored as not said (#141).
+- **A text search with `nsfw=true` comes back in short pages, and is no
+  superset of one without.** With `query`, Civitai's cursor is a count of
+  matches (`"20"`, `"40"`): it takes `limit` matches, leaves out the models
+  it keeps out of its NSFW lists, and does not fill the gap. One search at
+  20 a page answered 11, 14, 17, 19, 18, 19, 17, 20, 18, 18; "dragon",
+  "castle" and "elf" 18 of 20 each. A tag search, or none, pages by another
+  kind of cursor (`537055|13496|1811313`) and came full. The two lists are a
+  swap: one search gave 154 models with `nsfw` left out and 189 with `true`;
+  26 of the 154 never came with `true`, every one a model Civitai keeps out
+  of those lists, and 61 came only with it, most rated R or above. Asked
+  twice, each cursor gave the same models in the same order (36 of 36,
+  2026-11-12): the fill's resume mark relies on it (#424,
+  `model_manager_civitai_nsfw_fill_page`).
 - **Every `CivitaiClient.from_settings()` opens a new `requests.Session`**, so
   its first request pays a new connection: `/models/{id}` took a median of 333
   to 340 ms with a new one, 63 ms with one reused - the same ten models, timed
