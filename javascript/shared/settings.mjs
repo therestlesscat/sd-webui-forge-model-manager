@@ -103,6 +103,7 @@ function createSettings() {
     let openedFor = {};      // the tab, or the one section, open() was asked for, and a field to focus
     let draft = {};          // what the window holds, by key
     let secretTyped = null;  // a key typed into the window; null = unchanged
+    let keyRemoved = false;  // Remove pressed: an emptied box then means no key, not no change (#397)
     let errors = {};
     let root = null;
     let shown = null;               // the window's handle in the dialog container, while open (#292)
@@ -1030,7 +1031,9 @@ function createSettings() {
         if (!key || !meta.settings[key]) return;
         const s = { ...meta.settings[key], ...(CONTROLS[key] || {}) };
         if (s.kind === 'secret') {
-            secretTyped = t.value;
+            // A box typed in and emptied again is left as it was: only Remove
+            // takes a saved key away (#397).
+            secretTyped = t.value.trim() ? t.value : (keyRemoved ? '' : null);
             showKeyTest('', '');
         } else if (s.switch) {
             draft[key] = t.checked ? s.switch[0] : s.switch[1];
@@ -1084,6 +1087,7 @@ function createSettings() {
             upkeep.remove(null);
         } else if (act === 'forget') {
             secretTyped = '';
+            keyRemoved = true;
             showKeyTest('', '');
             const input = t.parentElement.querySelector('input');
             input.value = '';
@@ -1156,6 +1160,7 @@ function createSettings() {
             if (meta.settings[key].kind !== 'secret') draft[key] = meta.settings[key].value;
         });
         secretTyped = null;
+        keyRemoved = false;
         errors = {};
     }
 

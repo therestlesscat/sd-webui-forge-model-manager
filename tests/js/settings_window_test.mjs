@@ -635,9 +635,20 @@ await new Promise((r) => setTimeout(r, 50));
 check('and an answer for a key since changed is dropped', keyResult()[0], '');
 keyAnswerReady = Promise.resolve();
 
+// Typed in and emptied again, the box is no change: the saved key stays (#397).
+type(keyField().querySelector('input'), '');
+check('the key box emptied again is no change', status(), '');
+await testKey();
+check('and Test asks about the saved key again', keyTested[keyTested.length - 1], {});
+type(keyField().querySelector('input'), '   ');
+check('nor is a box of spaces alone', status(), '');
+
 keyField().querySelector('[data-act="forget"]')?.click();
 await testKey();
 check('with the key removed, there is none to test', keyResult()[0], 'No key to test: type one, or save one first.');
+type(keyField().querySelector('input'), 'x');
+type(keyField().querySelector('input'), '');
+check('after Remove, a box typed in and emptied still removes the key', status(), '1 unsaved change');
 
 // Leave the key as it was: close without saving, and open again.
 confirmAnswer = true;
@@ -772,13 +783,17 @@ await waitFor('the save', () => saved.length === 5);
 check('ticked and saved, the delete setting is sent by its key', posted.at(-1),
       { model_manager_generations_delete_files: true });
 
-// How many downloads in parallel, slid to 4 and saved (#279).
+// How many downloads in parallel, slid to 4 and saved (#279) - after a
+// character typed in the key box and deleted, which sent the key emptied (#397).
 await call('settings.open');
+type(field('model_manager_civitai_api_key').querySelector('input'), 'a');
+type(field('model_manager_civitai_api_key').querySelector('input'), '');
 const downloadsSlider = field(DOWNLOADS)?.querySelector('input[type="range"]');
 if (downloadsSlider) type(downloadsSlider, '4');
 $('#mm_settings_save').click();
 await waitFor('the save', () => saved.length === 6);
 check('How many downloads in parallel, saved as a number by its key', posted.at(-1), { model_manager_downloads_at_once: 4 });
+check('and the saved key kept', SETTINGS.model_manager_civitai_api_key.has_value, true);
 
 // ------------------------------------------- from the WebUI's Settings page
 // Apply there saves through the same opts.set(), so the same pass runs. Its
