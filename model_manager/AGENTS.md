@@ -255,7 +255,17 @@ Civitai no longer has, its sidecar's rating for the version. Scan Disk stored
 the higher of that and the worst showcase image, so the level meant two
 things (#104); rows it wrote keep that until a sync refreshes them. The grid
 judges live from the model, the version and the worst stored image
-(`nsfw.model_level_sql`), so it is right either way.
+(`nsfw.model_level_sql`), so it is right either way. That level is the
+largest of three numbers - the model's rating and the version's, each
+Civitai's set of levels (R, X and XXX at once is 28), and its worst stored
+image's, always one level - not their union. Only its highest level is
+reliable: the most explicit of the three, on every file of one library. Its
+lower levels survive only when a set was the largest number: on 863 of one
+library's 1,732 files with a Civitai version, the value differs from the
+three merged. #398's first fix read the value as a set ("any ticked level")
+and would have shown models rated up to XXX under PG alone; it was undone
+(2026-11-13). A rule that reads the value's lower levels reads levels
+partly lost.
 
 **A long job is one of its kind, in `jobs.py`.** A sync (full or metadata)
 and a restamp of stored image levels each run one at a time; what the

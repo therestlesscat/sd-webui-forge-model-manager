@@ -30,6 +30,12 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   Its guard failed on the old code too: the press it ran held a face pass,
   the bug's own trigger, so it became a press with none. A plan's break
   list and guards are run on the old code and the new before it goes out.
+  And a guard meets the state the old code's own bug left behind it in the
+  suite: #397's guard at the suite's end pressed Remove on a key the old
+  code had already removed, at an earlier save of the same suite - written
+  `.click()` it crashed the old-code run and hid its 11 FAIL lines; written
+  `?.click()` it passed without pressing. The precondition is set on the
+  stand-in and checked first, so a missing one fails a line (2026-11-13).
 - **A new check has to fail on the old code.** A check that has never failed
   has not been shown to check anything: three separate attempts at one fix
   passed a suite that could not have caught the bug. Swap the file for
@@ -48,7 +54,12 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   new. Read a list line by line (`while IFS= read -r f`). And Windows' Python
   writes `\r\n` in text mode: a break script that rewrote two files with
   `open(path, 'w')` left them in CRLF. Read and write with `newline=''`, and
-  `cmp` against a backup after. It cannot open a script under WSL's `/tmp`
+  `cmp` against a backup after. A swapped tracked file is what this working
+  tree's Neo serves at the next page load: page modules need no restart.
+  Old-code and break runs of page code go in a scratch tree (`git archive
+  HEAD | tar -x`), the edited suite copied in, the swap checked with `cmp` against
+  `git show <commit>:<file>` - `git diff --stat` shows only a difference from
+  HEAD (2026-11-13, #397's checks). It cannot open a script under WSL's `/tmp`
   either: put one under `tests/work/`. A tree for breaks is built from `git
   ls-files` (modified and untracked), never `cp -r tests`: a copy of `tests`
   into `tests/work/...` copied itself, 3.6 GB, before it was stopped (#299).
@@ -109,6 +120,11 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   And a check can sit where the break draws the same thing: #240's hidden-tab
   check hid the grid while it was at the top, where a wrong redraw draws the
   same rows. Scrolled 20,000 px first, it failed on the break.
+  So is one an existing check already fails: it shows nothing the new check
+  adds. #397's "no trim" break failed the old "nor is a box of spaces alone"
+  too; a break in Test's request failed the new check alone. A break for a
+  new check fails that check and is named with every other it fails
+  (2026-11-13).
 - **A failure report the console cannot print hides the failure.** A check
   expecting the settings' ⚙ failed on HEAD, and printing it crashed the
   suite on Windows' console (cp1252) before any FAIL line; `download_test`
