@@ -638,10 +638,15 @@ keyAnswerReady = Promise.resolve();
 // Typed in and emptied again, the box is no change: the saved key stays (#397).
 type(keyField().querySelector('input'), '');
 check('the key box emptied again is no change', status(), '');
+check('and what needs a key stays usable, the saved key held',
+      greyed('model_manager_civitai_requests_per_second'), false);
 await testKey();
 check('and Test asks about the saved key again', keyTested[keyTested.length - 1], {});
 type(keyField().querySelector('input'), '   ');
 check('nor is a box of spaces alone', status(), '');
+check('which leaves what needs a key usable too', greyed('model_manager_civitai_requests_per_second'), false);
+await testKey();
+check('and Test then asks about the saved key, not the spaces', keyTested[keyTested.length - 1], {});
 
 keyField().querySelector('[data-act="forget"]')?.click();
 await testKey();
@@ -1161,5 +1166,21 @@ check('Forge not answering: the tables as they were, said so, Refresh ready agai
 newT5 = false;
 confirmAnswer = true;
 $('[data-act="cancel"]').click();
+
+// Remove, then the box typed in and emptied: Save still removes the key
+// (#397). Last, so the removal saved here reaches no later check; the key is
+// set on the stand-in first, as the code before #397 has lost it by now.
+SETTINGS.model_manager_civitai_api_key.has_value = true;
+await call('settings.open');
+check('a key saved, its Remove drawn', [$('#mm_settings')?.open, Boolean(keyField()?.querySelector('[data-act="forget"]'))],
+      [true, true]);
+keyField()?.querySelector('[data-act="forget"]')?.click();
+type(keyField().querySelector('input'), 'x');
+type(keyField().querySelector('input'), '');
+const removalSaves = saved.length;
+$('#mm_settings_save').click();
+await waitFor('the save of the removal', () => saved.length > removalSaves);
+check('Remove, then a box typed in and emptied: Save sends the key empty', posted.at(-1),
+      { model_manager_civitai_api_key: '' });
 
 done();
