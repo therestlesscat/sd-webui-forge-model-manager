@@ -67,6 +67,22 @@ the code (2026-10-16).
   and edit sections. #136's Restart WebUI offer was added to its plan that
   way and approved; 0.54.1 was built from an older read without it, and
   0.54.2 followed (2026-10-08).
+- **A waived plan doc moves the plan into the chat; it waives nothing
+  else.** The owner: "no doc means everything discussed here, thats all it
+  meant" (2026-11-13). The plan is written in the conversation as the doc
+  would hold it - where, before and after, the alternatives side by side,
+  the checks, the version - each choice a numbered question with a
+  recommendation. A fresh agent reads it, code starts on an explicit yes,
+  and the build is read against it before the commit, as for any plan.
+  #398's doc was waived and the fix built in the same turn. Two choices
+  were made without asking: "contains" was read as "any ticked level",
+  from the code's comments, and the box with nothing ticked was made to
+  say "All". A side agent then found that PG alone would show models
+  rated up to XXX. A fresh read found a third reading the build had
+  missed, and that the rule had changed three times before with no
+  decision recorded. The owner had it undone and the findings posted on
+  the issue: "this one is very touchy setting to change willy nilly", and
+  "waive doc doesnt mean everything has to just done fast as possible".
 - **A plan round is read by a fresh agent before it goes to the owner.**
   One agent, or two or more by "A sub-task goes to two agents or more where
   that is faster" below, handed the doc and pointed at the code and the AGENTS.md files -
@@ -102,8 +118,8 @@ the code (2026-10-16).
   conversation, and reads each against the other: what the plan calls
   unchanged, what it names as a check, a rule it keeps. What it finds is
   surveyed and fixed in the same commit, and the commit is asked for with
-  what it found and its cost. A fix whose plan the owner waived has nothing
-  to be read against, and skips it. Every such fault in this file was caught
+  what it found and its cost. A fix whose plan doc the owner waived is read
+  against the plan as agreed in chat (above). Every such fault in this file was caught
   by a side agent asked for by chance: #259's moved reads, v37's subset
   check, #269's replaced check, #287's rule changed mid-build (2026-11-02).
   Two or more read it at once, split by halves or by question (against the
