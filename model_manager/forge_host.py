@@ -88,6 +88,7 @@ DEFAULTS = {
     "model_manager_hash_threads": 4,
     "model_manager_civitai_min_prompt_images": 1,
     "model_manager_civitai_sfw_fill_page": False,
+    "model_manager_civitai_nsfw_fill_page": False,
     "model_manager_card_size": "200x280",
     "model_manager_civitai_card_size": "200x280",
     "model_manager_nsfw_prompt_words": "",

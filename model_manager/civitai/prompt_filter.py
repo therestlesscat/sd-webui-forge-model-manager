@@ -254,7 +254,9 @@ def iter_models_with_usable_prompts(
             # there is no per-chunk progress below to say anything is moving.
             yield "progress", counts()
 
-            if not batch:
+            # An answer with no models may still say where Civitai goes on
+            # (#424): only one without a next cursor is the end.
+            if not batch and not batch_next_cursor:
                 exhausted = True
                 break
 

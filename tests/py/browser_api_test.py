@@ -586,6 +586,139 @@ finally:
 
 Stub.get_model_images = _scripted_images
 
+# ------------------------- filling the pages of a search with NSFW (#424)
+# For a search with words, Civitai picks a page's worth of matches and leaves
+# some out after, so a page that includes NSFW models comes back short. With
+# "Fill each page with models when including NSFW models" on, the plain
+# search asks for the next ones until the page is full.
+from model_manager.civitai import CivitaiRateLimitError       # noqa: E402
+
+def by_cursor(pages):
+    """A Civitai that answers each cursor with its own batch. `pages` maps a
+    cursor (None for the first) to (models, next cursor) - a model as an id
+    or whole - or to an error it raises. The page size asked is recorded,
+    not obeyed: a batch is what Civitai kept of it."""
+    def search_models(self, **kwargs):
+        Stub.calls.append(('search_models', kwargs))
+        answer = pages[kwargs.get('cursor')]
+        if isinstance(answer, Exception):
+            raise answer
+        models, next_cursor = answer
+        return {'items': [m if isinstance(m, dict) else remote(m, m + 100000) for m in models],
+                'nextCursor': next_cursor}
+    return search_models
+
+def asked():
+    """What Civitai was asked, in order: (cursor, page size)."""
+    return [(c[1].get('cursor'), c[1]['limit']) for c in Stub.calls if c[0] == 'search_models']
+
+def ids(body):
+    return [m['id'] for m in body['models']]
+
+def nsfw_search(**params):
+    forget()
+    return get('/model-manager/civitai/models', query='a name', limit=20, **params)
+
+plain_search_models = Stub.search_models
+# Civitai's answers at a page of 20, as one character search gave them
+# (2026-11-12): 11, then 14 from "20", then 17 from "40", then the end.
+SHORT = {None: (list(range(92000, 92011)), '20'),
+         '20': (list(range(92020, 92034)), '40'),
+         '40': (list(range(92040, 92057)), None)}
+EVERY = SHORT[None][0] + SHORT['20'][0] + SHORT['40'][0]
+# Each of the two the client raises, in its own words: Civitai's 429, and the
+# extension's own queue, which never asked Civitai (#208).
+LIMITED = CivitaiRateLimitError('Civitai is limiting requests. It asked to wait 60 s; tried 3 times.')
+QUEUED = CivitaiRateLimitError('Civitai was not asked: this request waited 2 minutes for a turn. '
+                               'Civitai is asked at most 0.5 times a second here.')
+
+opts.model_manager_civitai_nsfw_fill_page = True
+try:
+    Stub.search_models = by_cursor(SHORT)
+    status, body = nsfw_search(nsfw='true')
+    check('with NSFW included and the setting on, a short page is filled from the next batch',
+          ids(body), EVERY[:20])
+    check('asking one page at a time, from where Civitai said it goes on',
+          asked(), [(None, 20), ('20', 20)])
+    check('and the status line is told nothing new', body['filterStats'], None)
+
+    seen, sizes, cursor = ids(body), [len(body['models'])], body['nextCursor']
+    while cursor and len(sizes) < 10:
+        status, body = nsfw_search(nsfw='true', cursor=cursor)
+        seen, sizes, cursor = seen + ids(body), sizes + [len(body['models'])], body['nextCursor']
+    check("Next carries on at the seam: every model once, in Civitai's order, in full pages",
+          (seen, sizes), (EVERY, [20, 20, 2]))
+
+    status, body = nsfw_search(nsfw='true', cursor='20')
+    check("Civitai's own cursor sent back - the setting turned on mid-listing - is filled from",
+          ids(body), EVERY[11:31])
+
+    TRICKLE = {None: ([92100], 'c1')}
+    TRICKLE.update({'c%d' % n: ([92100 + n], 'c%d' % (n + 1)) for n in range(1, 12)})
+    Stub.search_models = by_cursor(TRICKLE)
+    status, body = nsfw_search(nsfw='true')
+    check('a page stops at 5 requests, with what they gave',
+          (ids(body), len(asked())), (list(range(92100, 92105)), 5))
+    status, body = nsfw_search(nsfw='true', cursor=body['nextCursor'])
+    check('and Next carries on from the sixth batch', ids(body), list(range(92105, 92110)))
+
+    Stub.search_models = by_cursor({None: ([], '20'), '20': (list(range(92200, 92225)), '40')})
+    status, body = nsfw_search(nsfw='true')
+    check('an answer with no models but a next cursor is gone past, not taken for the end',
+          ids(body), list(range(92200, 92220)))
+
+    for label, pages_, error in (
+            ('Civitai limiting the first request', {None: LIMITED}, LIMITED),
+            ('Civitai limiting a later one', {None: (SHORT[None][0], '20'), '20': LIMITED}, LIMITED),
+            ('the queue holding a later one back', {None: (SHORT[None][0], '20'), '20': QUEUED}, QUEUED)):
+        Stub.search_models = by_cursor(pages_)
+        status, body = nsfw_search(nsfw='true')
+        check('%s is an error in its own words, as one request is' % label,
+              (status, body.get('success'), body.get('error')), (500, False, str(error)))
+
+    Stub.search_models = by_cursor({None: (list(range(92300, 92320)), 'more')})
+    status, body = nsfw_search(nsfw='true')
+    check('a page Civitai answers in full costs one request, as today',
+          (ids(body), asked(), body['filterStats']), (list(range(92300, 92320)), [(None, 20)], None))
+
+    Stub.search_models = by_cursor({None: ([sized(92500, 0.5), sized(92510, 6.5)], None)})
+    status, body = nsfw_search(nsfw='true', max_size_gb='1')
+    check('a filter ticked keeps its own way, NSFW included and the setting on',
+          (ids(body), asked(), body['filterStats'] is not None), ([92500], [(None, 100)], True))
+
+    Stub.search_models = by_cursor(SHORT)
+    status, body = nsfw_search()
+    check('with NSFW models not included, the setting does nothing: one request, as Civitai gave it',
+          (ids(body), asked(), body['nextCursor']), (SHORT[None][0], [(None, 20)], '20'))
+
+    Stub.search_models = plain_search_models
+    civitai(models={'items': [sized(90050, 0.1), sized(90060, 6.5)], 'nextCursor': None})
+    with client.stream('GET', '/model-manager/civitai/models/stream',
+                       params={'limit': 5, 'max_size_gb': 1, 'require_prompt': 'false',
+                               'nsfw': 'true'}) as response:
+        lines = [json.loads(line) for line in response.iter_lines() if line.strip()]
+    check('a filtered search keeps its own way, the setting on or not',
+          ([line['model']['id'] for line in lines if line['type'] == 'model'],
+           [c[1]['limit'] for c in Stub.calls if c[0] == 'search_models']), ([90050], [100]))
+
+    opts.model_manager_civitai_nsfw_fill_page = False
+    Stub.search_models = by_cursor(SHORT)
+    status, body = nsfw_search(nsfw='true')
+    check('with the setting off, a short page stays as Civitai gave it',
+          (ids(body), asked(), body['nextCursor']), (SHORT[None][0], [(None, 20)], '20'))
+finally:
+    opts.model_manager_civitai_nsfw_fill_page = False
+    Stub.search_models = plain_search_models
+
+# A filtered search goes past an empty answer too: Civitai said it has more.
+try:
+    Stub.search_models = by_cursor({None: ([], 'x'), 'x': ([sized(92400, 0.5), sized(92410, 0.5)], None)})
+    status, body = get('/model-manager/civitai/models', max_size_gb='1', limit=5)
+    check('a filtered search goes past an answer with no models but a next cursor',
+          [m['id'] for m in body['models']], [92400, 92410])
+finally:
+    Stub.search_models = plain_search_models
+
 # ---------------------------------------------------------------- one model
 civitai(model=remote(OWNED_MODEL, OWNED_VERSION))
 status, body = get('/model-manager/civitai/models/%d' % OWNED_MODEL)

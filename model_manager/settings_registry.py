@@ -325,6 +325,15 @@ SETTINGS: Tuple[Setting, ...] = (
             "hundreds of requests and several minutes, and Civitai is likely to start turning requests away. A page "
             "still stops when Civitai does.",
             (CB,), badges=("not_recommended",)),
+    Setting("model_manager_civitai_nsfw_fill_page", "hidden", "checkbox",
+            "Fill each page with models when including NSFW models",
+            "Fill each page with models when including NSFW models",
+            "Used when Include NSFW models is ticked in the Civitai Browser and no filter is. Civitai then "
+            "sometimes answers with fewer models than a page holds: it picks a page's worth of models for a "
+            "search with words, and leaves some of them out afterwards. When this is on, the Civitai Browser asks "
+            "Civitai for the next models until the page is full, at most five requests a page. A page Civitai "
+            "answers in full costs nothing more.",
+            (CB,)),
     Setting("model_manager_civitai_on_site_marks", "hidden", "checkbox", "Mark on-site-only versions",
             "Mark versions Civitai allows only on its site",
             "Some creators allow a version only for generating on Civitai's site, and Civitai refuses to download "

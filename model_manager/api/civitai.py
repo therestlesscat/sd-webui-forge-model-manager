@@ -20,6 +20,7 @@ from ..model_dirs import held_here
 from ..civitai import random_draw
 from ..civitai import (
     CivitaiClient,
+    CivitaiRateLimitError,
     decode_filter_token,
     enrich_images_with_generation_data,
     iter_models_with_usable_prompts,
@@ -54,7 +55,8 @@ ENUMS_TTL_SECONDS = 6 * 60 * 60
 # A filtered page is filled from as many searches as it takes, up to this
 # many. Only the free checks can need them - the size filter, and hiding the
 # library's models (#217): a narrow range, or a search the library mostly
-# holds, is bounded by the search calls, not the checks.
+# holds, is bounded by the search calls, not the checks. So is the fill of a
+# search that includes NSFW models (#424), which checks nothing.
 MAX_FILTER_SEARCHES = 5
 # Civitai's largest search page. The free checks ask for the most they can
 # per call, since each call is the whole cost of checking a batch.
@@ -112,6 +114,31 @@ def _filter_options(client, *, require_prompt, sfw_only, nsfw, size_check,
 def _fill_page_setting() -> bool:
     """Whether "Fill every page with Only Show Models with SFW images" is on."""
     return bool(setting('model_manager_civitai_sfw_fill_page'))
+
+
+def _nsfw_fill_page_setting() -> bool:
+    """Whether "Fill each page with models when including NSFW models" is on (#424)."""
+    return bool(setting('model_manager_civitai_nsfw_fill_page'))
+
+
+class _KeepsRateLimit:
+    """
+    The client for the NSFW fill's searches, keeping the rate-limit error one
+    raised. The filter loop stops on it and says only that it happened; the
+    page should read the error's own words, as one search shows them - a 429
+    with Civitai's wait, or the extension's own queue, which never asked
+    Civitai (#208, #424).
+    """
+    def __init__(self, client):
+        self._client = client
+        self.limited: Optional[CivitaiRateLimitError] = None
+
+    def search_models(self, **kwargs):
+        try:
+            return self._client.search_models(**kwargs)
+        except CivitaiRateLimitError as e:
+            self.limited = e
+            raise
 
 
 def _filter_stats(summary, *, require_prompt, sfw, size_check, min_usable, hide_owned=False):
@@ -251,6 +278,22 @@ def register(app: FastAPI):
                     items = filtered["models"]
                     next_cursor = filtered["nextCursor"]
                     filter_stats = search.stats(filtered, require_prompt=require_prompt, sfw=sfw)
+                elif search.params["nsfw"] and _nsfw_fill_page_setting():
+                    # For a search with words, Civitai picks a page's worth of
+                    # matches and then leaves out those it keeps from lists that
+                    # include NSFW, so the page comes back short (#424). The
+                    # loop, with no check, asks for the next ones until it is
+                    # full. A rate limit stays an error, as one request's is.
+                    kept = _KeepsRateLimit(client)
+                    filled = search_models_with_usable_prompts(
+                        kept, search.params, None, search.limit,
+                        start_token=cursor if cursor else None,
+                        batch_size=search.limit, max_searches=MAX_FILTER_SEARCHES,
+                    )
+                    if filled["rate_limited"]:
+                        raise kept.limited or CivitaiRateLimitError()
+                    items = filled["models"]
+                    next_cursor = filled["nextCursor"]
                 else:
                     # Un-ticking the filter mid-listing can hand us a filter
                     # token; Civitai would reject it, so unwrap the real cursor

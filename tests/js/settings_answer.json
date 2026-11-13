@@ -786,6 +786,25 @@
    "switch": null,
    "value": false
   },
+  "model_manager_civitai_nsfw_fill_page": {
+   "label": "Fill each page with models when including NSFW models",
+   "info": "Used when Include NSFW models is ticked in the Civitai Browser and no filter is. Civitai then sometimes answers with fewer models than a page holds: it picks a page's worth of models for a search with words, and leaves some of them out afterwards. When this is on, the Civitai Browser asks Civitai for the next models until the page is full, at most five requests a page. A page Civitai answers in full costs nothing more.",
+   "kind": "bool",
+   "default": false,
+   "name": "Fill each page with models when including NSFW models",
+   "group": "hidden",
+   "heading": "Civitai Browser Tab",
+   "tags": [
+    "civitai_browser"
+   ],
+   "shown_with": [
+    "civitai_browser"
+   ],
+   "under": null,
+   "badges": [],
+   "switch": null,
+   "value": false
+  },
   "model_manager_civitai_on_site_marks": {
    "label": "Mark versions Civitai allows only on its site",
    "info": "Some creators allow a version only for generating on Civitai's site, and Civitai refuses to download it. When this is on, the Civitai Browser marks those versions on its cards and in a model's panel. To know them, it asks Civitai once per page and once per model you open; the answer is often under a megabyte, sometimes a few. The Model Manager marks them whatever this says, from what a sync stored.",
@@ -1546,6 +1565,7 @@
   "model_manager_generations_hide_nsfw",
   "model_manager_civitai_min_prompt_images",
   "model_manager_civitai_sfw_fill_page",
+  "model_manager_civitai_nsfw_fill_page",
   "model_manager_civitai_on_site_marks",
   "model_manager_send_clip_skip",
   "model_manager_send_clip_skip_max",
