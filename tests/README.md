@@ -168,6 +168,10 @@ that the WebUI does not - and ask a real browser ("Probes").
   classes, and #418's `drawAbsence`, which named that action earlier in the
   file, failed it. New code naming an action goes after the markup that
   draws it.
+- **`forgeRefreshButtons` called a second time adds buttons with the same
+  ids**, and the page's `querySelector` presses the first set: the new ones
+  are never pressed, and their `refreshes` stays empty. Remove the old
+  buttons first. #425's check 21 timed out so until it did.
 - **`press` acts on a disabled control.** The harness dispatches the click
   or change whatever `disabled` says (`harness.mjs`, `press`), so a check
   that a control can be used reads `.disabled` itself: #415's Sort box,
