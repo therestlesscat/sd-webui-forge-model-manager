@@ -12,7 +12,7 @@
 // a chip saying why: another version of its model is suggested, not picked;
 // the same file under another model is picked first, and the image comes out
 // as made. Every pick is sent one way, by Forge's name for it.
-import { checker, forgeRefreshButtons, mountTab, press, sharedModule, startServices, tick } from './harness.mjs';
+import { checker, FORGE_REFRESH_EVENTS, forgeRefreshButtons, mountTab, press, sharedModule, startServices, tick } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_generations.py');
 window.mmTiming = { poll: 20, sendRecheck: 20, sendRecheckMax: 200, pasteMax: 50, frame: 5 };
@@ -186,6 +186,114 @@ progress = [];
 listAfter = null;
 forgeAnswered = false;
 close();
+
+// ------------------- the list is not asked while Forge's refreshes run (#425)
+// Each of Forge's two refreshes rebuilds its checkpoint list from nothing
+// (`list_models`): asked meanwhile, the list comes back empty. The re-check
+// finds the image's checkpoint ready once the first refresh has listed it,
+// while the second - the extra networks' - still runs.
+picked.length = 0;
+list = answer([OTHER], []);
+let rebuilding = false;        // between the extra networks refresh's press and the step Forge chains after it
+const askedRebuilding = [];
+const listWas = list;
+listAfter = answer([OTHER, NEWEST], []);
+const plain = globalThis.fetch;
+globalThis.fetch = async (url, init = {}) => {
+    const href = String(url);
+    if (href.includes('/queue/join')) {
+        const fn = JSON.parse(String(init.body || '{}')).fn_index;
+        if (fn === FORGE_REFRESH_EVENTS.extraNetworks) rebuilding = true;
+        if (fn === FORGE_REFRESH_EVENTS.chained) rebuilding = false;
+    }
+    if (href.includes('/civitai/download') && !href.includes('progress')) {
+        return { ok: true, status: 200, json: async () => ({ success: true, version_id: 113, version_name: 'v7', file_id: 1113,
+            progress: { version_id: 113, file_id: 1113, status: 'pending', percent: 0 } }) };
+    }
+    if (href.includes('/model-manager/send/checkpoints')) {
+        askedRebuilding.push(rebuilding);
+        if (rebuilding) return { ok: true, status: 200, json: async () => answer([], []) };
+    }
+    return plain(url, init);
+};
+document.querySelectorAll('#forge_refresh_checkpoint, #txt2img_lora_extra_refresh_internal').forEach((b) => b.remove());
+refreshes = forgeRefreshButtons(document, window, { delay: 120 });
+const recheckable = { ...stoppedSend(), check: async () => (forgeAnswered ? null : 'missing') };
+const landing2 = { meta: { prompt: 'a lighthouse', civitaiResources: [
+    { type: 'checkpoint', modelVersionId: 113, modelId: MODEL, name: 'A Checkpoint', modelVersionName: 'v7' }] } };
+await showImageResources(landing2, null, { note: 'Not in your library.', send: recheckable });
+await waitFor('the list', () => rows().length);
+const listsAt = askedRebuilding.length;
+const download2 = modal()?.querySelector('[data-action="resources.download"][data-version-id="113"]');
+if (download2) press(download2);
+progress = [{ version_id: 113, file_id: 1113, status: 'complete', percent: 100, synced: true }];
+await waitFor('both refreshes done and the list asked after them',
+              () => refreshes.includes('extra networks') && !rebuilding && rowOf(NEWEST.name), 100);
+check('21. a download lands: the list is never asked while Forge rebuilds its own, and ends with the download in it',
+      [askedRebuilding.slice(listsAt).filter(Boolean).length, Boolean(rowOf(NEWEST.name)), Boolean(rowOf(OTHER.name))],
+      [0, true, true]);
+// Both asks still go: the re-check's, once the checkpoint can be loaded, and the one after downloads.
+await waitFor('two asks after the rebuild', () => askedRebuilding.slice(listsAt).filter((r) => !r).length >= 2, 40);
+check('    the re-check still asks for the list, after the rebuild, as does the ask after downloads',
+      askedRebuilding.slice(listsAt).filter((r) => !r).length, 2);
+globalThis.fetch = plain;
+progress = [];
+listAfter = null;
+list = listWas;
+forgeAnswered = false;
+close();
+
+// ------- a stop for a checkpoint Forge has not listed yet: Send presses its refresh first (#425)
+// Send presses Forge's checkpoint refresh and opens the dialog at once (send.mjs, `not_listed`).
+// The dialog's first ask must wait for that refresh: asked during it, the list is empty.
+list = answer([OTHER, NEWEST], []);
+let checkpointRefreshing = false;
+const asked22 = [];
+const plain22 = globalThis.fetch;
+globalThis.fetch = async (url, init = {}) => {
+    const href = String(url);
+    if (href.includes('/run/predict')) checkpointRefreshing = false;
+    if (href.includes('/model-manager/send/checkpoints')) {
+        asked22.push(checkpointRefreshing);
+        if (checkpointRefreshing) return { ok: true, status: 200, json: async () => answer([], []) };
+    }
+    return plain22(url, init);
+};
+document.querySelectorAll('#forge_refresh_checkpoint, #txt2img_lora_extra_refresh_internal').forEach((b) => b.remove());
+refreshes = forgeRefreshButtons(document, window, { delay: 120 });
+document.querySelector('#forge_refresh_checkpoint')?.addEventListener('click', () => { checkpointRefreshing = true; });
+const { refreshWebUiModelList } = await sharedModule('forge.mjs');
+const notListed = { ...stoppedSend(), reason: 'not_listed', check: null };
+refreshWebUiModelList();
+await showImageResources(landing, null, { note: 'Not listed yet.', send: notListed, recheck: true });
+await waitFor('the list after Send\'s refresh', () => rows().length && !checkpointRefreshing, 100);
+check('22. Send presses Forge\'s refresh and opens the dialog: its first ask waits for the refresh, the list full',
+      [asked22.filter(Boolean).length, asked22.length > 0, Boolean(rowOf(NEWEST.name)), Boolean(rowOf(OTHER.name))],
+      [0, true, true, true]);
+close();
+
+// Opened for another image while its first ask waits: that ask never goes - the new dialog's does.
+asked22.length = 0;
+const askedFor = [];
+const plain22b = globalThis.fetch;
+globalThis.fetch = async (url, init = {}) => {
+    const href = String(url);
+    if (href.includes('/model-manager/send/checkpoints')) askedFor.push(new URL(href, 'http://x').searchParams.get('generation'));
+    return plain22b(url, init);
+};
+refreshWebUiModelList();
+await showImageResources(landing, null, { note: 'Not listed yet.', send: notListed, recheck: true });
+const other = { ...stoppedSend(), reason: 'not_listed', check: null, list: { generation: 8 } };
+await showImageResources(landing, null, { note: 'Not listed yet.', send: other, recheck: true });
+await waitFor('the second dialog\'s list', () => rows().length && askedFor.length, 100);
+check('    opened for another image during the wait: the first dialog never asks, the second asks once',
+      askedFor, ['8']);
+globalThis.fetch = plain22;
+list = listWas;
+forgeAnswered = false;
+close();
+document.querySelectorAll('#forge_refresh_checkpoint, #txt2img_lora_extra_refresh_internal').forEach((b) => b.remove());
+refreshes = forgeRefreshButtons(document, window);
 
 // The Resources button's dialog, its box unticked by hand: a download of the
 // image's checkpoint landing enables its Send, the image's own.

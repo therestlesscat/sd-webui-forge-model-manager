@@ -1183,6 +1183,8 @@ function pickListParams(line) {
  * lookup has answered: the suggestions are worked out from what it said of
  * the image's checkpoint - its model, its base model, the same file held -
  * which the server keeps only in memory. Asked again when a download lands.
+ * Asked only once Forge's refreshes in line have ended: each empties Forge's
+ * list while it walks the folders (#425).
  */
 async function askPickList({ again = false } = {}) {
     const line = resourcesSend;
@@ -1190,6 +1192,8 @@ async function askPickList({ again = false } = {}) {
     const list = line.pickList || (line.pickList = { loading: true, search: '', tab: null });
     if (!list.data) redrawSendBar();
     await modelsAsked;
+    // Forge rebuilds its list from nothing at each refresh: asked meanwhile, it is empty (#425).
+    await afterRefreshes();
     if (resourcesSend !== line) return;
     const params = pickListParams(line);
     try {
