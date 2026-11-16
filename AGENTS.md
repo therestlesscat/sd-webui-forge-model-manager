@@ -800,6 +800,13 @@ the owner's screenshot found it. A Range over the text
   characters a folder name cannot hold become underscores" drew "what does
   this mean"; it became the base model SDXL 1.0 becoming the folder
   SDXL_1.0.
+- **A notice says what happened, whole, and never points at another.**
+  #404's fix proposed a first notice ending "as the next notice says"; the
+  owner: "one notice cant say to user that check other notice for some
+  info. notices are atomic information, it can tell things happening in
+  webui/extension, but it cant tell what other notice said, will say or
+  expected to say." The first notice now names the files selected, or says
+  none are (2026-11-15).
 
 ## Versions
 
@@ -879,7 +886,13 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
 - **Drive the page's own control, not its endpoint.** A download started by
   a POST to `/model-manager/civitai/download` was never followed by the
   page: its poll starts from the page's own Download. So Forge's lists were
-  not refreshed, and the first live check of #193 tested nothing.
+  not refreshed, and the first live check of #193 tested nothing. Nor the
+  page's own function: #404's plan sent from the Resources dialog's All
+  tab, and the first live run called `sendInfotext` and `sendGalleryImage`
+  with the pick, as the dialog's Send does; a side agent flagged it after
+  the report. Pressed through the dialog, the run also showed what the call
+  had skipped - the All tab listing the unrecorded file ("Not read by a sync
+  yet") and the pick reaching Send (2026-11-15).
 - **A live check uses a case only the new code handles.** #179's first
   LoRA check sent an image whose `<lora:>` tag named the gallery's own
   LoRA: its chip merged into the gallery's, which the old code drew too, so
@@ -980,6 +993,12 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   the Model Manager's galleries followed. Targets are picked as the tab shows
   them: 17 of check 2's first 80 were rated above PG, which the tabs hide by
   default, and a batch has no ⋯ menu.
+- **A live check runs in the WebUI the bug was seen in.** #404 was seen in
+  the original Forge; its plan, its suites and both live runs used Neo's
+  7880, so the header read it adds had never run under Python 3.10 or the
+  original Forge's detector. A side agent noted it after the commit. A
+  compile and a run of `picked_model` under that Python, then one dialog
+  Send on 7860, showed it fixed there (2026-11-15).
 - **Read the run's result before committing.** A commit chained after the
   run with `;` went in over "1 failed", and which suite could not be
   recovered. The runner now names failing suites in its last line and keeps
@@ -1099,7 +1118,11 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   `config.json` key by key with a copy taken before. Putting it back by Send
   means sending an image of that checkpoint: wait for the search's own
   answer, and check the tile is that image, before pressing - two sends after
-  a fixed 2.5 s wait sent the image the grid still showed.
+  a fixed 2.5 s wait sent the image the grid still showed. And a second Send
+  to the same preset in one check finds the modules the first left there,
+  kept by Forge per preset, and logs "already as needed": #404's second
+  Civitai press on 7880 proved nothing until the flux preset's list was
+  cleared with Forge's own remove buttons (2026-11-15).
 - **A whole-tab fingerprint is not stable across a restart.** ADetailer's
   checkpoint box on each tab takes a value per process, and ForgeCanvas names
   its elements with a uuid per process. #307's old-against-new run differed
