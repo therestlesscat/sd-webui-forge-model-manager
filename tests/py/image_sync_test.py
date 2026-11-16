@@ -858,9 +858,14 @@ sd_models = types.ModuleType('modules.sd_models')
 sd_models.checkpoints_list = {'c': types.SimpleNamespace(filename=CHECKPOINT, title='%s.safetensors [abcd]' % CK_STEM)}
 sd_models.checkpoint_aliases = {'%s.safetensors [abcd]' % CK_STEM: sd_models.checkpoints_list['c']}
 sys.modules['modules.sd_models'] = sd_models
-family_before, offered_before = send_module.family_modules, forge_host.installed_modules
+# getattr: on the code before #411 there is no family_plan, and the checks
+# below fail rather than the suite.
+family_before, offered_before = getattr(send_module, 'family_plan', None), forge_host.installed_modules
 forge_host.installed_modules = lambda: {'sdxl_vae.safetensors': VAE}
-send_module.family_modules = lambda db_, path: ['family_of_%s' % os.path.basename(path)]
+# Its checkpoint's family needs a kind Forge offers none of - T5 for a Flux
+# file - which a Civitai image's plan names, and this one dropped (#411).
+send_module.family_plan = lambda db_, path, found=None: {
+    'target': ['family_of_%s' % os.path.basename(path)], 'missing': ['t5xxl'], 'not_found': [], 'bundled': []}
 check('408. Send\'s plan for a generation that names no checkpoint: a stop of its own, not_named',
       send_plan(db, gen[po_free])['checkpoint_problem'], {'reason': 'not_named'})
 known_plan = send_plan(db, gen[po_known])
@@ -868,6 +873,8 @@ check('408. one whose file name names a checkpoint the library has: that checkpo
       'and text encoders, not the empty list it recorded',
       (known_plan['checkpoint'], known_plan['target'], known_plan.get('checkpoint_problem')),
       ('%s.safetensors [abcd]' % CK_STEM, ['family_of_%s' % os.path.basename(CHECKPOINT)], None))
+check('411. and the kind its family needs that Forge offers none of, handed to the page as missing',
+      (known_plan.get('missing'), known_plan['modules_missing']), (['t5xxl'], []))
 # Its own checkpoint picked: a pick of the same file, which for a generation
 # with text keeps the modules it recorded - this one recorded none.
 picked_plan = send_plan(db, gen[po_known], use_checkpoint='%s.safetensors [abcd]' % CK_STEM)
@@ -878,7 +885,7 @@ check('one whose file name names a checkpoint the library lacks: today\'s stop, 
       send_plan(db, gen[po_unknown])['checkpoint_problem'], {'reason': 'missing', 'name': 'nomodel_here'})
 recorded_plan = send_plan(db, gid_matched)
 check('a generation with text keeps the modules it recorded', recorded_plan['target'], ['sdxl_vae.safetensors'])
-send_module.family_modules, forge_host.installed_modules = family_before, offered_before
+send_module.family_plan, forge_host.installed_modules = family_before, offered_before
 del sys.modules['modules.sd_models']
 po_settings = send_module.settings(db, {'kind': 'generation', 'generation': gen[po_free],
                                         'renames': [{'from': 'alias_x', 'to': 'file_x'}]})

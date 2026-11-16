@@ -364,5 +364,50 @@ check('sent with the same file, and said to be the image\'s own checkpoint',
       [new URL(asked.find((h) => h.includes('use_checkpoint=')) || 'http://x/', 'http://x').searchParams.get('use_checkpoint'),
        document.querySelector('.mm-notice')?.textContent],
       [REUP.name, 'Sent with reup.safetensors: the checkpoint this image was made with, held in your library under another Civitai model.']);
+document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+close();
+
+// Another model's pick (#404): the notice says the VAE and text encoders are
+// its family's only where the plan read a family - its preset - and else
+// that it could not be read, where it once said the same words.
+const otherModelNotice = async (preset, modules = {}) => {
+    sameFile = null;
+    asked.length = 0;
+    plan = { success: true, preset: null, checkpoint: null, checkpoint_problem: { reason: 'missing', name: 'A Checkpoint' } };
+    list = answer([V16, OTHER], [{ name: V16.name, why: ['same model'] }]);
+    await sendGalleryImage({ img: byId, model: gallery, version: shown });
+    await waitFor('the list again', () => rows().length);
+    plan = { success: true, preset, checkpoint: V16.name, checkpoint_problem: null,
+             instead: 'a_v16.safetensors', pick: 'model', other_model: true, ...modules };
+    // The plan's answer says what the pick is to the image; the row is the list's own.
+    pickRow(V16.name);
+    if (sendButton() && !sendButton().disabled) press(sendButton());
+    await waitFor('the other model\'s notice', () => document.querySelector('.mm-notice'));
+    const said = document.querySelector('.mm-notice')?.textContent || '';
+    document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+    close();
+    return said;
+};
+check('404. a Civitai image sent with a pick whose family could not be read: the notice says so',
+      await otherModelNotice(null),
+      'Sent with a_v16.safetensors, a checkpoint of another model than this image\'s: it will not come out the same. '
+      + 'Its family could not be read from the file, so the UI preset is left as it was and none of its family\'s '
+      + 'VAE or text encoders are selected. Hires fix uses the same checkpoint and modules, and the refiner is off.');
+check('    one whose family was read: the words as before',
+      await otherModelNotice('flux'),
+      'Sent with a_v16.safetensors, a checkpoint of another model than this image\'s: it will not come out the same. '
+      + 'The VAE and text encoders are its own family\'s, Hires fix uses the same checkpoint and modules, and the '
+      + 'refiner is off.');
+// A family Forge lacks a module of: the notice says what was selected, never "its own family's" (#404).
+check('404. a Civitai image sent with a pick whose family Forge lists none of the modules of: none selected',
+      await otherModelNotice('flux', { target: [], missing: ['clip_l', 't5xxl', 'vae_ae'] }),
+      'Sent with a_v16.safetensors, a checkpoint of another model than this image\'s: it will not come out the same. '
+      + 'None of its family\'s VAE or text encoders are selected: Forge lists none of them. Hires fix uses the same '
+      + 'checkpoint, and the refiner is off.');
+check('    some of them: the files selected, named',
+      await otherModelNotice('flux', { target: ['clip_l.safetensors', 'ae.safetensors'], missing: ['t5xxl'] }),
+      'Sent with a_v16.safetensors, a checkpoint of another model than this image\'s: it will not come out the same. '
+      + 'Of its family\'s VAE and text encoders, clip_l.safetensors and ae.safetensors are selected. Hires fix uses '
+      + 'the same checkpoint and modules, and the refiner is off.');
 
 done();

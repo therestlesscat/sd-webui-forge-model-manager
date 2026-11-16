@@ -134,7 +134,7 @@ export async function sendInfotext({ infotext, mode, meta = {}, generationId = n
         return false;
     }
     if (promptsOnly({ infotext, meta })) showNotice(promptsOnlyNotice(meta), { info: true });
-    else if (plan.instead) showNotice(insteadNotice(plan.instead, plan.pick), { info: true });
+    else if (plan.instead) showNotice(insteadNotice(plan.instead, plan.pick, plan), { info: true });
     if (plan.preset) await switchForgePreset(plan.preset);
     if (plan.checkpoint && typeof selectCheckpoint === 'function') {
         console.log('[ModelManager] Setting checkpoint:', plan.checkpoint);
@@ -1057,14 +1057,32 @@ export function usualNotice(usual, applied) {
  * the send as #278's was: what the pick is to the image, by the server's
  * word (send.pick_kind) - the `same` file under another Civitai model, a
  * `file` of its version, another `version` of its model, another `model`.
+ * The plan's `preset` - for another model's pick its family, empty only
+ * when that could not be read from the file (#404), where the notice once
+ * said the VAE and text encoders were its family's - and its `target`, the
+ * files selected, and `missing`, the kinds Forge lists none of: with one
+ * missing, the files selected are named, or none.
  */
-function insteadNotice(file, kind) {
+function insteadNotice(file, kind, { preset, target = [], missing = [] } = {}) {
     // The image's own file, held under another Civitai model (#304): the same bytes.
     if (kind === 'same') return `Sent with ${file}: the checkpoint this image was made with, held in your library under another Civitai model.`;
     if (kind === 'model') {
+        // What this send selected, said here in full: with a kind Forge lacks, "its own family's"
+        // claimed modules the box did not get (#404). What is missing is another notice's own.
+        const selected = target || [];
+        let modules = 'The VAE and text encoders are its own family\'s, Hires fix uses the same checkpoint and modules';
+        if (!preset) {
+            modules = 'Its family could not be read from the file, so the UI preset is left as it was and none of '
+                      + 'its family\'s VAE or text encoders are selected. Hires fix uses the same checkpoint and modules';
+        } else if ((missing || []).length && !selected.length) {
+            modules = 'None of its family\'s VAE or text encoders are selected: Forge lists none of them. '
+                      + 'Hires fix uses the same checkpoint';
+        } else if ((missing || []).length) {
+            modules = `Of its family's VAE and text encoders, ${listNames(selected)} ${selected.length > 1 ? 'are' : 'is'} `
+                      + 'selected. Hires fix uses the same checkpoint and modules';
+        }
         return `Sent with ${file}, a checkpoint of another model than this image's: it will not come out the same. `
-               + 'The VAE and text encoders are its own family\'s, Hires fix uses the same checkpoint and modules, '
-               + 'and the refiner is off.';
+               + `${modules}, and the refiner is off.`;
     }
     const what = kind === 'version' ? 'another version of the model' : 'another file of the version';
     return `Sent with ${file}, ${what} this image was made with: it may not come out exactly the same.`;
@@ -1710,7 +1728,7 @@ async function sendGalleryImageTo({ img, model, version, into = null, pick = nul
             await stopForCheckpoint(img, model, version, problem);
             return;
         }
-        if (plan.instead) showNotice(insteadNotice(plan.instead, plan.pick), { info: true });
+        if (plan.instead) showNotice(insteadNotice(plan.instead, plan.pick, plan), { info: true });
 
         // An image-to-video model starts from an image, which txt2img has
         // no way to give it - it failed in the sampler - so it goes to

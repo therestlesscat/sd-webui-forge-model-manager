@@ -143,11 +143,27 @@ def picked_model(db, path: str) -> SendModel:
     """
     The model a checkpoint picked in the Resources dialog is (#377): its
     file, read as a scan reads it - once, and stored - for one no sync has
-    read. It stands for the image's checkpoint, whatever the image names.
+    read; and for one the library has no row for - put in a folder since the
+    last sync, which Forge lists and the dialog offers - read without
+    storing (#404), as send.plan_for reads one: with no family, Send picked
+    none of its VAE and text encoders. It stands for the image's checkpoint,
+    whatever the image names.
     """
     row = _read(db, path)
     if row.get("architecture"):
         return _from_row(row, "picked")
+    if not row and path and os.path.isfile(path):
+        from .file_identity import identify
+        try:
+            found = identify(path)
+        except Exception as e:
+            say(f"Could not read {os.path.basename(path)}: {e}")
+            found = None
+        if found and found.preset:
+            return SendModel(preset=found.preset, model_class=found.model_class,
+                             bundled_text_encoder=bool(found.bundled_text_encoder),
+                             bundled_vae=bool(found.bundled_vae), source="picked",
+                             video=_video(found.preset, path))
     return SendModel(source="picked")
 
 

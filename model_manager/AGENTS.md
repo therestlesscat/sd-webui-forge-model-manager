@@ -493,7 +493,8 @@ LoRAs from); anything that shows one says whose it is (a whole path).
 
 ### The code
 
-- **`picked_model` reads a file and stores what it finds.** #406's first
+- **`picked_model` reads a file and stores what it finds** - and reads,
+  without storing, one the library has no row for (#404). #406's first
   plan said its window's answer "reads no file, writes nothing" while
   sharing the press's decision, which reads each family through
   `send_plan.picked_model` -> `_read` -> `record_architecture`: a header

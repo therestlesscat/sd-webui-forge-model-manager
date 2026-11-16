@@ -5,10 +5,10 @@ from the names the page picked and where its list came from.
 
 Every name first, in the order picked:
   - Forge must list it, by exactly that name (forge_host.checkpoint_listed);
-  - its file is read where no sync has read it (send_plan.picked_model), and
-    read without storing where the library holds no row for it - one put in
-    a folder since the last sync - as Send reads a file (send.plan_for), so
-    every family is known before anything else is decided: a file that
+  - its file is read where no sync has read it, and read without storing
+    where the library holds no row for it - one put in a folder since the
+    last sync - as Send reads a pick (send_plan.picked_model, since #404),
+    so every family is known before anything else is decided: a file that
     cannot be read refuses the press.
 Then each name's row:
   - its VAE / text encoders: the selection on screen for a checkpoint of the

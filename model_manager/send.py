@@ -229,38 +229,51 @@ def _picked(db, use_checkpoint: str) -> Optional[str]:
         return None
 
 
-def family_modules(db, path: str) -> List[str]:
+def family_plan(db, path: str, found: Any = None) -> Dict[str, Any]:
     """
-    The VAE / text encoder labels a checkpoint's family needs, picked from
-    what Forge offers as a Civitai image's Send picks them with nothing
-    named (forge_modules.pick): for a pick of another model (#377), the
-    image's own being of the other family. None for SD and SDXL, which bring
-    their own.
-    """
-    return family_pick(db, path)[0]
-
-
-def family_pick(db, path: str, found: Any = None) -> Tuple[List[str], List[str]]:
-    """
-    family_modules(), with the kinds of module the family needs that Forge
-    offers none of: a press of Queue for several checkpoints (#400) refuses
-    to run one without them, where Send names them. `found`: what the file
-    is, read already (a send_plan.SendModel); without it, the file is read
-    as picked_model reads one.
+    The VAE / text encoders a checkpoint's family needs, picked from what
+    Forge offers as a Civitai image's Send picks them with nothing named
+    (forge_modules.pick): for a pick of another model (#377), the image's own
+    being of the other family, and for a prompts-only image (#408), which
+    recorded none. Answers, as civitai_plan() does: target, the labels to
+    select; missing, the kinds Forge offers none of (#411); not_found, the
+    files Send's settings name for the family that Forge does not list; and
+    bundled, the kinds the checkpoint brings itself - each for the page to
+    say. Nothing for SD and SDXL, which bring their own, or a family not
+    known - and then nothing of Forge's modules is read: Change's window
+    (#406) hands an unread row's family, and reads no file. `found`: what
+    the file is, read already (a send_plan.SendModel); without it, the file
+    is read as picked_model reads one.
     """
     from .file_identity import classify_file
     from .forge_host import installed_modules, saved_modules
-    from .forge_modules import pick, preferred_modules
+    from .forge_modules import CLASS_FOR_PRESET, NEEDS, pick, preferred_modules
     from .send_plan import picked_model
     if found is None:
         found = picked_model(db, path)
+    answer: Dict[str, Any] = {"target": [], "missing": [], "not_found": [], "bundled": []}
     if found.preset in (None, "sd", "xl"):
-        return [], []
+        return answer
     installed = installed_modules()
     modules = {label: classify_file(p) for label, p in installed.items()}
     picked = pick(found.model_class, found.preset, found.bundled_text_encoder, found.bundled_vae,
                   modules, saved_modules(found.preset), preferred_modules(found.preset))
-    return list(picked["select"]), list(picked["missing"])
+    encoders, vae_kind = NEEDS.get(found.model_class or CLASS_FOR_PRESET.get(found.preset) or "", ((), None))
+    answer.update({"target": list(picked["select"]), "missing": list(picked["missing"]),
+                   "not_found": list(picked["not_found"]),
+                   "bundled": ((list(encoders) if found.bundled_text_encoder else [])
+                               + ([vae_kind] if vae_kind and found.bundled_vae else []))})
+    return answer
+
+
+def family_pick(db, path: str, found: Any = None) -> Tuple[List[str], List[str]]:
+    """
+    family_plan()'s labels to select and kinds Forge offers none of: a press
+    of Queue for several checkpoints (#400) refuses to run one without them,
+    where Send names them.
+    """
+    answer = family_plan(db, path, found)
+    return answer["target"], answer["missing"]
 
 
 def _gallery_checkpoint(path: str) -> dict:
@@ -1702,7 +1715,8 @@ def generation_plan(db, generation_id: int, use_checkpoint: Optional[str] = None
     (#377), by the name Forge lists it under, in place of the one the
     generation was made with; `image_model` and the answer's `pick`,
     `instead` and `other_model` as civitai_plan()'s. A pick of another model
-    loads its family's modules, not the recorded ones (family_modules).
+    loads its family's modules, not the recorded ones (family_plan), and
+    hands the page what the family lacks or brings itself (#411).
 
     Returns:
         plan_for()'s answer, or None for no such generation.
@@ -1726,7 +1740,8 @@ def generation_plan(db, generation_id: int, use_checkpoint: Optional[str] = None
         if kind == "model" or prompts_only(generation):
             # A prompts-only image recorded no modules (#408): an empty list
             # would clear every VAE and text encoder Forge has selected.
-            plan["target"], plan["modules_missing"] = family_modules(db, picked), []
+            plan.update(family_plan(db, picked))
+            plan["modules_missing"] = []
         if kind != "own":
             plan.update({"instead": os.path.basename(picked), "pick": kind})
         plan["other_model"] = kind == "model"
@@ -1785,7 +1800,8 @@ def with_family(db, generation: Dict[str, Any], path: str, plan: Dict[str, Any])
     family's VAE and text encoders, as a pick of another model does: it
     recorded none. Any other plan as it is."""
     if prompts_only(generation):
-        plan["target"], plan["modules_missing"] = family_modules(db, path), []
+        plan.update(family_plan(db, path))
+        plan["modules_missing"] = []
     return plan
 
 

@@ -690,6 +690,35 @@ check('8. the same pick, the page knowing no model for the image\'s checkpoint: 
 body = forge_modules({'file_path': xl_path, 'use_checkpoint': 'flux.safetensors [abcd1234]'})
 check('10. a pick in a checkpoint\'s gallery takes the gallery file\'s place',
       (body['checkpoint'], body['preset'], body['checkpoint_problem']), ('flux.safetensors [abcd1234]', 'flux', None))
+# A pick no sync has recorded (#404): Forge lists it, the library has no row.
+# Its header is read, nothing stored - with no family it got no preset and no
+# modules, while the notice said they were its family's.
+from model_manager.architecture import Architecture    # noqa: E402
+unrecorded = os.path.join(os.path.dirname(flux_path), 'flux_unrecorded.safetensors')
+unreadable = os.path.join(os.path.dirname(flux_path), 'odd_unrecorded.safetensors')
+for path in (unrecorded, unreadable):
+    open(path, 'wb').write(b'x')
+FORGE.update({'flux_unrecorded.safetensors [u1]': unrecorded, 'odd_unrecorded.safetensors [u2]': unreadable})
+real_identify = fi.identify
+fi.identify = lambda path, *a, **k: (Architecture('flux', 'Flux', False, False) if path == unrecorded
+                                     else Architecture(None, None, False, False, 'Unknown') if path == unreadable
+                                     else real_identify(path, *a, **k))
+try:
+    body = forge_modules({**flux_image, 'version_ids': str(xl_id), 'module': ['sdxl_vae.safetensors'],
+                          'use_checkpoint': 'flux_unrecorded.safetensors [u1]', 'image_model': 1})
+    check('404. an SDXL image sent with a Flux pick no sync has recorded: its file read, the Flux preset and modules',
+          (body['preset'], body['pick'], body['target']),
+          ('flux', 'model', ['clip_l.safetensors', 't5xxl_fp16.safetensors', 'ae.safetensors']))
+    check('    and nothing stored: the library still has no row for it', db.get_version(unrecorded), None)
+    body = forge_modules({**flux_image, 'version_ids': str(xl_id), 'module': ['sdxl_vae.safetensors'],
+                          'use_checkpoint': 'odd_unrecorded.safetensors [u2]', 'image_model': 1})
+    check('    one whose header gives no family: no preset, no modules, as before - the notice says why',
+          (body['preset'], body['pick'], body['target']), (None, 'model', []))
+finally:
+    fi.identify = real_identify
+    for name, path in (('flux_unrecorded.safetensors [u1]', unrecorded), ('odd_unrecorded.safetensors [u2]', unreadable)):
+        FORGE.pop(name, None)
+        os.remove(path)
 body = sent_from(own_sd_vae, version_ids=str(xl_id), use_checkpoint='flux.safetensors [abcd1234]')
 check('    in an SD VAE\'s gallery, a Flux pick: the gallery\'s VAE left out and said, Flux\'s ae in its place',
       (body['target'], body['modules_unfit']),

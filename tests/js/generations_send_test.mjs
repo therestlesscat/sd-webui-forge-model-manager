@@ -425,7 +425,8 @@ await waitFor('the stop\'s list', () => dialog()?.querySelector('.mm-pick-row'))
 check('18. a generation kept by name, pressed Send: the dialog, its list on All, nothing sent',
       [dialog()?.querySelector('.mm-pick-tab.active')?.textContent.trim(), loaderAsked.length - at], ['All 1', 0]);
 check('    the list asked by the generation', asked.some((h) => h.includes('/send/checkpoints') && h.includes('generation=1')), true);
-planAnswer = { ...NO_PLAN, checkpoint: MINE.name, instead: 'mine.safetensors', pick: 'model', other_model: true };
+// Its family read: the plan's preset is the pick's (#404).
+planAnswer = { ...NO_PLAN, preset: 'xl', checkpoint: MINE.name, instead: 'mine.safetensors', pick: 'model', other_model: true };
 pickRow(MINE.name);
 dialogSend()?.dispatchEvent(new window.Event('click', { bubbles: true }));
 await waitFor('the send with the pick', () => loaderAsked.length > at);
@@ -439,6 +440,61 @@ check('32. and the notice says it is another model\'s: Hires fix and the refiner
           + 'family\'s, Hires fix uses the same checkpoint and modules, and the refiner is off.'), true);
 check('17. unticked, the pick goes without the usual settings', 'usual' in (lastSource() || {}), false);
 document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+
+// Sent again with another model's pick, the plan's answer each time other:
+// the pick's family not read from its file (#404) - the notice said the VAE
+// and text encoders were its family's, none being selected - and a plan
+// naming what the family lacks, brings itself, or the settings name that
+// Forge does not list (#411), each said for one of your generations as for a
+// Civitai image. The page reads any plan's keys: these guard that a
+// generation's send reaches them; the server's checks prove the fix.
+const noticeTexts = () => [...document.querySelectorAll('.mm-notice')].map((n) => n.textContent);
+const loaderBeforeAgain = loaderAnswer;
+loaderAnswer = () => ({ pasted: true });
+for (const [label, sentPlan] of [
+    ['unread', { preset: null }],
+    ['none', { preset: 'flux', target: [], missing: ['clip_l', 't5xxl', 'vae_ae'] }],
+    ['family', { preset: 'flux', target: ['clip_l.safetensors'], missing: ['t5xxl'], bundled: ['vae_ae'],
+                 not_found: ['t5_elsewhere.safetensors'] }]]) {
+    planAnswer = { ...NO_PLAN, checkpoint_missing: 'my_merge_v3', checkpoint_problem: { reason: 'missing', name: 'my_merge_v3' } };
+    at = loaderAsked.length;
+    await act('generations.send', { tile: 0 });
+    await waitFor('the stop\'s list', () => dialog()?.querySelector('.mm-pick-row'));
+    pickRow(MINE.name);
+    planAnswer = { ...NO_PLAN, checkpoint: MINE.name, instead: 'mine.safetensors', pick: 'model', other_model: true, ...sentPlan };
+    dialogSend()?.dispatchEvent(new window.Event('click', { bubbles: true }));
+    await waitFor(`the ${label} send`, () => loaderAsked.length > at);
+    await waitFor(`the ${label} notices`, () => noticeTexts().some((n) => n.includes('another model')));
+    if (label === 'unread') {
+        check('404. a pick whose family could not be read: the notice says so, not that its family\'s were selected',
+              noticeTexts().filter((n) => n.includes('another model')),
+              ['Sent with mine.safetensors, a checkpoint of another model than this image\'s: it will not come out '
+               + 'the same. Its family could not be read from the file, so the UI preset is left as it was and none '
+               + 'of its family\'s VAE or text encoders are selected. Hires fix uses the same checkpoint and modules, '
+               + 'and the refiner is off.']);
+    } else if (label === 'none') {
+        check('404. a pick whose family Forge has none of the modules of: the notice says none are selected',
+              noticeTexts().filter((n) => n.includes('another model')),
+              ['Sent with mine.safetensors, a checkpoint of another model than this image\'s: it will not come out '
+               + 'the same. None of its family\'s VAE or text encoders are selected: Forge lists none of them. '
+               + 'Hires fix uses the same checkpoint, and the refiner is off.']);
+    } else {
+        check('404. one Forge has some of the modules of: the notice names the files selected',
+              noticeTexts().filter((n) => n.includes('another model')),
+              ['Sent with mine.safetensors, a checkpoint of another model than this image\'s: it will not come out '
+               + 'the same. Of its family\'s VAE and text encoders, clip_l.safetensors is selected. Hires fix uses '
+               + 'the same checkpoint and modules, and the refiner is off.']);
+        await waitFor('the modules\' notice', () => noticeTexts().some((n) => n.includes('also needs')));
+        const said = noticeTexts().find((n) => n.includes('also needs')) || '';
+        check('411. a generation\'s plan naming what its family lacks: named, as for a Civitai image',
+              said.includes('This flux model also needs T5-XXL, which is not installed.'), true);
+        check('    and what the settings name that Forge does not list, and what the checkpoint brings itself',
+              [said.includes('name t5_elsewhere.safetensors for flux models, but Forge does not list it'),
+               said.includes('This checkpoint brings its own Flux VAE (ae)')], [true, true]);
+    }
+    document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+}
+loaderAnswer = loaderBeforeAgain;
 
 // The pick's usual settings, ticked (#378): the loader is handed `usual: true`
 // beside the pick, never the values, and Send's notice says what the

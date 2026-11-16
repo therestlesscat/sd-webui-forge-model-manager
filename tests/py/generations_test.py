@@ -976,6 +976,78 @@ if has_fastapi:
             plan = picked('linked/m.safetensors [abc]')
             check('   its own checkpoint picked: as it was made, its modules kept, nothing said instead',
                   (plan['other_model'], plan['target'], 'instead' in plan), (False, ['sdxl_vae.safetensors'], False))
+
+            # A pick no sync has recorded (#404): Forge lists it, the library has
+            # no row. Its header is read, nothing stored, and its family's
+            # modules picked - none were, while the notice said they were.
+            from model_manager.architecture import Architecture   # noqa: E402
+            from model_manager.send_plan import SendModel         # noqa: E402
+            import model_manager.forge_modules as fm              # noqa: E402
+            import model_manager.send as send_mod                 # noqa: E402
+            new_pick = os.path.join(os.path.dirname(CHECKPOINT), 'flux_new.safetensors')
+            open(new_pick, 'wb').write(b'flux')
+            listed['n'] = types.SimpleNamespace(filename=new_pick, title='flux_new.safetensors [n1]')
+            sd_models.checkpoint_aliases = {info.title: info for info in listed.values()}
+            real_identify = fi.identify
+            fi.identify = lambda path, *a, **k: (Architecture('flux', 'Flux', False, False)
+                                                  if os.path.basename(path) == 'flux_new.safetensors'
+                                                  else real_identify(path, *a, **k))
+            flux_modules = ['clip_l.safetensors', 't5xxl_fp16.safetensors', 'ae.safetensors']
+            try:
+                plan = picked('flux_new.safetensors [n1]')
+                check('404. an SD generation sent with a Flux pick no sync has recorded: its file read, '
+                      'the Flux family\'s modules',
+                      (plan['preset'], plan['pick'], plan['target']), ('flux', 'model', flux_modules))
+                check('    and nothing stored: the library still has no row for it', db.get_version(new_pick), None)
+            finally:
+                fi.identify = real_identify
+                del listed['n']
+                sd_models.checkpoint_aliases = {info.title: info for info in listed.values()}
+                os.remove(new_pick)
+
+            # Forge offering no T5 (#411): the kind is handed to the page, which
+            # names it - as a Civitai image's plan always did.
+            host.installed_modules = lambda: {label: label for label in kinds if label != 't5xxl_fp16.safetensors'}
+            plan = picked('flux_pick.safetensors [f1]')
+            check('411. a Flux pick, Forge offering no T5: T5 handed on as missing, the rest selected',
+                  (plan.get('missing'), plan['target'], plan['modules_missing']),
+                  (['t5xxl'], ['clip_l.safetensors', 'ae.safetensors'], []))
+            host.installed_modules = lambda: {label: label for label in kinds}
+
+            # An all-in-one pick: the kinds it brings itself are handed on, for
+            # the page to say why the box is empty.
+            db.set_architecture(flux_pick, 'flux', 'Flux', True, True, '1', file_type='Checkpoint')
+            try:
+                plan = picked('flux_pick.safetensors [f1]')
+                check('    a Flux pick that brings its own text encoders and VAE: those kinds handed on, none selected',
+                      (plan.get('bundled'), plan['target']), (['clip_l', 't5xxl', 'vae_ae'], []))
+            finally:
+                db.set_architecture(flux_pick, 'flux', 'Flux', False, False, '1', file_type='Checkpoint')
+
+            # Send's settings naming a file Forge does not list, for the family.
+            real_preferred = fm.preferred_modules
+            fm.preferred_modules = lambda preset: ['t5_elsewhere.safetensors'] if preset == 'flux' else []
+            try:
+                plan = picked('flux_pick.safetensors [f1]')
+                check('    the settings naming a T5 file Forge does not list: that name handed on as not found',
+                      plan.get('not_found'), ['t5_elsewhere.safetensors'])
+            finally:
+                fm.preferred_modules = real_preferred
+
+            # The real family_pick, which both Queue for several suites stand in
+            # for: the same two lists, and for a family not known nothing of
+            # Forge's modules read - Change's window hands an unread row's.
+            check('    the real family_pick: the labels to select and the kinds missing, as before',
+                  send_mod.family_pick(db, flux_pick), (flux_modules, []))
+            check('    handed what the file is: the same, the file not read again',
+                  send_mod.family_pick(db, flux_pick, SendModel(preset='flux', model_class='Flux')), (flux_modules, []))
+
+            def no_read(path):
+                raise AssertionError('a module read for a family not known')
+            fi.classify_file = no_read
+            check('    handed no family: nothing, and no module read',
+                  send_mod.family_pick(db, flux_pick, SendModel()), ([], []))
+            fi.classify_file = lambda path: kinds.get(os.path.basename(path), (None, 0))
         finally:
             fi.classify_file, host.saved_modules = real_classify, real_saved
     finally:
