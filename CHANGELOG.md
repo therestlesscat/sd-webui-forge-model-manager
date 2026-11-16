@@ -6,6 +6,16 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.79 - Notices you can read
+
+*16 November 2026*
+
+The notices in the page's corner - what a Send did or could not do, and the bar shown while stored images are judged
+again after a settings save - stand in one column instead of on top of each other, so each can be read, and none goes
+while the pointer is over them (#357).
+
+- **0.79.0** (build 714) - The first of #357's three steps: the notices in the page's corner come from a module of their own that every tab shares, where they were Send's alone. Nothing you see changes yet (#357).
+
 ## 0.78 - Sort your checkpoints, and tick them all at once
 
 *11 November 2026*

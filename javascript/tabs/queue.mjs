@@ -44,7 +44,7 @@ const shared = (name) => import(new URL(`../shared/${name}${new URL(import.meta.
 
 // Asked for all at once, then taken one by one below: see generations.mjs.
 const SHARED_MODULES = ['core.mjs', 'loading.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs', 'grid.mjs',
-    'generations.mjs', 'viewer.mjs', 'send.mjs', 'update_notice.mjs', 'settings.mjs', 'dialog.mjs'];
+    'generations.mjs', 'viewer.mjs', 'send.mjs', 'update_notice.mjs', 'settings.mjs', 'notices.mjs', 'dialog.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const { TIMING, apiCall, escapeHtml, setText, settingLink } = await shared('core.mjs');

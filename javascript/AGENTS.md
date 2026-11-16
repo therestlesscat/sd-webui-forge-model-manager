@@ -221,7 +221,7 @@ setting may still be kept.
   settings 63" - and the rest are in the page, hidden: a Playwright wait for
   the Queue's switch timed out at 30 s (#269). Press All settings first.
 - **Send's notices stay 12 s** (`.mm-notice`, `showNotice` in
-  `shared/send.mjs`). A check that sends again sooner and reads the newest
+  `shared/notices.mjs`). A check that sends again sooner and reads the newest
   notice reads the previous Send's: in the rc test of 0.68.10, Clip skip's
   notices came one Send behind until the check waited for the old one to go.
 - **A gallery's page comes as a stream when the page asks for its status**

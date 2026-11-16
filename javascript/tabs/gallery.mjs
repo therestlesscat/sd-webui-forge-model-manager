@@ -23,7 +23,7 @@ const shared = (name) => import(new URL(`../shared/${name}${new URL(import.meta.
 
 // Asked for all at once, then taken one by one below.
 const SHARED_MODULES = ['core.mjs', 'loading.mjs', 'ui_options.mjs', 'notes.mjs', 'gallery.mjs', 'media.mjs',
-    'nsfw.mjs', 'image_card.mjs', 'resources.mjs', 'send.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs',
+    'nsfw.mjs', 'image_card.mjs', 'resources.mjs', 'send.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs', 'notices.mjs',
     'tiles.mjs', 'previous_position.mjs', 'grouping.mjs', 'dialog.mjs', 'menu.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 

@@ -34,6 +34,7 @@ const { showImageResources, isAway } = await shared('resources.mjs');
 const { refreshWebUiModelList, forgeCalls } = await shared('forge.mjs');
 const { showProgress } = await shared('dialog.mjs');
 const { ready, call } = await shared('calls.mjs');
+const { showNotice } = await shared('notices.mjs');
 
 // The highest Clip skip Send takes from an image (#339), which its notice links to (#320).
 const CLIP_SKIP_MAX_SETTING = 'model_manager_send_clip_skip_max';
@@ -1296,22 +1297,6 @@ export function gallerySendLine({ img, model, version }) {
 export function generationResourcesLine({ infotext, mode, meta, generationId, imageId = null, whole = false }) {
     if (generationSendRefusal({ infotext, meta }) || generationId === null || generationId === undefined) return null;
     return generationSendLine({ infotext, mode, meta, generationId, imageId, whole }, { opened: 'resources' });
-}
-
-/** A short message in the corner of the page, gone after a while. */
-/**
- * A notice in the corner, for twelve seconds. `info` is something to know
- * rather than something wrong: drawn and logged as such.
- */
-function showNotice(text, { info = false, html = null } = {}) {
-    const notice = document.createElement('div');
-    notice.className = info ? 'mm-notice mm-notice-info' : 'mm-notice';
-    // Markup, where it links to a setting (#320); the console gets its words.
-    if (html === null) notice.textContent = text;
-    else notice.innerHTML = html;
-    document.body.appendChild(notice);
-    setTimeout(() => notice.remove(), 12000);
-    (info ? console.log : console.warn)('[ModelManager]', notice.textContent);
 }
 
 /** "a", "a and b", "a, b and c". */
