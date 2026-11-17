@@ -744,7 +744,7 @@ check('a save sends each preset\'s setting as text, as the Settings page holds i
 // stored image again. A notice in the corner - the window has closed - shows
 // how far it has got, then what changed.
 const notice = () => document.querySelector('.mm-restamp');
-const noticeText = () => notice()?.querySelector('.mm-restamp-text').textContent;
+const noticeText = () => notice()?.querySelector('.mm-notice-text').textContent;
 const n = (x) => Number(x).toLocaleString();
 check('nothing is shown while nothing is running', notice(), null);
 
@@ -758,23 +758,24 @@ pick(field('model_manager_nsfw_detection').querySelector('input[data-index="0"]'
 $('#mm_settings_save').click();
 await waitFor('the notice', () => Boolean(notice()));
 check('first, the images are being read: no share yet',
-      [noticeText(), notice()?.classList.contains('mm-restamp-unknown')], ['Reading stored images...', true]);
+      [noticeText(), notice()?.classList.contains('mm-notice-unknown')], ['Reading stored images...', true]);
 await waitFor('the bar', () => noticeText()?.startsWith('Judging'));
-check('then how many so far, as a bar', [noticeText(), notice()?.querySelector('.mm-restamp-fill').style.width],
+check('then how many so far, as a bar', [noticeText(), notice()?.querySelector('.mm-notice-fill').style.width],
       [`Judging stored images again... ${n(50000)} of ${n(100000)}`, '50%']);
 await waitFor('the end', () => noticeText()?.startsWith('Done'));
 check('then what changed', noticeText(), `Done: ${n(633)} of ${n(100000)} images changed level.`);
 
 restampStates = [{ state: 'done', changed: 633, total: 100000 }];
-const noticeShown = notice()?.style.display;
-if (notice()) notice().style.display = 'none';
+// A notice goes at its end (#357): taken off the page here, as its time would.
+const noticeShown = Boolean(notice());
+notice()?.remove();
 await call('settings.open');
 type(field('model_manager_page_size').querySelector('input[type="number"]'), '40');
 $('#mm_settings_save').click();
 await waitFor('the save', () => saved.length === 4);
 await new Promise((r) => setTimeout(r, 250));          // two restamp polls: none would come
 check('a save that changes nothing about judging shows no notice',
-      [noticeShown, notice()?.style.display], ['', 'none']);
+      [noticeShown, notice()], [true, null]);
 
 // The delete setting, ticked and saved like any other (#107).
 await call('settings.open');
@@ -827,7 +828,7 @@ function applied(line) {
     setTimeout(() => { result.textContent = line; }, 120);
 }
 
-notice().style.display = 'none';
+notice()?.remove();
 result.textContent = '1 settings changed: sd_vae.';
 restampStates = [{ state: 'running', judged: 1000, total: 100000 }, { state: 'done', changed: 12, total: 100000 }];
 applied('2 settings changed: model_manager_nsfw_detection, sd_vae.');
@@ -835,17 +836,17 @@ await waitFor('the notice after Apply, within a second', () => noticeText()?.sta
 check('Apply that changes how images are judged shows the notice, though the last line did not name it',
       noticeText(), `Done: ${n(12)} of ${n(100000)} images changed level.`);
 
-notice().style.display = 'none';
+notice()?.remove();
 restampStates = [{ state: 'done', changed: 7, total: 100000 }];
 applied('1 settings changed: sd_vae.');
 await new Promise((r) => setTimeout(r, 300));          // over two restamp polls: none would come
 check('and Apply that changes something else does not, though the last line named it',
-      notice().style.display, 'none');
+      notice(), null);
 
 // The same change again: the same line, arrived at through the timer.
 result.textContent = '1 settings changed: model_manager_nsfw_prompt_words.';
 applied('1 settings changed: model_manager_nsfw_prompt_words.');
-await waitFor('the notice, the same line again', () => notice().style.display !== 'none', 20);
+await waitFor('the notice, the same line again', () => Boolean(notice()), 20);
 check('applying the same change again shows it too', noticeText(), `Done: ${n(7)} of ${n(100000)} images changed level.`);
 
 // The tabs' boxes "Choose the checkpoint at every Send" (#377) keep nothing
@@ -891,7 +892,7 @@ localStorage.removeItem('mm_gallery_choose_checkpoint');
 localStorage.removeItem('mm_generations_choose_checkpoint');
 
 // Every image judged, the changes being written.
-notice().style.display = 'none';
+notice()?.remove();
 restampStates = [{ state: 'running', judged: 100000, total: 100000 }, { state: 'running', judged: 100000, total: 100000 },
                  { state: 'done', changed: 3, total: 100000 }];
 restampNotice().watch();

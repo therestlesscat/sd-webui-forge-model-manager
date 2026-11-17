@@ -31,6 +31,8 @@ export const TIMING = Object.freeze({
     compactPoll: 1000,    // a compact of the database's progress (#287)
     compactRetry: 5000,   // between asks whether what stops a compact has ended
     loadTask: 20000,      // a queued task loaded into its tab, at most: Forge sets every control
+    notice: 12000,        // a notice in the corner, plus any time the pointer holds it (#357)
+    noticeLeave: 150,     // the pointer off the notices this long before they go on: the gap between two crossed
     ...(typeof window !== 'undefined' && window.mmTiming) || {},
 });
 

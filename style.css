@@ -4433,18 +4433,43 @@ button.mm-banner-link {
 }
 
 /* A short message from Send to txt2img, over whatever tab is showing - say,
-   that a model needs a text encoder that is not installed. */
+   that a model needs a text encoder that is not installed. They stand in one
+   column in the corner, newest at the bottom (#357): pinned each on its own,
+   two at once sat on top of each other. */
+.mm-notices {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+    /* The column's box is as wide as its widest notice: the space beside a
+       narrower one, and between two, stays Forge's page. */
+    pointer-events: none;
+}
+
+.mm-notices > * {
+    pointer-events: auto;
+}
+
+/* Hidden by the column - the older notices past four, an empty count, a ×
+   while the re-judging pass runs - whatever display a rule gives it. */
+.mm-notices > [hidden],
+.mm-notice-close[hidden] {
+    display: none !important;
+}
+
 .mm-notice-info {
     --mm-notice-accent: var(--primary-500, #3b82f6);
 }
 
 .mm-notice {
-    position: fixed;
-    right: 16px;
-    bottom: 16px;
-    z-index: 10000;
+    position: relative;
     max-width: 420px;
-    padding: 10px 14px;
+    /* The right side wider by the ×'s room. */
+    padding: 10px 34px 10px 14px;
     border: 1px solid var(--border-color-primary, #374151);
     border-left: 3px solid var(--mm-notice-accent, #f59e0b);
     border-radius: 8px;
@@ -4457,6 +4482,57 @@ button.mm-banner-link {
     font-size: 13px;
     line-height: 1.5;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+/* A notice's ×: the cross drawn here, so the notice's own words - which a
+   screen reader and the console read - hold nothing but the message. The
+   button is outside Gradio's container, its font the browser's: set here. */
+.mm-notice-close {
+    position: absolute;
+    top: 7px;
+    right: 7px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    margin: 0;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: none;
+    color: var(--body-text-color-subdued, #9ca3af);
+    font: inherit;
+    cursor: pointer;
+}
+
+.mm-notice-close::before {
+    content: "\00d7";
+    font-size: 18px;
+    line-height: 1;
+}
+
+.mm-notice-close:hover,
+.mm-notice-close:focus-visible {
+    background: rgba(0, 0, 0, 0.06);
+    color: var(--body-text-color, #111827);
+}
+
+.dark .mm-notice-close:hover,
+.dark .mm-notice-close:focus-visible {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--body-text-color, #fff);
+}
+
+/* How many older notices wait hidden above the four shown. */
+.mm-notices-more {
+    padding: 2px 10px;
+    border: 1px solid var(--border-color-primary, #374151);
+    border-radius: 999px;
+    background: var(--background-fill-primary, #1f2937);
+    color: var(--body-text-color-subdued, #9ca3af);
+    font-size: 12px;
+    line-height: 1.5;
 }
 
 /* The Type row's note that Civitai lists the file as something else. */
@@ -5269,20 +5345,23 @@ textarea.mm-settings-input {
     padding-left: 12px;
 }
 
-/* Judging stored images again: a notice in the corner with a bar. */
-.mm-restamp {
+/* A notice with a bar under its words - stored images being judged again -
+   and the settings window's upkeep panel draw one bar. Its edge says how it
+   ended: green, or red. */
+.mm-notice > .mm-notice-bar {
     min-width: 280px;
 }
 
-.mm-restamp[data-tone="good"] {
+.mm-notice[data-tone="good"] {
     border-left-color: #22c55e;
 }
 
-.mm-restamp[data-tone="bad"] {
+.mm-notice[data-tone="bad"] {
     border-left-color: #ef4444;
 }
 
-.mm-restamp-bar {
+.mm-restamp-bar,
+.mm-notice-bar {
     height: 4px;
     margin-top: 8px;
     overflow: hidden;
@@ -5290,19 +5369,21 @@ textarea.mm-settings-input {
     background: rgba(127, 127, 127, 0.25);
 }
 
-.mm-restamp-fill {
+.mm-restamp-fill,
+.mm-notice-fill {
     width: 0;
     height: 100%;
     background: var(--primary-500, #3b82f6);
     transition: width 0.2s;
 }
 
-.mm-restamp[data-tone="good"] .mm-restamp-fill {
+.mm-notice[data-tone="good"] .mm-notice-fill {
     background: #22c55e;
 }
 
 /* Before the images are counted: a stripe moving along, not a share. */
-.mm-restamp-unknown .mm-restamp-fill {
+.mm-restamp-unknown .mm-restamp-fill,
+.mm-notice-unknown .mm-notice-fill {
     width: 30%;
     animation: mm-restamp-slide 1.2s ease-in-out infinite;
 }

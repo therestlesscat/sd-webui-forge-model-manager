@@ -25,6 +25,7 @@ const { ready, call } = await shared('calls.mjs');
 // The upkeep panel's own `ask` polls the server: the question is askUser here.
 const { ask: askUser, openDialog } = await shared('dialog.mjs');
 const { refreshWebUiModelList } = await shared('forge.mjs');
+const { showNotice } = await shared('notices.mjs');
 
 // Forge's refresh, pressed from the presets' Refresh, waits on the watcher of
 // Forge's calls, which it starts.
@@ -1641,35 +1642,27 @@ const RESTAMP_DONE_MS = 6000;
 /**
  * A notice in the corner while the server judges stored images again - a bar
  * of how many so far, then what changed. In the corner, not the settings
- * window: the window closes on the save that started it. One for the page.
+ * window: the window closes on the save that started it. A notice like any
+ * other (#357), which stays while the pass runs and changes as it goes; one
+ * at a time - a pass that starts while the last one's end still shows takes
+ * that notice on.
  */
 function createRestampNotice() {
-    let box = null;
+    let shown = null;
     let polling = null;
-    let hideTimer = null;
 
+    // `share` null: the images are still being read, and how many is not known.
     function show(text, share, tone = '') {
-        if (!box) {
-            box = document.createElement('div');
-            box.className = 'mm-notice mm-restamp';
-            box.setAttribute('role', 'status');
-            box.innerHTML = '<div class="mm-restamp-text"></div>'
-                + '<div class="mm-restamp-bar"><div class="mm-restamp-fill"></div></div>';
-            document.body.appendChild(box);
+        if (shown?.open) {
+            shown.update({ text, bar: share, tone });
+        } else {
+            shown = showNotice(text, { stay: true, bar: share, tone, className: 'mm-restamp' });
+            shown.element.setAttribute('role', 'status');
         }
-        clearTimeout(hideTimer);
-        box.style.display = '';
-        box.dataset.tone = tone;
-        box.querySelector('.mm-restamp-text').textContent = text;
-        const fill = box.querySelector('.mm-restamp-fill');
-        // No share yet: the images are still being read, and how many is not known.
-        box.classList.toggle('mm-restamp-unknown', share === null);
-        fill.style.width = share === null ? '' : `${Math.round(share * 100)}%`;
     }
 
     function hideLater(ms) {
-        clearTimeout(hideTimer);
-        hideTimer = setTimeout(() => { if (box) box.style.display = 'none'; }, ms);
+        shown?.closeAfter(ms);
     }
 
     const count = (n) => Number(n).toLocaleString();
@@ -1705,8 +1698,9 @@ function createRestampNotice() {
         } else if (state?.state === 'failed') {
             show(`Could not judge stored images again: ${state.error}`, 1, 'bad');
             hideLater(RESTAMP_DONE_MS * 2);
-        } else if (box) {
-            box.style.display = 'none';
+        } else {
+            shown?.close();
+            shown = null;
         }
     }
 
@@ -1728,10 +1722,9 @@ function createRestampNotice() {
     /** Stopped with the last tab (#186): no more asking, and the notice gone. */
     function stop() {
         clearTimeout(polling);
-        clearTimeout(hideTimer);
         polling = null;
-        box?.remove();
-        box = null;
+        shown?.close();
+        shown = null;
     }
 
     return { watch, check, stop };
