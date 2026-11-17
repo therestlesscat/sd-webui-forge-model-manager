@@ -228,6 +228,9 @@ def register(app: FastAPI):
         # Whether the Resources dialog's usual-settings tick starts ticked at
         # each pick (#378): the dialog asks afresh as it opens.
         usual_settings = bool(setting(USUAL_SETTINGS_SETTING))
+        # Whether the page keeps the notices it shows, Past notices (#357):
+        # followed at load, and as the setting is saved.
+        keep_past_notices = bool(setting('model_manager_keep_past_notices'))
         # How many of Civitai's images a page loads at once (#213): a whole
         # number of at least 1, else the default.
         try:
@@ -285,6 +288,7 @@ def register(app: FastAPI):
                 "rename_loras": rename_loras,
                 "choose_checkpoint": choose_checkpoint,
                 "usual_settings": usual_settings,
+                "keep_past_notices": keep_past_notices,
                 # What each family a UI preset runs is called (#377): the
                 # Resources dialog's list and the chips.
                 "family_names": FAMILY_NAMES,
@@ -324,6 +328,7 @@ def register(app: FastAPI):
                  "combine_lora_kinds": combine_lora_kinds,
                  "rename_loras": rename_loras,
                  "choose_checkpoint": choose_checkpoint, "usual_settings": usual_settings,
+                 "keep_past_notices": keep_past_notices,
                  "family_names": FAMILY_NAMES,
                  "images_at_once": images_at_once,
                  "generations_hide_nsfw": generations_hide_nsfw,

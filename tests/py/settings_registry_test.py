@@ -276,5 +276,17 @@ keys = [s.key for s in settings]
 check('37. and drawn right after Choose the checkpoint at every Send, whose list it changes',
       keys.index('model_manager_queue_several') - keys.index('model_manager_send_choose_checkpoint') if several else None, 1)
 
+# "Keep past notices" (#357): in Send's group, last of Send's own, listed
+# in every tab's settings - notices show on every tab - and shown whatever
+# tabs are on, on by default.
+keep = next((s for s in settings if s.key == 'model_manager_keep_past_notices'), None)
+check('38. Keep past notices is registered: Send\'s group, a box, its names, every tab and Send, always shown, on by default',
+      (keep.group, keep.control, keep.name, keep.page_name, keep.tags, keep.heading, keep.shown_with, DEFAULTS.get(keep.key))
+      if keep else None,
+      ('send', 'checkbox', 'Keep past notices', 'Keep notices to read again later',
+       ('queue', 'generations', 'gallery', 'model_manager', 'civitai_browser', 'send'), 'Shared across tabs', (), True))
+check('39. and drawn right after Send with a picked checkpoint\'s usual settings by default',
+      keys.index('model_manager_keep_past_notices') - keys.index('model_manager_send_usual_settings') if keep else None, 1)
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

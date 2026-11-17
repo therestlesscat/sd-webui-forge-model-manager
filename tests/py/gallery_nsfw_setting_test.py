@@ -131,6 +131,12 @@ check('the usual-settings tick starts ticked by default, and the page is told so
 setattr(opts, 'model_manager_send_usual_settings', False)
 check('turned off, the page is told', client.get('/model-manager/ui-options').json().get('usual_settings'), False)
 delattr(opts, 'model_manager_send_usual_settings')
+# Keep past notices (#357): on unless turned off, and the page told either way.
+check('past notices are kept by default, and the page is told so',
+      client.get('/model-manager/ui-options').json().get('keep_past_notices'), True)
+setattr(opts, 'model_manager_keep_past_notices', False)
+check('turned off, the page is told', client.get('/model-manager/ui-options').json().get('keep_past_notices'), False)
+delattr(opts, 'model_manager_keep_past_notices')
 
 # How many of Civitai's images a page loads at once (#213): a whole number of
 # at least 1, else the default - a box left blank, 0, or a word.

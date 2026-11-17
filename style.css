@@ -4542,7 +4542,12 @@ button.mm-banner-link {
     cursor: pointer;
 }
 
-.mm-notices-more:hover,
+/* With Keep past notices off, "+N more" only counts: as drawn, nothing to press. */
+.mm-notices-more:disabled {
+    cursor: default;
+}
+
+.mm-notices-more:not(:disabled):hover,
 .mm-notices-more:focus-visible,
 .mm-notices-past:hover,
 .mm-notices-past:focus-visible {
@@ -4550,7 +4555,7 @@ button.mm-banner-link {
     border-color: var(--body-text-color-subdued, #6b7280);
 }
 
-.dark .mm-notices-more:hover,
+.dark .mm-notices-more:not(:disabled):hover,
 .dark .mm-notices-more:focus-visible,
 .dark .mm-notices-past:hover,
 .dark .mm-notices-past:focus-visible {
@@ -4631,6 +4636,13 @@ body:has(#lightboxModal[style*="display: flex"]) .mm-notices-past {
 .mm-past-empty {
     padding: 6px 0;
     color: var(--body-text-color-subdued, #6b7280);
+}
+
+/* Keep past notices, the setting itself, at the left of the window's buttons,
+   its words the buttons' size (mm-btn's 0.9em). */
+.mm-past-keep {
+    margin-right: auto;
+    font-size: 0.9em;
 }
 
 /* The Type row's note that Civitai lists the file as something else. */

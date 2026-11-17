@@ -944,6 +944,28 @@
    "switch": null,
    "value": true
   },
+  "model_manager_keep_past_notices": {
+   "label": "Keep notices to read again later",
+   "info": "When on, each notice in the page's corner is kept as it appears - one that stays, such as the bar while images are judged again, at its end - the last 50, in this browser tab until it closes. A Past notices button under the notices, and their +N more, open them. When off, nothing is kept, the button goes, and +N more only counts; turning it off empties what this browser tab kept, and another open tab empties its own when it next loads, or saves a setting. The Past notices window has this box too.",
+   "kind": "bool",
+   "default": true,
+   "name": "Keep past notices",
+   "group": "send",
+   "heading": "Shared across tabs",
+   "tags": [
+    "queue",
+    "generations",
+    "gallery",
+    "model_manager",
+    "civitai_browser",
+    "send"
+   ],
+   "shown_with": [],
+   "under": null,
+   "badges": [],
+   "switch": null,
+   "value": true
+  },
   "model_manager_modules_flux": {
    "label": "Text encoders and VAE Send picks for Flux.1 / Chroma",
    "info": "Flux.1 and Flux.1 Schnell need CLIP-L, T5-XXL and Flux VAE (ae); Chroma needs T5-XXL and Flux VAE (ae). Download: clip_l, t5xxl fp16, t5xxl fp8, ae",
@@ -1573,6 +1595,7 @@
   "model_manager_send_choose_checkpoint",
   "model_manager_queue_several",
   "model_manager_send_usual_settings",
+  "model_manager_keep_past_notices",
   "model_manager_modules_flux",
   "model_manager_modules_klein",
   "model_manager_modules_lumina",

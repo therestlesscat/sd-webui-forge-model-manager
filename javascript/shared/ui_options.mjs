@@ -107,6 +107,10 @@ export const CHOOSE_CHECKPOINT_SETTING = 'model_manager_send_choose_checkpoint';
 // holds a list only while it is on, and ends when it is turned off.
 export const SEVERAL_SETTING = 'model_manager_queue_several';
 
+// Past notices (#357): while it is off, no notice is kept, and turning it
+// off empties what the browser tab kept.
+export const KEEP_PAST_NOTICES_SETTING = 'model_manager_keep_past_notices';
+
 /** The server's ui-options, as they are now. A failed call answers null. */
 export function fetchUiOptions() {
     return fetch('/model-manager/ui-options', { cache: 'no-store' })

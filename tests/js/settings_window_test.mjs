@@ -103,6 +103,10 @@ const modelsAsked = [];
 const libraryModel = (id) => ({ id, name: `M${id}`, display_name: `Model ${id}`, model_type: 'LORA',
                                 file_path: `C:/m/${id}.safetensors`, has_civitai_data: true });
 let settingsAsked = 0;
+// A save the server refuses, or a server not reached (settings.save, #357).
+let saveRefused = null;
+let saveUnreached = false;
+let saveFailed = null;
 
 // Notes to the user, as the server lists them for "What's new": newest first.
 const NOTES = [
@@ -146,6 +150,9 @@ globalThis.fetch = async (url, init = {}) => {
         if (init.method === 'POST') {
             const { values } = JSON.parse(init.body);
             posted.push(values);
+            if (saveUnreached) throw new Error('Failed to fetch');
+            if (saveFailed) return { ok: false, status: 500, json: async () => ({ success: false, error: saveFailed }) };
+            if (saveRefused) return { ok: false, status: 400, json: async () => ({ success: false, errors: saveRefused }) };
             const changed = Object.keys(values);
             changed.forEach((key) => {
                 if (SETTINGS[key].kind === 'secret') SETTINGS[key].has_value = Boolean(values[key]);
@@ -540,10 +547,11 @@ type($('#mm_settings_search'), 'queue tab');
 // Word by word, three more hold both words apart: How many gallery images load in parallel
 // ("queues the rest", "the Civitai Images tab"), How many downloads in parallel ("in the
 // queue", and "Tab" in its tags), and Queue a generation with several checkpoints ("in the
-// Queue", and "Tab" in its tags).
+// Queue", and "Tab" in its tags). Keep past notices has the Queue Tab among its tags, as it
+// has every tab's (#357).
 check('a tab\'s name finds what acts in it', ORDER.filter(shown),
       ['model_manager_queue_enabled', 'model_manager_civitai_images_at_once', 'model_manager_downloads_at_once',
-       'model_manager_queue_several', 'model_manager_database_path', 'model_manager_queue_inputs_dir', 'model_manager_queue_ask_above',
+       'model_manager_queue_several', 'model_manager_keep_past_notices', 'model_manager_database_path', 'model_manager_queue_inputs_dir', 'model_manager_queue_ask_above',
        'model_manager_check_updates', 'model_manager_refuse_unknown_names', 'model_manager_other_host_names']);
 // Every word typed, in any order (#320): as one piece, "queue folder" found nothing.
 type($('#mm_settings_search'), 'queue folder');
@@ -587,6 +595,43 @@ check('the Settings page\'s own fields are set to what was saved',
       Array.from(document.querySelectorAll('#setting_model_manager_page_size input')).map((i) => i.value), ['30', '30']);
 check('as if typed there, so Gradio takes them',
       heard.includes('input:setting_model_manager_page_size'), true);
+
+// ------------------------------------------- the window's Save, refused
+// Its post moved into a helper it shares with settings.save (#357): what a
+// refused save, or a server not reached, does in the window stays as it was.
+// A guard, passing on the code before as after. Its posts are taken back
+// after, as the checks below read the posts by place.
+const postedBeforeRefused = posted.length;
+const forgePageSize = () => Array.from(document.querySelectorAll('#setting_model_manager_page_size input')).map((i) => i.value);
+const sizeError = () => field('model_manager_page_size')?.querySelector('.mm-settings-error')?.textContent;
+saveRefused = { model_manager_page_size: 'is above 100' };
+await call('settings.open');
+type(field('model_manager_page_size').querySelector('input[type="number"]'), '35');
+$('#mm_settings_save').click();
+await waitFor('the refusal drawn', () => sizeError() === 'is above 100');
+check('the window\'s Save refused: the reason under its setting, the window open, the page told nothing, Forge\'s page as it was',
+      [sizeError(), $('#mm_settings').open, saved.length, forgePageSize()], ['is above 100', true, 1, ['30', '30']]);
+saveRefused = null;
+saveUnreached = true;
+$('#mm_settings_save').click();
+await waitFor('the failed post', () => posted.length === postedBeforeRefused + 2);
+await new Promise((r) => setTimeout(r, 50));
+// Its "Not saved:" line was written over at once by the count of unsaved
+// changes, from the window's first version until #357.
+check('and a server not reached: the window open, "Not saved:" and why, the page told nothing',
+      [$('#mm_settings').open, status(), saved.length], [true, 'Not saved: Failed to fetch', 1]);
+saveUnreached = false;
+saveFailed = 'the disk is full';
+$('#mm_settings_save').click();
+await waitFor('the failed post', () => posted.length === postedBeforeRefused + 3);
+await new Promise((r) => setTimeout(r, 50));
+check('and an error the server names no setting for: "Not saved:" and its words, kept in the footer',
+      [$('#mm_settings').open, status(), saved.length], [true, 'Not saved: the disk is full', 1]);
+saveFailed = null;
+confirmAnswer = true;
+$('[data-act="cancel"]').click();
+await waitFor('the window closed', () => !$('#mm_settings').open);
+posted.length = postedBeforeRefused;
 
 // ------------------------------------------------ one window, both tabs
 // The tabs share the module's one copy (#53), so one window.
@@ -929,9 +974,12 @@ for (const [tab, label] of [['model_manager', 'Model Manager Tab'], ['civitai_br
           [drawn().filter(shown), shownSections(), band()?.hidden, bandButtons()],
           [taggedWith(tab), groupsOf(taggedWith(tab)).slice(0, 1), false,
            [[`${label} settings ${taggedWith(tab).length}`, 'true'], [`All settings ${byTabs().length}`, 'false']]]);
+    // Notices show on every tab, so each tab's settings hold Keep past notices (#357).
+    check(`and among them Keep past notices, from the ${tab} tab's gear`,
+          drawn().filter(shown).includes('model_manager_keep_past_notices'), true);
 }
-check('the Queue Tab\'s: its switch, its two settings, the database file, the update check and the two of Access',
-      taggedWith('queue'), ['model_manager_queue_enabled', 'model_manager_database_path',
+check('the Queue Tab\'s: its switch, Keep past notices, its two settings, the database file, the update check and the two of Access',
+      taggedWith('queue'), ['model_manager_queue_enabled', 'model_manager_keep_past_notices', 'model_manager_database_path',
                             'model_manager_queue_inputs_dir', 'model_manager_queue_ask_above',
                             'model_manager_check_updates', 'model_manager_refuse_unknown_names',
                             'model_manager_other_host_names']);
@@ -1167,6 +1215,37 @@ check('Forge not answering: the tables as they were, said so, Refresh ready agai
 newT5 = false;
 confirmAnswer = true;
 $('[data-act="cancel"]').click();
+
+// ------------------------------------------- a save from elsewhere (#357)
+// The Past notices window's box saves its setting through the settings
+// module: the same route, Forge's Settings page set to it, the page told.
+const savesBeforeAway = saved.length;
+// Not offered - code before #357 - fails the checks below rather than the suite.
+const saveAway = async (values) => {
+    try {
+        return await call('settings.save', values);
+    } catch (e) {
+        return { thrown: e.message };
+    }
+};
+const savedAway = await saveAway({ model_manager_page_size: 45 });
+check('settings.save posts the values, answers the route\'s answer, and the page is told',
+      [posted.at(-1), savedAway?.success, savedAway?.settings?.model_manager_page_size?.value,
+       saved.length - savesBeforeAway, saved.at(-1)],
+      [{ model_manager_page_size: 45 }, true, 45, 1, ['model_manager_page_size']]);
+check('and Forge\'s Settings page shows it, as after the window\'s Save',
+      Array.from(document.querySelectorAll('#setting_model_manager_page_size input')).map((i) => i.value), ['45', '45']);
+saveRefused = { model_manager_page_size: 'is above 100' };
+const refusedAway = await saveAway({ model_manager_page_size: 500 });
+check('a refused save answers its reasons, and tells the page nothing',
+      [refusedAway?.success, refusedAway?.errors, saved.length - savesBeforeAway], [false, saveRefused, 1]);
+saveRefused = null;
+saveUnreached = true;
+const unreachedAway = await saveAway({ model_manager_page_size: 50 });
+check('a server not reached answers why, without throwing, and tells the page nothing',
+      [unreachedAway?.success, unreachedAway?.error, saved.length - savesBeforeAway], [false, 'Failed to fetch', 1]);
+saveUnreached = false;
+SETTINGS.model_manager_page_size.value = 20;
 
 // Remove, then the box typed in and emptied: Save still removes the key
 // (#397). Last, so the removal saved here reaches no later check; the key is

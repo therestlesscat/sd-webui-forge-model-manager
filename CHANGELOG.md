@@ -12,8 +12,10 @@ structure keeps its version and moves the build on, and is not listed here.
 
 The notices in the page's corner - what a Send did or could not do, and the bar shown while stored images are judged
 again after a settings save - stand in one column instead of on top of each other, so each can be read, and none goes
-while the pointer is over them (#357).
+while the pointer is over them. Each is also kept as it appears, and Past notices, under the column, shows the last 50
+again, a reload of the page included; a setting, Keep past notices, turns that off (#357).
 
+- **0.79.1** (build 717) - The notices in the page's corner - Send's, and the bar shown while stored images are judged again after a settings save - no longer sit on top of each other: each was pinned to the same spot, so of two at once only the newest could be read. They now stand in one column, newest at the bottom; at most four show, with a count of the older ones above them; each has a × to close it - the judging bar once it has ended; and none goes while the pointer is over the column. And a notice gone was gone for good, its 12 s up or closed: the browser's console held the only copy. Each is now kept as it appears - the judging bar as it ends, with its last words - and Past notices, a button under the column, or the count of older ones, opens them: the last 50, newest first, each with its time and its edge, a link to a setting still a link. They are kept in the browser tab, through a reload of the page, until it closes; Clear empties the list. A setting, Keep past notices - in the settings' Send group, on Forge's Settings page, and as a box in the Past notices window itself, which saves it at once - turns that off: nothing is kept, what this browser tab kept is emptied, the button goes, and the count of older ones only counts. And when the settings window's Save failed - the server not reached, or an error naming no setting - its "Not saved:" line was drawn over at once by the count of unsaved changes; it now stays until the next Save (#357).
 - **0.79.0** (build 714) - The first of #357's three steps: the notices in the page's corner come from a module of their own that every tab shares, where they were Send's alone. Nothing you see changes yet (#357).
 
 ## 0.78 - Sort your checkpoints, and tick them all at once

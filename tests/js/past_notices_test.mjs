@@ -29,7 +29,17 @@ globalThis.sessionStorage = window.sessionStorage = {
 };
 
 let restampStates = [{ state: 'idle' }];
+// What ui-options says, Keep past notices among it (#357): until the checks
+// of that setting, nothing, which keeps notices as the default does.
+let uiAnswer = {};
+let uiUnreached = false;
+let uiHeld = null;
 globalThis.fetch = async (url) => {
+    if (String(url).includes('/model-manager/ui-options')) {
+        if (uiHeld) await uiHeld;
+        if (uiUnreached) throw new Error('Failed to fetch');
+        return { ok: true, status: 200, json: async () => uiAnswer };
+    }
     if (String(url).includes('/model-manager/settings/nsfw-levels')) {
         const state = restampStates.length > 1 ? restampStates.shift() : restampStates[0];
         return { ok: true, status: 200, json: async () => state };
@@ -268,6 +278,250 @@ check('a stored list read back drops what is not a notice - no words, no time, a
       [pastButton()?.textContent, rows().map(([, , words]) => words),
        pastWindow()?.querySelector('.mm-past-words b')], ['Past notices (1)', ['<b>bold</b>'], null]);
 closeWindow();
+
+// ------------------------------------------------ Keep past notices (#357)
+// The setting, off: nothing kept, the list emptied, no button, "+N more" a
+// count. Followed at a page's load, at each save - from the settings window
+// or the Past notices window's own box - and at an Apply on the Settings page.
+const KEEP = 'model_manager_keep_past_notices';
+const saidSaved = (value, changed = [KEEP]) => window.dispatchEvent(new window.CustomEvent('mm-settings-saved', {
+    detail: { changed, settings: { [KEEP]: { value }, model_manager_page_size: { value: 20 } } } }));
+const pageNumber = { n: 3 };
+let show = null;
+const newPage = async () => {
+    pageNumber.n += 1;
+    const load = (name) => import(`file:///${ROOT}/javascript/shared/${name}?page=${pageNumber.n}`);
+    const loading = await load('loading.mjs');
+    const calls = await load('calls.mjs');
+    // This page's own copy: the first page's is stopped.
+    show = (await load('notices.mjs')).showNotice;
+    await loading.useServices(['calls.mjs', 'notices.mjs'], 'suite');
+    await sleep(20);
+    return { loading, calls };
+};
+const moreButton = () => document.querySelector('.mm-notices-more');
+const keptList = () => JSON.parse(stored.get('mm-past-notices') || '[]').map((entry) => entry.parts[0].text);
+const kept = (text) => [{ at: clock, kind: 'info', parts: [{ text }] }];
+
+// A page loaded while it is off, nothing kept: the column, made at its
+// first notice, makes "+N more" a count from the start.
+(await third('loading.mjs')).leaveServices('suite');
+clearShown();
+stored.delete('mm-past-notices');
+uiAnswer = { keep_past_notices: false };
+let current = await newPage();
+check('nothing kept, nothing drawn at load', document.querySelector('.mm-notices'), null);
+for (let i = 1; i <= 5; i += 1) show(`First ${i}.`, { info: true });
+check('a page loaded with it off: its column, made later, has "+N more" a count alone',
+      [moreButton()?.textContent, moreButton()?.disabled, stored.has('mm-past-notices')], ['+1 more', true, false]);
+current.loading.leaveServices('suite');
+clearShown();
+
+// A page loaded while it is off, a list still kept from before.
+stored.set('mm-past-notices', JSON.stringify(kept('From before.')));
+current = await newPage();
+check('a page loaded with it off: the list kept from before is emptied, and no button drawn',
+      [stored.has('mm-past-notices'), pastButton()], [false, null]);
+for (let i = 1; i <= 5; i += 1) show(`Off ${i}.`, { info: true });
+check('off: a notice is kept nowhere, no button comes, and "+N more" only counts',
+      [stored.has('mm-past-notices'), pastButton(), moreButton()?.textContent, moreButton()?.disabled],
+      [false, null, '+1 more', true]);
+click(moreButton());
+check('pressed anyway, "+N more" opens nothing', pastWindow(), null);
+
+// Turned on from the settings window.
+saidSaved(true);
+show('On again.', { info: true });
+check('saved on: the next notice is kept, its button back, "+N more" a button again',
+      [keptList(), pastButton()?.textContent, moreButton()?.disabled], [['On again.'], 'Past notices (1)', false]);
+click(moreButton());
+check('and "+N more" opens the window', Boolean(pastWindow()), true);
+saidSaved(true, ['model_manager_page_size']);
+check('another setting saved, this one on still: the window and the list as they were',
+      [rows().map(([, , words]) => words), keptList()], [['On again.'], ['On again.']]);
+const box = () => pastWindow()?.querySelector('[data-past="keep"]');
+check('the window\'s box shows it on', box()?.checked, true);
+
+// Turned off from the settings window, opened over this one by a link.
+saidSaved(false);
+check('saved off, the window open: list, storage and button gone, the box unticked, Clear disabled',
+      [rows(), stored.has('mm-past-notices'), pastButton(), box()?.checked,
+       pastWindow()?.querySelector('[data-past="clear"]')?.disabled, moreButton()?.disabled],
+      [[], false, null, false, true, true]);
+const offLine = pastWindow()?.querySelector('.mm-past-empty');
+check('the window says it keeps none, and how to keep them again: a link to the setting',
+      [offLine?.textContent, offLine?.querySelector('[data-action="settings.open"]')?.dataset?.focus],
+      ['Not keeping notices. Tick Keep past notices to keep them again.', KEEP]);
+closeWindow();
+
+// A browser tab loaded before another turned it off: its save of "off" is
+// one the server already holds, and says nothing changed.
+saidSaved(true);
+show('Kept in the older tab.', { info: true });
+saidSaved(false, []);
+check('saved off with nothing changed on the server: the list emptied all the same',
+      [stored.has('mm-past-notices'), pastButton()], [false, null]);
+
+// A notice that stays, turned off while it runs.
+saidSaved(true);
+const running = show('Judging...', { stay: true, bar: null });
+saidSaved(false);
+running.update({ text: 'Judged.', bar: 1, tone: 'good' });
+running.closeAfter(100);
+check('a notice that stays, turned off while it runs: not kept at its end', stored.has('mm-past-notices'), false);
+saidSaved(true);
+running.update({ text: 'Judged.', bar: 1, tone: 'good' });
+running.closeAfter(100);
+check('turned on again, the same end said again: kept then', keptList(), ['Judged.']);
+running.close();
+clearShown();
+
+// The Settings page's Apply: ui-options asked afresh, not the page's first answer.
+current.loading.leaveServices('suite');
+uiAnswer = { keep_past_notices: true };
+current = await newPage();
+show('Kept before the Apply.', { info: true });
+uiAnswer = { keep_past_notices: false };
+window.dispatchEvent(new window.CustomEvent('mm-settings-page-applied', { detail: { changed: [KEEP] } }));
+await waitFor('the Apply followed', () => !stored.has('mm-past-notices'));
+check('turned off on the Settings page: followed at its Apply', [stored.has('mm-past-notices'), pastButton()],
+      [false, null]);
+
+// An Apply's answer coming after a newer save: older, so not taken.
+let releaseApply = null;
+uiHeld = new Promise((resolve) => { releaseApply = resolve; });
+uiAnswer = { keep_past_notices: false };
+window.dispatchEvent(new window.CustomEvent('mm-settings-page-applied', { detail: { changed: [KEEP] } }));
+saidSaved(true);
+releaseApply();
+await sleep(20);
+uiHeld = null;
+show('Kept after a late Apply answer.', { info: true });
+check('an Apply\'s answer coming after a newer save is older: the save holds',
+      keptList().includes('Kept after a late Apply answer.'), true);
+saidSaved(false);
+
+// The window's own box, through the settings module's save.
+saidSaved(true);
+show('Kept for the box.', { info: true });
+const asked = [];
+let answerSave = null;
+current.calls.provide('settings.save', (values) => {
+    asked.push(values);
+    return new Promise((resolve) => { answerSave = resolve; });
+});
+click(pastButton());
+const untick = () => {
+    const tick = box();
+    if (!tick) return;
+    tick.checked = !tick.checked;
+    tick.dispatchEvent(new window.Event('change', { bubbles: true }));
+};
+focusOn(box());
+untick();
+const second = new window.Event('click', { bubbles: true, cancelable: true });
+box()?.dispatchEvent(second);
+answerSave?.({ success: false, errors: { [KEEP]: 'is not a Model Manager setting' } });
+await sleep(10);
+check('unticked: saved through the settings module, a second press while it runs held back',
+      [asked, second.defaultPrevented], [[{ [KEEP]: false }], true]);
+check('refused: the box back, the reason said, the list untouched',
+      [box()?.checked, pastWindow()?.querySelector('.mm-past-status')?.hidden,
+       pastWindow()?.querySelector('.mm-past-status')?.textContent, keptList()],
+      [true, false, 'Not saved: is not a Model Manager setting', ['Kept for the box.']]);
+current.calls.provide('settings.save', async () => { throw new Error('Failed to fetch'); });
+untick();
+await sleep(10);
+check('a server not reached: the box back, and why',
+      [box()?.checked, pastWindow()?.querySelector('.mm-past-status')?.textContent],
+      [true, 'Not saved: Failed to fetch']);
+current.calls.provide('settings.save', async (values) => ({ success: true, changed: [],
+    settings: { [KEEP]: { value: values[KEEP] } } }));
+untick();
+await sleep(10);
+check('saved: the window follows the answer - list, storage and button gone, the box unticked, its focus kept',
+      [rows(), stored.has('mm-past-notices'), pastButton(), box()?.checked,
+       pastWindow()?.querySelector('.mm-past-status')?.hidden, document.activeElement === box()],
+      [[], false, null, false, true, true]);
+untick();
+await sleep(10);
+check('ticked again there: on, the window open still', [box()?.checked, Boolean(pastWindow())], [true, true]);
+
+// Another setting saved, this one unchanged: the window is not drawn again,
+// and a row's link keeps its focus.
+show(null, { info: true, html: `Kept with a ${settingLink(CLIP_SKIP_MAX, 'link')}.` });
+const rowLink = () => pastWindow()?.querySelector('.mm-past-words [data-action="settings.open"]');
+focusOn(rowLink());
+saidSaved(true, ['model_manager_page_size']);
+check('another setting saved, this one unchanged: a row\'s link keeps its focus',
+      [Boolean(rowLink()), document.activeElement === rowLink()], [true, true]);
+
+// The reasons a save gives none of.
+const statusLine = () => pastWindow()?.querySelector('.mm-past-status');
+current.calls.provide('settings.save', async () => ({ success: false }));
+untick();
+await sleep(10);
+check('refused without a reason: the box back, and said so',
+      [box()?.checked, statusLine()?.textContent], [true, 'Not saved: the server did not say why']);
+current.calls.provide('settings.save', () => undefined);
+untick();
+await sleep(10);
+check('the settings not there to save it: said so', statusLine()?.textContent, 'Not saved: the settings have not loaded yet');
+saidSaved(false);
+check('the setting changed elsewhere after: the failed save\'s line goes, the box follows',
+      [statusLine()?.hidden, box()?.checked], [true, false]);
+saidSaved(true);
+
+// One save at a time, whatever window is open: closed and opened again
+// while a save runs, the new window's box waits too.
+show('Kept for the reopened window.', { info: true });
+let answerHeld = null;
+current.calls.provide('settings.save', () => new Promise((resolve) => { answerHeld = resolve; }));
+untick();
+closeWindow();
+click(pastButton());
+const pressAgain = new window.Event('click', { bubbles: true, cancelable: true });
+box()?.dispatchEvent(pressAgain);
+check('closed and opened again during a save: the new box shows the setting, and its press waits',
+      [box()?.checked, pressAgain.defaultPrevented], [true, true]);
+answerHeld?.({ success: true, changed: [], settings: { [KEEP]: { value: true } } });
+await sleep(10);
+
+// The window closed before a save's failure came: a notice says it.
+let failHeld = null;
+current.calls.provide('settings.save', () => new Promise((resolve) => { failHeld = resolve; }));
+untick();
+closeWindow();
+failHeld?.({ success: false, error: 'the disk is full' });
+await sleep(10);
+check('the window closed before the save failed: a notice says so, and the setting stays on',
+      [Array.from(document.querySelectorAll('.mm-notice')).map((n) => n.textContent).at(-1), pastButton() !== null],
+      ['Keep past notices was not saved: the disk is full.', true]);
+clearShown();
+
+// No answer from ui-options: notices kept, as the default.
+current.loading.leaveServices('suite');
+uiUnreached = true;
+current = await newPage();
+show('Kept without an answer.', { info: true });
+check('ui-options not answering: notices kept, as by default', keptList().includes('Kept without an answer.'), true);
+current.loading.leaveServices('suite');
+uiUnreached = false;
+
+// The page's first answer coming after a save: older, so not taken.
+let release = null;
+uiHeld = new Promise((resolve) => { release = resolve; });
+uiAnswer = { keep_past_notices: false };
+current = await newPage();
+saidSaved(true);
+release();
+await sleep(20);
+uiHeld = null;
+show('Kept after the save.', { info: true });
+check('the page\'s first answer, come after a save, is older: the save holds',
+      keptList().includes('Kept after the save.'), true);
+current.loading.leaveServices('suite');
+clearShown();
 
 Date.now = realNow;
 Object.assign(console, { log, warn });

@@ -161,7 +161,7 @@ check('Send\'s Resources dialog runs on, for Generations and the Queue', actions
 off('model_manager_record_generations');
 check('Generations off: nothing left of it, or of the media fallback',
       [actionsOf('generations.'), workOf('tabs/generations.mjs', 'shared/media.mjs')], [[], []]);
-check('the settings window runs on, for the Queue', actionsOf('settings.'), ['settings.open']);
+check('the settings window runs on, for the Queue', actionsOf('settings.'), ['settings.open', 'settings.save']);
 
 // ------------------------------------------------------------- the Queue
 off('model_manager_queue_enabled');

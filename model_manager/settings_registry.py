@@ -394,6 +394,15 @@ SETTINGS: Tuple[Setting, ...] = (
             "checkpoints), there is no box: each but the image's own, or the same file, runs with its own usual "
             "settings where it has them, whatever this says.",
             (SEND,)),
+    Setting("model_manager_keep_past_notices", "send", "checkbox", "Keep past notices",
+            "Keep notices to read again later",
+            "When on, each notice in the page's corner is kept as it appears - one that stays, such as the bar while "
+            "images are judged again, at its end - the last 50, in this browser tab until it closes. A Past notices "
+            "button under the notices, and their +N more, open them. When off, nothing is kept, the button goes, and "
+            "+N more only counts; turning it off empties what this browser tab kept, and another open tab empties "
+            "its own when it next loads, or saves a setting. The Past notices window has this box too.",
+            # Notices show on every tab, so each tab's settings list it (#357).
+            (Q, GEN, CI, MM, CB, SEND), needs=()),
 
     # ------------------------------------------------------- Generations
     Setting("model_manager_generations_delete_files", "your_generations", "checkbox",

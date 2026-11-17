@@ -12,7 +12,8 @@
  *
  * Each is kept in a list as it appears (Past notices): the last 50, in the
  * browser tab's storage, so a reload keeps them. A button under the column
- * opens them, as "+N more" does.
+ * opens them, as "+N more" does. Unless the setting says not to: then none
+ * is kept, and turning it off empties the list.
  */
 
 // The other shared modules, under the version this one was asked for under -
@@ -21,6 +22,9 @@
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 const { TIMING, escapeHtml, settingLink } = await shared('core.mjs');
 const { openDialog } = await shared('dialog.mjs');
+const { call } = await shared('calls.mjs');
+// ui-options needs no start of its own: its first ask is shared by the page.
+const { uiOptions, fetchUiOptions, KEEP_PAST_NOTICES_SETTING: KEEP } = await shared('ui_options.mjs');
 
 // Notices shown at once; older ones wait out their time hidden, counted above.
 const SHOWN = 4;
@@ -46,6 +50,14 @@ const KINDS = ['info', 'warning', 'good', 'bad'];
 let past = null;
 let pastButton = null;
 let pastWindow = null;
+// Keep past notices (#357): as its default until the page learns it. Each
+// save or Apply on the Settings page that says it counts one; an answer asked
+// for before the last of them - the load's, an Apply's - is older, and is
+// not taken.
+let keeping = true;
+let heard = 0;
+// The window's box saving it: one save at a time, whatever window is open.
+let saving = false;
 
 const paused = () => hovered || focused;
 // Only a ×'s focus holds the column. The buttons to Past notices take focus
@@ -112,7 +124,11 @@ function theColumn() {
         more.type = 'button';
         more.className = 'mm-notices-more';
         more.hidden = true;
-        more.addEventListener('click', openPast);
+        // With nothing kept there is nothing to open: a count alone.
+        more.disabled = !keeping;
+        more.addEventListener('click', () => {
+            if (keeping) openPast();
+        });
         column.appendChild(more);
         // Only what is in the column takes the pointer (style.css): the space
         // beside a narrower notice is Forge's page. So the 8 px between two
@@ -227,14 +243,16 @@ function partsOf(element, skip) {
     return parts;
 }
 
+/** Kept, unless stopped or the setting is off: whether it was. */
 function remember(kind, parts) {
-    if (stopped) return;
+    if (stopped || !keeping) return false;
     const list = pastList();
     list.push({ at: Date.now(), kind, parts });
     if (list.length > KEPT) list.splice(0, list.length - KEPT);
     keepPast();
     drawPastButton();
     pastWindow?.draw();
+    return true;
 }
 
 /** Under the column, while the list holds a notice. */
@@ -267,9 +285,31 @@ const wordsHtml = (parts) => parts.map((part) => (part.setting === undefined
     ? escapeHtml(part.text) : settingLink(part.setting, part.text))).join('');
 
 /**
+ * Keep past notices as the page last learnt it. Off, the list goes - from
+ * the browser tab's storage too - with its button, and "+N more" only counts;
+ * a window open says so, and its box can turn it on again.
+ */
+function follow(on) {
+    // Unchanged, nothing is drawn again: a focus in the window stays.
+    if (stopped || on === keeping) return;
+    keeping = on;
+    if (!keeping) {
+        past = [];
+        keepPast();
+    }
+    drawPastButton();
+    if (more && more.disabled !== !keeping) more.disabled = !keeping;
+    pastWindow?.follow();
+}
+
+// Off only when said so: no answer, or one without it, is the default.
+const keptBy = (data) => data?.keep_past_notices !== false;
+
+/**
  * The window: every notice kept, newest first, with its time and its edge.
  * A link to a setting is drawn again as one, and opens the settings window
- * there through the page's own listener.
+ * there through the page's own listener. Its box is the setting itself,
+ * saved as it is pressed.
  */
 function openPast() {
     if (pastWindow) return;
@@ -281,27 +321,46 @@ function openPast() {
         <p class="mm-question-message">Kept in this browser tab until it closes. The last ${KEPT}.</p>
         <ul class="mm-past-list"></ul>
         <div class="mm-dialog-buttons">
+            <label class="mm-question-tick mm-past-keep"><input type="checkbox" data-past="keep">
+                <span>Keep past notices</span></label>
             <button type="button" class="mm-btn secondary" data-past="clear">Clear</button>
             <button type="button" class="mm-btn secondary" data-past="close">Close</button>
         </div>
+        <p class="mm-question-note mm-question-error mm-past-status" hidden></p>
     </div>`;
     const list = element.querySelector('.mm-past-list');
+    const box = element.querySelector('[data-past="keep"]');
+    const status = element.querySelector('.mm-past-status');
     const clear = element.querySelector('[data-past="clear"]');
     const closer = element.querySelector('[data-past="close"]');
+    // A save under way: the box is not disabled, which would drop its focus
+    // to the page, where Esc reaches Forge's Interrupt; presses wait instead.
+    box.checked = keeping;
+    const drawBox = () => {
+        if (!saving && box.checked !== keeping) box.checked = keeping;
+    };
     const draw = () => {
         // A row's link with focus is drawn anew: focus goes to Close, not to
         // the page, where Esc would reach Forge's Interrupt.
         const hadFocus = list.contains(document.activeElement);
         const rows = pastList().slice().reverse();
+        // Off, this window cannot be opened again: the way back is said here,
+        // and its link finds the setting whichever settings the window shows.
+        const empty = keeping ? 'No notices kept.'
+            : `Not keeping notices. Tick ${settingLink(KEEP, 'Keep past notices')} to keep them again.`;
         list.innerHTML = rows.length ? rows.map((entry) => `<li class="mm-past-row" data-kind="${entry.kind}">
             <span class="mm-past-time">${timeOf(entry.at)}</span>
             <span class="mm-past-words">${wordsHtml(entry.parts)}</span></li>`).join('')
-            : '<li class="mm-past-empty">No notices kept.</li>';
+            : `<li class="mm-past-empty">${empty}</li>`;
         clear.disabled = !rows.length;
         if (hadFocus) closer.focus();
     };
     element.addEventListener('click', (event) => {
         const button = event.target.closest?.('[data-past]');
+        if (button === box) {
+            if (saving) event.preventDefault();
+            return;
+        }
         if (!button || button.disabled) return;
         if (button.dataset.past === 'clear') {
             // The list only: notices still showing stay.
@@ -315,6 +374,44 @@ function openPast() {
             handle.close('cancel');
         }
     });
+    box.addEventListener('change', async () => {
+        const want = box.checked;
+        if (saving) {
+            box.checked = !want;
+            return;
+        }
+        saving = true;
+        status.hidden = true;
+        const asking = pastWindow;
+        let answer;
+        try {
+            answer = await call('settings.save', { [KEEP]: want });
+        } catch (e) {
+            answer = { success: false, error: e.message };
+        }
+        saving = false;
+        if (answer?.success) {
+            // Taken from the answer, as from the saved event: a tab that
+            // missed another's change saves what the server already holds.
+            const value = answer.settings?.[KEEP]?.value;
+            heard += 1;
+            follow(typeof value === 'boolean' ? value : want);
+            drawBox();
+        } else {
+            drawBox();
+            // Nothing answered: the settings module, which saves, is not there.
+            const why = answer === undefined ? 'the settings have not loaded yet'
+                : answer?.errors?.[KEEP] || answer?.error || 'the server did not say why';
+            if (pastWindow === asking) {
+                status.textContent = `Not saved: ${why}`;
+                status.hidden = false;
+            } else {
+                // The window closed before the answer: said where it is seen.
+                showNotice(`Keep past notices was not saved: ${why}.`);
+            }
+        }
+    });
+    drawBox();
     draw();
     const handle = openDialog(element, {
         focus: closer,
@@ -323,17 +420,48 @@ function openPast() {
             pastWindow = null;
         },
     });
-    pastWindow = { draw, close: () => handle.close('code') };
+    pastWindow = {
+        draw,
+        follow: () => {
+            // A failed save's line goes once the setting has changed anyway.
+            status.hidden = true;
+            drawBox();
+            draw();
+        },
+        close: () => handle.close('code'),
+    };
 }
 
 /**
  * Started with Send and the settings window (their STARTS): the list kept by
- * this browser tab drawn as its button at once. Stopped with the last tab
- * that uses them: the column, the button and the window go, and every
- * notice's clock with them.
+ * this browser tab drawn as its button at once, and Keep past notices
+ * followed - at load, at each save, and at an Apply on the Settings page
+ * that names it. Stopped with the last tab that uses them: the column, the
+ * button and the window go, and every notice's clock with them.
  */
 export function start(scope) {
     drawPastButton();
+    uiOptions().then((data) => {
+        if (!heard) follow(keptBy(data));
+    }).catch(() => {});
+    // Every save says it, changed or not: saving what the server already
+    // holds still tells this page what that is.
+    scope.listen(window, 'mm-settings-saved', (event) => {
+        const value = event.detail?.settings?.[KEEP]?.value;
+        if (typeof value !== 'boolean') return;
+        heard += 1;
+        follow(value);
+    });
+    // The Settings page says only which changed: asked afresh, not from the
+    // page's first answer.
+    scope.listen(window, 'mm-settings-page-applied', (event) => {
+        if (!(event.detail?.changed || []).includes(KEEP)) return;
+        heard += 1;
+        const asked = heard;
+        fetchUiOptions().then((data) => {
+            if (data && heard === asked) follow(keptBy(data));
+        });
+    });
     scope.onStop(() => {
         stopped = true;
         pastWindow?.close();
@@ -459,8 +587,9 @@ export function showNotice(text, { info = false, html = null, stay = false, bar,
         const parts = partsOf(words, close);
         const as = JSON.stringify([kind, parts]);
         if (as === keptAs) return;
-        keptAs = as;
-        remember(kind, parts);
+        // Not kept - the setting off - it may be kept at a later end in the
+        // same words, once on.
+        if (remember(kind, parts)) keptAs = as;
     };
 
     setWords(text, html);

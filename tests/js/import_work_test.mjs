@@ -76,8 +76,11 @@ const STARTED = {
     'ui_options.mjs': ['fetch /model-manager/ui-options', 'onAfterUiUpdate'],
     'jobs.mjs': ['document listener: visibilitychange'],
     'notes.mjs': ['document listener: click', 'onAfterUiUpdate', 'window listener: mm-repairs-changed'],
+    // With the notices, which it starts (STARTS): Keep past notices followed
+    // as either window saves it (#357).
     'settings.mjs': ['document listener: click', 'fetch /model-manager/settings/nsfw-levels',
-                     'provide settings.open'],
+                     'provide settings.open', 'provide settings.save',
+                     'window listener: mm-settings-page-applied', 'window listener: mm-settings-saved'],
     'update_notice.mjs': ['fetch /model-manager/update', 'onAfterUiUpdate', 'setInterval 3600000',
                           'window listener: mm-settings-page-applied', 'window listener: mm-settings-saved'],
     'image_card.mjs': ['document listener: input', 'provide resources.checkAgain', 'provide resources.chooseTick',
@@ -90,7 +93,7 @@ const STARTED = {
     'downloads.mjs': ['fetch /model-manager/civitai/download/progress', 'onAfterUiUpdate',
                       'provide downloads.cancel', 'provide downloads.control', 'provide downloads.dismiss',
                       'provide downloads.dismissFinished'],
-    // Its list of past notices drawn as a button - none kept here, so nothing (#357).
+    // Started already, with the settings above (#357).
     'notices.mjs': [],
     'chips.mjs': [],
     'resources.mjs': [],

@@ -110,6 +110,10 @@ function createSettings() {
     let root = null;
     let shown = null;               // the window's handle in the dialog container, while open (#292)
     let saving = false;
+    // Why the last save failed, where no setting was named: said in the
+    // footer until the next save or opening. The footer's count of unsaved
+    // changes was drawn over it at once, from the window's first version.
+    let failed = '';
     // What the list shows (#320): 'tab' - the settings tagged with the tab
     // whose gear opened it - or 'all', with the band; null, opened from
     // anywhere else, no band. And whether only those off their default show.
@@ -992,7 +996,7 @@ function createSettings() {
     function refreshFooter() {
         const n = changedKeys().length;
         root.querySelector('#mm_settings_status').textContent = saving ? 'Saving...'
-            : (n ? `${n} unsaved change${n === 1 ? '' : 's'}` : '');
+            : failed || (n ? `${n} unsaved change${n === 1 ? '' : 's'}` : '');
         root.querySelector('#mm_settings_save').disabled = saving || n === 0;
     }
 
@@ -1179,6 +1183,7 @@ function createSettings() {
      */
     async function open({ tab = null, section = null, focus = null } = {}) {
         openedFor = { tab, section, focus };
+        failed = '';
         band = tab ? 'tab' : null;
         changedOnly = false;
         picked = null;
@@ -1268,32 +1273,22 @@ function createSettings() {
             values[key] = meta.settings[key].kind === 'secret' ? secretTyped.trim() : draft[key];
         });
         saving = true;
+        failed = '';
         refreshFooter();
         try {
-            const response = await fetch('/model-manager/settings', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ values }),
-            });
-            const answer = await response.json();
+            const answer = await postSettings(values);
             if (!answer.success) {
                 errors = answer.errors || {};
-                if (!answer.errors) {
-                    root.querySelector('#mm_settings_status').textContent = `Not saved: ${answer.error}`;
-                }
+                if (!answer.errors) failed = `Not saved: ${answer.error}`;
                 return;
             }
-            syncSettingsPage(values);
-            // A change to how images are judged has them judged again, on
-            // the server; say how far that has got.
-            if ((answer.changed || []).some((key) => NSFW_KEYS.includes(key))) restampNotice().watch();
             take(answer);
             shown?.close('code');
             window.dispatchEvent(new CustomEvent('mm-settings-saved', {
                 detail: { changed: answer.changed || [], settings: answer.settings },
             }));
         } catch (e) {
-            root.querySelector('#mm_settings_status').textContent = `Not saved: ${e.message}`;
+            failed = `Not saved: ${e.message}`;
             return;
         } finally {
             saving = false;
@@ -1743,6 +1738,50 @@ export function restampNotice() {
 }
 
 // ------------------------------------------------------------------------
+// Saving
+
+/**
+ * Save `values` on the server, all or none, and on success what follows any
+ * save: the Settings page's own fields set to them, and a change to how
+ * images are judged has them judged again, on the server - its notice says
+ * how far that has got. Answers the route's answer; a server not reached
+ * throws.
+ */
+async function postSettings(values) {
+    const response = await fetch('/model-manager/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ values }),
+    });
+    const answer = await response.json();
+    if (answer?.success) {
+        syncSettingsPage(values);
+        if ((answer.changed || []).some((key) => NSFW_KEYS.includes(key))) restampNotice().watch();
+    }
+    return answer;
+}
+
+/**
+ * A setting saved from elsewhere than the window - the Past notices box
+ * (#357) - as the window saves it, and said to the page the same way
+ * (mm-settings-saved). Never throws: a server not reached answers
+ * {success: false, error}.
+ */
+async function saveSettings(values) {
+    try {
+        const answer = await postSettings(values);
+        if (answer?.success) {
+            window.dispatchEvent(new CustomEvent('mm-settings-saved', {
+                detail: { changed: answer.changed || [], settings: answer.settings },
+            }));
+        }
+        return answer || { success: false, error: 'the server did not say why' };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+}
+
+// ------------------------------------------------------------------------
 // The WebUI's own Settings page
 
 // The Settings page's result line, and nothing else in its element: while
@@ -1811,13 +1850,16 @@ export function settingsWindow() {
 /**
  * Started by the first tab, each having a gear (#182): the window offered by
  * name - from code, and from the gear and the banners' links, with data-tab
- * or data-section - a restamp still running looked for, and the Settings
- * page followed. Stopped with the last tab (#186): the window and the notice
+ * or data-section - and a save of settings from elsewhere (settings.save), a
+ * restamp still running looked for, and the Settings page followed. Stopped with the last tab (#186): the window and the notice
  * go, as every route they ask refuses.
  */
 export function start(scope) {
     settingsScope = scope;
     scope.provide('settings.open', (options) => settingsWindow().open(options));
+    // For the Past notices window's box (#357): notices.mjs cannot import
+    // this module, which imports it, so it asks for the save by name.
+    scope.provide('settings.save', saveSettings);
     restampNotice();
     followSettingsPage(scope);
     scope.onStop(() => {
