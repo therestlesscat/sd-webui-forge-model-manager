@@ -84,6 +84,7 @@ def search_models_with_usable_prompts(
     inspect_many: Optional[Callable[[List[Dict[str, Any]]], List[Any]]] = None,
     leave_out: Iterable[int] = (),
     paid: Optional[Callable[[Dict[str, Any]], bool]] = None,
+    keep_held: Optional[Callable[[Dict[str, Any]], bool]] = None,
 ) -> Dict[str, Any]:
     """
     Collect a full page of models with usable prompts.
@@ -98,6 +99,7 @@ def search_models_with_usable_prompts(
         min_usable=min_usable, start_token=start_token, max_checks=max_checks,
         batch_size=batch_size, workers=workers, accept=accept, max_searches=max_searches,
         inspect=inspect, inspect_many=inspect_many, leave_out=leave_out, paid=paid,
+        keep_held=keep_held,
     ):
         if kind == "done":
             summary = payload
@@ -121,6 +123,7 @@ def iter_models_with_usable_prompts(
     inspect_many: Optional[Callable[[List[Dict[str, Any]]], List[Any]]] = None,
     leave_out: Iterable[int] = (),
     paid: Optional[Callable[[Dict[str, Any]], bool]] = None,
+    keep_held: Optional[Callable[[Dict[str, Any]], bool]] = None,
 ):
     """
     Search models, keeping only those with enough usable-prompt images.
@@ -149,12 +152,18 @@ def iter_models_with_usable_prompts(
     pooled; it answers one verdict per model, and RATE_LIMITED for one
     Civitai refused. It takes precedence over `inspect`.
 
-    `leave_out` is the ids of models never to show - those the library holds,
-    for "Hide models in my library" (#217). Free like `accept`, it is asked
+    `leave_out` is the ids of models to pass over unless `keep_held` keeps
+    them - those the library holds, for "Hide models in my library" (#217).
+    Free like `accept`, it is asked
     first, and a model it names is counted as `in_library`, never as
     `rejected`. Each model passed over is counted once, where the loop moves
     past it: a chunk asks again about what the skip before it let through,
     and a page full partway through a chunk leaves the rest to the next page.
+
+    `keep_held` is asked only of a model `leave_out` names, and true keeps it,
+    on to the checks after: the Hide box keeps a model Civitai has a newer
+    version of (#386). Asked of every path that asks why a model is passed
+    over, so the free pass, the costly checks and the counts all agree.
 
     `paid` says whether a model is to be passed over as paid or Early Access,
     for "Hide paid and Early Access models" (#385). Free like `accept`, it is
@@ -178,6 +187,7 @@ def iter_models_with_usable_prompts(
         accept: Free check run before the prompt check; False drops the model.
         leave_out: Ids of models to pass over before any other check.
         paid: True for a model to pass over as paid, asked after leave_out.
+        keep_held: True for a model leave_out names that is to stay.
         max_searches: Maximum search calls before giving up on filling the page.
         inspect: Costly check returning None to keep, or a reason to drop.
         inspect_many: The same, for a chunk of models at once.
@@ -204,7 +214,7 @@ def iter_models_with_usable_prompts(
 
     def passed_over(model):
         """Why a free check passes this model over - "library", "paid" or "rejected" - or None."""
-        if model.get("id") in leave_out:
+        if model.get("id") in leave_out and not (keep_held is not None and keep_held(model)):
             return "library"
         if paid is not None and paid(model):
             return "paid"

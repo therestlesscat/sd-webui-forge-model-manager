@@ -1,5 +1,16 @@
 [
     {
+        "id": "hide-owned-newer-0-80-1",
+        "version": "0.80.1",
+        "kind": "feature",
+        "audience": "update",
+        "tabs": [
+            "civitai_browser"
+        ],
+        "title": "Hide models in my library keeps new versions",
+        "text": "Hide models in my library now keeps a model you have when Civitai has a newer version of it, marked New version, so new versions are no longer hidden with the rest."
+    },
+    {
         "id": "lora-weights-0-78-10",
         "version": "0.78.10",
         "kind": "action",

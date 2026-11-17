@@ -365,5 +365,55 @@ except TypeError:
 check('within one batch, progress counts the paid models as they are passed over',
       [p.get('paid') for kind, p in events if kind == 'progress'][-1:], [3])
 
+# ----------------------------------- owned models with a newer version (#386)
+# The Hide box hands the loop `keep_held`, asked only of a model `leave_out`
+# names: true keeps it, on to the checks after, like any model.
+def keeping(searcher, page_size, owned, kept, count=None, **kwargs):
+    """A page with `owned` left out but `kept`; None, and a failed check, where the loop cannot."""
+    asked = kwargs.pop('asked', None)
+
+    def keep_held(m):
+        if asked is not None:
+            asked.append(m['id'])
+        return m['id'] in kept
+    try:
+        return pf.search_models_with_usable_prompts(
+            searcher, {'query': ''}, count, page_size, leave_out=owned, keep_held=keep_held, **kwargs)
+    except TypeError as e:
+        fails.append('the loop takes keep_held\n   %s' % e)
+        return None
+
+
+asked_about = []
+search = ByCursor({None: ([model(n, 1) for n in range(1, 7)], None)})
+done = keeping(search, 6, {2, 4, 5}, {4}, asked=asked_about)
+check('a held model with a newer version stays, in Civitai\'s order; the others are passed over',
+      ids(done), [1, 3, 4, 6])
+check('counted neither in the library nor as rejected: only the two passed over are in the library',
+      (done and done.get('in_library'), done and done.get('rejected')), (2, 0))
+check('keep_held is asked only of the held ones', sorted(set(asked_about)), [2, 4, 5])
+
+search = ByCursor({None: ([model(n, 1) for n in range(1, 5)], None)})
+done = keeping(search, 4, {2, 3}, set())
+check('keep_held saying no: passed over, counted in the library',
+      (ids(done), done and done.get('in_library')), ([1, 4], 2))
+
+handed = []
+search = ByCursor({None: ([model(n, 1) for n in range(1, 6)], None)})
+done = keeping(search, 5, {2, 3}, {3}, inspect_many=inspect_all, workers=5)
+check('a kept model is handed to the costly check like any model, a hidden one is not',
+      (sorted(set(handed)), ids(done)), ([1, 3, 4, 5], [1, 3, 4, 5]))
+
+search = ByCursor({None: ([model(1, 1), model(2, 1), model(3, 1)], None)})
+done = keeping(search, 3, {2}, {2}, accept=lambda m: m['id'] != 2)
+check('a kept model outside the size range is passed over as outside it',
+      (ids(done), done and done.get('in_library'), done and done.get('rejected')), ([1, 3], 0, 1))
+
+# With the paid box too (#385): the library is asked first, then paid.
+search = ByCursor({None: ([model(1, 1), model(2, 1), model(3, 1)], None)})
+done = keeping(search, 3, {2, 3}, {3}, paid=lambda m: m['id'] in {2, 3})
+check('held with no newer version and paid: counted in the library; kept for a newer version and paid: counted paid',
+      (ids(done), done and done.get('in_library'), done and done.get('paid')), ([1], 1, 1))
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

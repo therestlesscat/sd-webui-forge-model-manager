@@ -73,6 +73,13 @@ check('saying what it does', $('cb_hide_owned_label')?.textContent.replace(/\s+/
       'Hide models in my library');
 check('and, held over, that owned means the library here', $('cb_hide_owned_label')?.title.includes('not a paid version'),
       true);
+// Since #386 it keeps an owned model Civitai has a newer version of: the
+// tooltip no longer says "every model".
+check('that one with a newer version stays, and how a Base Model narrows it',
+      [$('cb_hide_owned_label')?.title.startsWith('Leaves out the models you have a file of'),
+       $('cb_hide_owned_label')?.title.includes('except one Civitai has a newer version of, which stays, marked New version.'),
+       $('cb_hide_owned_label')?.title.includes('Pick a Base Model to keep only those with a newer version for it.')],
+      [true, true, true]);
 // The status line, which the library's count makes longer, sits at the left
 // of the row with Search, taking the room the buttons leave and wrapping
 // beside them as they grow.

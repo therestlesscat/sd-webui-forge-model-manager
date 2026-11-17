@@ -111,8 +111,9 @@ several connections at once, each fetching a part of it. Civitai holds each conn
 the settings' Downloads, turns it off; Connections per file says how many.
 
 **0.63 - Hide the models you already have.** In the Civitai Browser, Hide models in my library,
-under Post-processing Options, leaves out every model marked Owned and fills the page from the
-rest, so what is new to you is easy to spot. It costs Civitai no request.
+under Post-processing Options, leaves out the models marked Owned and fills the page from the
+rest, so what is new to you is easy to spot - since 0.80.1 keeping one Civitai has a newer
+version of, marked New version. It costs Civitai no request.
 
 **0.62 - Give back the space your database no longer uses.** Updates and deletes leave space
 inside the database file, and each update that reshapes it leaves a full copy beside it. Under
@@ -296,8 +297,9 @@ Models you already have are marked **Owned**, with a jump to them in the Model M
 Four checks Civitai cannot make are done here: **Only Show Models with SFW images** leaves out models
 whose first example images include anything NSFW, **Only with usable prompts** keeps
 only models whose images have a prompt worth reusing, **Hide models in my library** leaves
-out the ones marked Owned, and **Hide paid and Early Access models** leaves out those whose
-card shows a version that costs Buzz. Results stream in as they are found.
+out the ones marked Owned but for those with a newer version, and **Hide paid and Early
+Access models** leaves out those whose card shows a version that costs Buzz. Results stream
+in as they are found.
 Save Search keeps the search, and runs it the first time the tab is opened.
 
 ![Civitai Browser search results](docs/images/cb-search.png)
@@ -436,7 +438,8 @@ Search Civitai and download directly into the right model folder.
 - **Usable-prompt filter**: only show models whose images carry a prompt plus
   steps/sampler/CFG
 - **Hide models in my library**: leave out the models marked Owned, the page filled from
-  the rest
+  the rest; one Civitai has a newer version of stays, marked New version - pick a Base Model
+  to keep only those with a newer version for it
 - **Hide paid and Early Access models**: leave out the models whose card shows a version
   that costs Buzz, the page filled from the rest
 - Image gallery read live from Civitai, a page at a time, with Load More

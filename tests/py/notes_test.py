@@ -75,6 +75,11 @@ for note in shipped:
               action.get('id') != 'repair' or action.get('repair') in REPAIRS)
     check(f'{where}: from this version or before - a later one would never show',
           rn.version_key(note['version']) <= rn.version_key(VERSION))
+# The Hide box keeping owned models with a newer version (#386) changes what
+# a box already ticked does: said to those who knew it before, in its tab.
+kept = next((n for n in shipped if n['id'] == 'hide-owned-newer-0-80-1'), {})
+check('the Hide box\'s change is told to libraries from before it, in the Civitai Browser',
+      (kept.get('version'), kept.get('audience'), kept.get('tabs')), ('0.80.1', 'update', ['civitai_browser']))
 notes_js = open(os.path.join(ROOT, 'javascript', 'shared', 'notes.mjs'), encoding='utf-8').read()
 block = re.search(r'const NOTE_ACTIONS = \{(.*?)\n\};', notes_js, re.S).group(1)
 check('the page knows every action a note can name, and no other',

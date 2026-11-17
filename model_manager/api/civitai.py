@@ -31,7 +31,7 @@ from ..civitai import (
 )
 from ..civitai.licensing import versions_on_site_only
 from .annotations import (annotate_image_levels, annotate_local_ownership, annotate_paid_access,
-                          held_model_ids, ownership)
+                          has_newer_version, held_model_ids, held_versions, ownership)
 from ..nsfw import stamp_levels
 from ..send import stamp_readings
 from ..gallery import cb_images_page_size
@@ -76,7 +76,7 @@ def _paid_shown(model) -> bool:
 
 
 def _filter_options(client, *, require_prompt, sfw_only, nsfw, size_check,
-                    limit, min_usable, fill_page=False, leave_out=(), hide_paid=False):
+                    limit, min_usable, fill_page=False, leave_out=(), keep_held=None, hide_paid=False):
     """
     The filter loop's arguments for the filters asked for.
 
@@ -96,6 +96,7 @@ def _filter_options(client, *, require_prompt, sfw_only, nsfw, size_check,
 
     `leave_out` is the ids of the models the library holds, with "Hide models
     in my library" ticked (#217): free like the size filter, and asked first.
+    `keep_held` keeps one of them Civitai has a newer version of (#386).
     `hide_paid` is "Hide paid and Early Access models" (#385): free too, and
     asked next.
 
@@ -122,6 +123,7 @@ def _filter_options(client, *, require_prompt, sfw_only, nsfw, size_check,
         accept=size_check,
         max_searches=None if unbounded else MAX_FILTER_SEARCHES,
         leave_out=leave_out,
+        keep_held=keep_held,
         paid=_paid_shown if hide_paid else None,
     )
 
@@ -197,15 +199,20 @@ class _Search:
         """
         (whether the SFW check is on, the filter loop's arguments) - _filter_options().
 
-        The models the library holds are read once for the request, by the
-        rule a draw leaves them out by. A read that fails fails the search,
-        as each card's Owned badge, reading the same rows, would.
+        The models the library holds, with their held versions, are read once
+        for the request, by the rule a draw leaves them out by. One Civitai
+        lists a newer version of stays (#386), by the New version badge's
+        rule. A read that fails fails the search, as each card's Owned badge,
+        reading the same rows, would.
         """
-        leave_out = held_model_ids(get_models_db()) if self.hide_owned else ()
+        held = held_versions(get_models_db()) if self.hide_owned else {}
+        every_held = set().union(*held.values()) if held else set()
         return _filter_options(client, require_prompt=require_prompt, sfw_only=sfw_only,
                                nsfw=self.params["nsfw"], size_check=self.size_check, limit=self.limit,
                                min_usable=self.min_usable, fill_page=_fill_page_setting(),
-                               leave_out=leave_out, hide_paid=self.hide_paid)
+                               leave_out=set(held),
+                               keep_held=(lambda model: has_newer_version(model, every_held)) if held else None,
+                               hide_paid=self.hide_paid)
 
     def stats(self, summary, *, require_prompt: bool, sfw: bool):
         """What a filtered page passed over - _filter_stats()."""

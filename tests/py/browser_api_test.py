@@ -461,13 +461,76 @@ status, body = get('/model-manager/civitai/models', limit=10)
 check('unticked, nothing is left out, and nothing filtered',
       (len(body['models']), body['filterStats']), (len(LISTED), None))
 
+# ------------------------------ ...but an owned model with a newer version stays (#386)
+# By the New version badge's rule: a version Civitai lists before every one
+# held here. Held here means this WebUI's folders: a newer version whose file
+# sits only in another WebUI's folder is still newer to this one.
+def listing(model_id, version_ids):
+    """A model as Civitai's search answers it, its versions in Civitai's order."""
+    return {'id': model_id, 'name': 'Remote %d' % model_id, 'type': 'Checkpoint',
+            'modelVersions': [remote(model_id, v)['modelVersions'][0] for v in version_ids]}
+
+
+TWO_SIDES = 777003
+here = os.path.join(facts['models_dir'], 'Lora', 'two_sides_v1.safetensors')
+there = os.path.join(WORK, 'elsewhere', 'two_sides_v3.safetensors')
+for path in (here, there):
+    open(path, 'wb').write(b'weights')
+for path, vid in ((here, TWO_SIDES * 10 + 1), (there, TWO_SIDES * 10 + 3)):
+    db.upsert_version({'file_path': path, 'file_name': os.path.basename(path), 'id': vid,
+                       'model_id': TWO_SIDES, 'has_civitai_data': True})
+read_held = getattr(annotations, 'held_versions', None)
+held_by_model = read_held(db) if read_held else {}
+H0 = sorted(held_by_model.get(HELD[0]) or [0])[0]
+H1 = sorted(held_by_model.get(HELD[1]) or [0])[0]
+# A version held under a row naming another model - moved on Civitai since
+# the last sync: the badge counts it held by its id, and so does the box.
+MOVED, MOVED_FROM = 777004, 777005
+for name, vid, mid in (('moved_v1.safetensors', MOVED * 10 + 1, MOVED), ('moved_v2.safetensors', MOVED * 10 + 2, MOVED_FROM)):
+    path = os.path.join(facts['models_dir'], 'Lora', name)
+    open(path, 'wb').write(b'weights')
+    db.upsert_version({'file_path': path, 'file_name': name, 'id': vid, 'model_id': mid, 'has_civitai_data': True})
+NEWER = [listing(HELD[0], [990001, H0]),                  # a newer version listed first: stays
+         listing(HELD[1], [H1, 990002]),                  # nothing before the held one: hidden
+         listing(GONE + 100, [990003]),                   # not held at all: shown, as ever
+         listing(TWO_SIDES, [TWO_SIDES * 10 + 3, TWO_SIDES * 10 + 2, TWO_SIDES * 10 + 1]),
+         listing(MOVED, [MOVED * 10 + 2, MOVED * 10 + 1]),  # its first is held, under the other model: hidden
+         listing(MOVED_FROM, [990009])]                    # its held version no longer listed: hidden
+check('the held versions are read for every held model, by the held-here rule',
+      (bool(held_by_model.get(HELD[0])), sorted(held_by_model.get(TWO_SIDES) or [])), (True, [TWO_SIDES * 10 + 1]))
+
+civitai(models={'items': NEWER, 'nextCursor': None})
+status, body = get('/model-manager/civitai/models', hide_owned='true', limit=10)
+kept = {m['id']: m for m in body.get('models') or []}
+check('an owned model with a newer version stays, one with none is hidden; one whose newer files sit in the other WebUI stays',
+      [m['id'] for m in body.get('models') or []], [HELD[0], GONE + 100, TWO_SIDES])
+check('marked Owned, its New version naming the newer one',
+      (kept.get(HELD[0], {}).get('owned_locally'),
+       [v.get('id') for v in kept.get(HELD[0], {}).get('newer_versions') or []]), (True, [990001]))
+check('the one whose newer files sit in the other WebUI: its badge names both, as newer to this one',
+      [v.get('id') for v in kept.get(TWO_SIDES, {}).get('newer_versions') or []], [TWO_SIDES * 10 + 3, TWO_SIDES * 10 + 2])
+check('every Owned model on the page carries a New version badge',
+      all(m.get('newer_versions') for m in body.get('models') or [] if m.get('owned_locally')), True)
+check('hidden and counted in the library: nothing newer, a first version held under another model, '
+      'a held version Civitai no longer lists', (body.get('filterStats') or {}).get('inLibrary'), 3)
+
+civitai(models={'items': NEWER, 'nextCursor': None})
+with client.stream('GET', '/model-manager/civitai/models/stream',
+                   params={'limit': 10, 'hide_owned': 'true', 'require_prompt': 'false'}) as response:
+    lines = [json.loads(line) for line in response.iter_lines() if line.strip()]
+check('the stream keeps the same models, in the same order',
+      [line['model']['id'] for line in lines if line['type'] == 'model'], [HELD[0], GONE + 100, TWO_SIDES])
+
 # A library that cannot be read fails the search, as the cards' Owned badges,
 # reading the same rows, would.
 def unreadable(db):
     raise RuntimeError('library unreadable')
 
-real_held = endpoints.held_model_ids
-endpoints.held_model_ids = unreadable
+# The search reads the library through held_versions since #386; the check
+# fails, not the suite, on code without it.
+real_held = getattr(endpoints, 'held_versions', None)
+check('the search reads the library\'s held versions', real_held is not None)
+endpoints.held_versions = unreadable
 try:
     civitai(models={'items': LISTED, 'nextCursor': None})
     status, body = get('/model-manager/civitai/models', hide_owned='true', limit=10)
@@ -480,7 +543,10 @@ try:
     check('and the stream says so in the stream',
           (lines[-1]['type'], lines[-1].get('error')), ('error', 'library unreadable'))
 finally:
-    endpoints.held_model_ids = real_held
+    if real_held is None:
+        del endpoints.held_versions
+    else:
+        endpoints.held_versions = real_held
 
 # --------------------------------------- Hide paid and Early Access models (#385)
 # A model whose shown version - Civitai's first, the card's - is paid or Early

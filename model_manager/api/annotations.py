@@ -81,6 +81,31 @@ def held_model_ids(db) -> Set[int]:
             if row["model_id"] is not None and held_here(row["file_path"])}
 
 
+def held_versions(db) -> Dict[int, Set[int]]:
+    """
+    The versions the library holds a file of, by model - the same rows and
+    the same rule as `held_model_ids`, with what the Hide box needs to keep
+    a model Civitai has a newer version of (#386).
+    """
+    held: Dict[int, Set[int]] = {}
+    for row in db.library_files():
+        if row["model_id"] is not None and held_here(row["file_path"]):
+            held.setdefault(row["model_id"], set()).add(row["version_id"])
+    return held
+
+
+def has_newer_version(model: Dict[str, Any], held_ids: Set[int]) -> bool:
+    """
+    Whether Civitai lists a version of this model before every one the
+    library holds: the New version badge's rule (`newer_versions`, #218),
+    asked of the search's own version list before the page is filled.
+    `held_ids` is every version held, whatever model its row names, as the
+    badge counts one held by its id (`ownership`): a version Civitai moved
+    to this model since the last sync is still held.
+    """
+    return bool(newer_versions.newer_versions(model.get("modelVersions") or [], held_ids))
+
+
 def annotate_local_ownership(db, models: List[Dict[str, Any]]):
     """
     Mark which of these models, versions and files the library holds, in
