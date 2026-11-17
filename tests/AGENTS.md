@@ -60,7 +60,11 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   HEAD | tar -x`), the edited suite copied in, the swap checked with `cmp` against
   `git show <commit>:<file>` - `git diff --stat` shows only a difference from
   HEAD (2026-11-13, #397's checks). It cannot open a script under WSL's `/tmp`
-  either: put one under `tests/work/`. A tree for breaks is built from `git
+  either: put one under `tests/work/`. Nor a WSL path: handed `/mnt/f/...`,
+  Windows' Python looks for `F:\mnt\f\...`, exits 2 and prints nothing on
+  stdout, and #385's break runner read that as "no check failed" for all 15
+  breaks. A runner passes paths relative to its working folder, and counts a
+  suite that prints no result line as a failure. A tree for breaks is built from `git
   ls-files` (modified and untracked), never `cp -r tests`: a copy of `tests`
   into `tests/work/...` copied itself, 3.6 GB, before it was stopped (#299).
   A break runner puts each file back in a `finally`: #321's, stopped at its
