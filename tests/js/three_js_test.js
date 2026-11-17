@@ -97,6 +97,7 @@ check('isPaid true for both',
 sandbox.feelingLucky = lift('feelingLucky');       // which asks whether a draw is on
 sandbox.sfwOnlyEnabled = lift('sfwOnlyEnabled');   // and the SFW box through this
 sandbox.hideOwnedEnabled = lift('hideOwnedEnabled'); // and Hide models in my library through this (#217)
+sandbox.hidePaidEnabled = lift('hidePaidEnabled');   // and Hide paid and Early Access models (#385)
 sandbox.typeValues = lift('typeValues');
 const tick = (...types) => {
     sandbox.typeList = { values: () => types, everything: () => types.length === 0 };

@@ -232,6 +232,7 @@ function getFilters() {
         min_size_gb: sizeBound('cb_min_size'),
         max_size_gb: sizeBound('cb_max_size'),
         hide_owned: hideOwnedEnabled(),
+        hide_paid: hidePaidEnabled(),
     };
 }
 
@@ -242,6 +243,7 @@ function getFilters() {
 function describeFilterStats(stats) {
     const skipped = [];
     if (stats.libraryFilter) skipped.push(`${stats.inLibrary || 0} in your library`);
+    if (stats.paidFilter) skipped.push(`${stats.paid || 0} paid or Early Access`);
     if (stats.sfwFilter) skipped.push(`${stats.unsafe || 0} with NSFW images`);
     if (stats.promptFilter !== false) skipped.push(`${stats.dropped || 0} without usable prompts`);
     if (stats.sizeFilter) skipped.push(`${stats.rejected || 0} outside the size range`);
@@ -264,7 +266,11 @@ function filteringMessage() {
     if (requirePromptEnabled()) return 'Checking models for usable prompts...';
     if (sfwOnlyEnabled()) return 'Checking models for SFW images...';
     const { min_size_gb: minSize, max_size_gb: maxSize } = getFilters();
-    if (minSize === '' && maxSize === '' && hideOwnedEnabled()) return 'Leaving out models in your library...';
+    if (minSize === '' && maxSize === '') {
+        if (hideOwnedEnabled() && hidePaidEnabled()) return 'Leaving out models in your library and paid ones...';
+        if (hideOwnedEnabled()) return 'Leaving out models in your library...';
+        if (hidePaidEnabled()) return 'Leaving out paid and Early Access models...';
+    }
     return 'Looking for models in the size range...';
 }
 
@@ -325,6 +331,13 @@ function hideOwnedEnabled() {
     return !feelingLucky() && (document.getElementById('cb_hide_owned')?.checked || false);
 }
 
+// Is "Hide paid and Early Access models" ticked and in force (#385)? A draw
+// picks its page from every match; dropping some after would leave it short,
+// so the box is set aside while drawing.
+function hidePaidEnabled() {
+    return !feelingLucky() && (document.getElementById('cb_hide_paid')?.checked || false);
+}
+
 // ------------------------------------------------------- I'm feeling lucky
 // Ticked, Search becomes Draw: a page of models drawn at random from those
 // Civitai's own filters allow, every one equally likely (#102,
@@ -366,6 +379,7 @@ function syncLucky() {
     setAside(byId('cb_require_prompt')?.closest('label'), [byId('cb_require_prompt')], lucky);
     setAside(byId('cb_hide_owned_label'), [byId('cb_hide_owned')], lucky,
              'A draw always leaves out the models in your library.');
+    setAside(byId('cb_hide_paid_label'), [byId('cb_hide_paid')], lucky);
     syncSfwOnlyEnabled();
     const button = byId('cb_search_btn');
     setText(button, lucky ? 'Draw' : 'Search');
@@ -458,8 +472,9 @@ async function searchModelsStreaming(page, cursor) {
             } else if (evt.type === 'progress') {
                 // Every model looked at was taken or passed over by one filter.
                 const seen = evt.found + (evt.dropped || 0) + (evt.unsafe || 0)
-                    + (evt.failed || 0) + (evt.rejected || 0) + (evt.in_library || 0);
+                    + (evt.failed || 0) + (evt.rejected || 0) + (evt.in_library || 0) + (evt.paid || 0);
                 const passed = [evt.in_library ? `${evt.in_library} in your library` : '',
+                                evt.paid ? `${evt.paid} paid or Early Access` : '',
                                 evt.unsafe ? `${evt.unsafe} with NSFW images` : '',
                                 evt.dropped ? `${evt.dropped} without usable prompts` : '',
                                 evt.rejected ? `${evt.rejected} outside the size range` : '',
@@ -698,7 +713,8 @@ async function searchModels(page = 1) {
 
     // A range nothing can be in would spend every search it is allowed on
     // finding that out.
-    const { min_size_gb: minSize, max_size_gb: maxSize, sfw_only: sfwOnly, hide_owned: hideOwned } = getFilters();
+    const { min_size_gb: minSize, max_size_gb: maxSize, sfw_only: sfwOnly, hide_owned: hideOwned,
+            hide_paid: hidePaid } = getFilters();
     if (minSize !== '' && maxSize !== '' && minSize > maxSize) {
         updateStatus('File size: Min is larger than Max.');
         return;
@@ -706,9 +722,9 @@ async function searchModels(page = 1) {
 
     // A filtered page is filled from as many models as it takes - checked one
     // by one for prompts, searched through for a size or past the library's
-    // models - so stream results in as they are found instead of blocking on
-    // the whole page.
-    if (requirePromptEnabled() || sfwOnly || minSize !== '' || maxSize !== '' || hideOwned) {
+    // or paid models - so stream results in as they are found instead of
+    // blocking on the whole page.
+    if (requirePromptEnabled() || sfwOnly || minSize !== '' || maxSize !== '' || hideOwned || hidePaid) {
         isLoading = true;
         try {
             await searchModelsStreaming(page, cursors[cursorIndex] || "");
@@ -2150,7 +2166,7 @@ function currentSearch() {
         base_models: value('cb_base_model'), sort: value('cb_sort'), period: value('cb_period'),
         nsfw: ticked('cb_nsfw'), tag: selectedTag, require_prompt: ticked('cb_require_prompt'),
         sfw_only: ticked('cb_sfw_only'), min_size: value('cb_min_size'), max_size: value('cb_max_size'),
-        hide_owned: ticked('cb_hide_owned'),
+        hide_owned: ticked('cb_hide_owned'), hide_paid: ticked('cb_hide_paid'),
     };
 }
 
@@ -2176,6 +2192,7 @@ function applySearch(filters) {
     tick('cb_require_prompt', 'require_prompt');
     tick('cb_sfw_only', 'sfw_only');
     tick('cb_hide_owned', 'hide_owned');
+    tick('cb_hide_paid', 'hide_paid');
     set('cb_min_size', 'min_size');
     set('cb_max_size', 'max_size');
     if (Object.prototype.hasOwnProperty.call(filters, 'tag')) selectTag(filters.tag || '');

@@ -82,6 +82,9 @@ $('cb_base_model').value = 'Pony';
 $('cb_period').value = 'Week';
 change('cb_require_prompt', true);
 change('cb_sfw_only', true);
+check('the paid box is there, to tick before the draw (#385)', Boolean($('cb_hide_paid')), true);
+if ($('cb_hide_paid')) change('cb_hide_paid', true);
+check('and ticked', $('cb_hide_paid')?.checked, true);
 check('the SFW banner shows while its box is in force', $('cb_sfw_only_banner').style.display, 'flex');
 
 // ------------------------------------------------------------ ticked
@@ -104,6 +107,12 @@ const used = ['cb_type_several', 'cb_base_model', 'cb_nsfw', 'cb_period', 'cb_ta
 check('what Civitai filters on itself stays usable', used.map((id) => $(id).disabled), used.map(() => false));
 check('Period, beside Sort, is not greyed with it', greyed($('cb_period').closest('.filter-group')), false);
 check('the SFW banner goes: nothing it describes is in force', $('cb_sfw_only_banner').style.display, 'none');
+// A draw picks its page from every match: Hide paid and Early Access models
+// is set aside like the size range, not applied after (#385).
+check('the paid box is set aside too, greyed, saying why, keeping its tick',
+      [$('cb_hide_paid')?.disabled, $('cb_hide_paid_label') && greyed($('cb_hide_paid_label')),
+       $('cb_hide_paid_label')?.title.startsWith("Not used while I'm feeling lucky"), $('cb_hide_paid')?.checked],
+      [true, true, true, true]);
 
 // ------------------------------------------------------------- a draw
 drawn = { models: [model(1), model(2)],
@@ -188,6 +197,9 @@ check('the text, the sort and the size come back',
       ['cb_search', 'cb_sort', 'cb_min_size', 'cb_max_size', 'cb_require_prompt'].map((id) => $(id).disabled),
       [false, false, false, false, false]);
 check('with their tooltips as they were', $('cb_search').closest('.filter-group').title, '');
+check('the paid box comes back as it was, still ticked',
+      [$('cb_hide_paid')?.disabled, $('cb_hide_paid')?.checked,
+       $('cb_hide_paid_label')?.title.startsWith('Not used')], [false, true, false]);
 check('SFW images follows Include NSFW models again: usable while it is unticked', $('cb_sfw_only').disabled, false);
 change('cb_nsfw', true);
 check('and greyed while it is ticked', $('cb_sfw_only').disabled, true);

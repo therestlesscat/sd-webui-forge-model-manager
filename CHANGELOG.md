@@ -6,6 +6,17 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.80 - Hide paid and Early Access models
+
+*17 November 2026*
+
+The Civitai Browser can leave out the models you would have to pay for. A new box under Post-processing Options,
+Hide paid and Early Access models, passes over every model whose card shows a version that costs Buzz - for good, or
+until a date - and fills the page from the rest, as the other boxes there do. It asks Civitai nothing more: the search's
+own answer says which versions are paid.
+
+- **0.80.0** (build 719) - Hide paid and Early Access models, in the Civitai Browser (#385, asked for in #384). Ticked, a search leaves out every model whose shown version - the one its card shows, and Download takes - is Paid or Early Access, read as the card's own badge reads it, and fills the page from the rest through the loop the other boxes share; a model whose shown version is free and an older one paid stays. A version your API key's account bought is left out too, as the tooltip says. Civitai cannot do it for us: its search takes `earlyAccess=true`, which keeps only such models, and `earlyAccess=false` answers the same 100 models in the same order as no parameter. It costs no request. The status line counts them after the library's ("4 paid or Early Access"), and the running count while a page fills counts them among the models looked through. Save Search keeps the box; a search saved before leaves it unticked. While I'm feeling lucky is ticked the box is set aside, as the size range is.
+
 ## 0.79 - Notices you can read
 
 *16 November 2026*

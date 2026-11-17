@@ -83,6 +83,7 @@ def search_models_with_usable_prompts(
     inspect: Optional[Callable[[Dict[str, Any]], Optional[str]]] = None,
     inspect_many: Optional[Callable[[List[Dict[str, Any]]], List[Any]]] = None,
     leave_out: Iterable[int] = (),
+    paid: Optional[Callable[[Dict[str, Any]], bool]] = None,
 ) -> Dict[str, Any]:
     """
     Collect a full page of models with usable prompts.
@@ -96,7 +97,7 @@ def search_models_with_usable_prompts(
         client, search_params, count_usable_images, page_size,
         min_usable=min_usable, start_token=start_token, max_checks=max_checks,
         batch_size=batch_size, workers=workers, accept=accept, max_searches=max_searches,
-        inspect=inspect, inspect_many=inspect_many, leave_out=leave_out,
+        inspect=inspect, inspect_many=inspect_many, leave_out=leave_out, paid=paid,
     ):
         if kind == "done":
             summary = payload
@@ -119,6 +120,7 @@ def iter_models_with_usable_prompts(
     inspect: Optional[Callable[[Dict[str, Any]], Optional[str]]] = None,
     inspect_many: Optional[Callable[[List[Dict[str, Any]]], List[Any]]] = None,
     leave_out: Iterable[int] = (),
+    paid: Optional[Callable[[Dict[str, Any]], bool]] = None,
 ):
     """
     Search models, keeping only those with enough usable-prompt images.
@@ -154,6 +156,11 @@ def iter_models_with_usable_prompts(
     past it: a chunk asks again about what the skip before it let through,
     and a page full partway through a chunk leaves the rest to the next page.
 
+    `paid` says whether a model is to be passed over as paid or Early Access,
+    for "Hide paid and Early Access models" (#385). Free like `accept`, it is
+    asked after `leave_out` and before `accept`, and a model it names is
+    counted as `paid`, never as `rejected`.
+
     If Civitai rate-limits a search or a check (CivitaiRateLimitError), the
     page stops there with `rate_limited` set, and the token points at the
     model that was not checked, so Next retries it rather than skipping it.
@@ -170,6 +177,7 @@ def iter_models_with_usable_prompts(
         batch_size: Models to pull from Civitai per search call.
         accept: Free check run before the prompt check; False drops the model.
         leave_out: Ids of models to pass over before any other check.
+        paid: True for a model to pass over as paid, asked after leave_out.
         max_searches: Maximum search calls before giving up on filling the page.
         inspect: Costly check returning None to keep, or a reason to drop.
         inspect_many: The same, for a chunk of models at once.
@@ -177,7 +185,7 @@ def iter_models_with_usable_prompts(
     Yields events as the work happens, so a caller can show results while the
     rest are still being checked:
         ("progress", {"checked", "dropped", "unsafe", "failed", "rejected",
-                          "in_library", "found"})
+                          "in_library", "paid", "found"})
             after each search and before each chunk of costly checks
         ("model", model) as each qualifying model is found
         ("done", summary) once, last, with nextCursor and final counts
@@ -195,9 +203,11 @@ def iter_models_with_usable_prompts(
     leave_out = set(leave_out or ())
 
     def passed_over(model):
-        """Why a free check passes this model over - "library" or "rejected" - or None."""
+        """Why a free check passes this model over - "library", "paid" or "rejected" - or None."""
         if model.get("id") in leave_out:
             return "library"
+        if paid is not None and paid(model):
+            return "paid"
         if accept is not None and not accept(model):
             return "rejected"
         return None
@@ -211,6 +221,7 @@ def iter_models_with_usable_prompts(
     failed = 0        # the check itself failed, so nothing is known
     rejected = 0      # failed accept(), never given a costly check
     in_library = 0    # in leave_out, never given any other check
+    paywalled = 0     # paid() said so, never given accept() or a costly check
     searches = 0
     exhausted = False
     budget_reached = False
@@ -219,7 +230,7 @@ def iter_models_with_usable_prompts(
     def counts():
         return {"checked": checked, "dropped": dropped, "unsafe": unsafe,
                 "failed": failed, "rejected": rejected, "in_library": in_library,
-                "found": len(models)}
+                "paid": paywalled, "found": len(models)}
 
     while len(models) < page_size:
         if max_checks is not None and checked >= max_checks:
@@ -271,7 +282,7 @@ def iter_models_with_usable_prompts(
 
         # Pass over what the free checks rule out before any prompt check is
         # spent on it. Consumed in order, so the resume token stays exact.
-        if accept is not None or leave_out:
+        if accept is not None or leave_out or paid is not None:
             passed = 0
             while index < len(batch):
                 reason = passed_over(batch[index])
@@ -281,6 +292,8 @@ def iter_models_with_usable_prompts(
                 passed += 1
                 if reason == "library":
                     in_library += 1
+                elif reason == "paid":
+                    paywalled += 1
                 else:
                     rejected += 1
             # Said at once: progress after a search alone counted only the
@@ -353,8 +366,11 @@ def iter_models_with_usable_prompts(
                 break
             consumed += 1
             if verdict is SKIPPED:
-                if passed_over(model) == "library":
+                reason = passed_over(model)
+                if reason == "library":
                     in_library += 1
+                elif reason == "paid":
+                    paywalled += 1
                 else:
                     rejected += 1
             elif verdict is KEEP:
@@ -388,6 +404,7 @@ def iter_models_with_usable_prompts(
         "failed": failed,
         "rejected": rejected,
         "in_library": in_library,
+        "paid": paywalled,
         "budget_reached": budget_reached,
         "rate_limited": rate_limited,
         "exhausted": exhausted,

@@ -318,5 +318,52 @@ events = list(pf.iter_models_with_usable_prompts(search, {'query': ''}, None, 1)
 check('progress carries the count, 0 with nothing left out',
       [payload.get('in_library') for kind, payload in events if kind == 'progress'][0], 0)
 
+# ------------------------------------------- paid and Early Access models (#385)
+# "Hide paid and Early Access models" hands the loop `paid`, true for a model
+# to pass over. Free like the size check and asked before it, counted as its
+# own reason; with no other check at all, it still runs.
+def leaving_paid(searcher, page_size, paid_ids, count=None, **kwargs):
+    """A page with `paid_ids` passed over as paid; None, and a failed check, where the loop cannot."""
+    try:
+        return pf.search_models_with_usable_prompts(
+            searcher, {'query': ''}, count, page_size, paid=lambda m: m['id'] in paid_ids, **kwargs)
+    except TypeError as e:
+        fails.append('the loop takes a paid check\n   %s' % e)
+        return None
+
+
+search = ByCursor({None: ([model(n, 1) for n in range(1, 7)], None)})
+done = leaving_paid(search, 6, {2, 5})
+check('the paid check alone, no other: the paid ones passed over, in Civitai\'s order',
+      ids(done), [1, 3, 4, 6])
+check('counted as paid, not as outside the size range nor in the library',
+      (done and done.get('paid'), done and done.get('rejected'), done and done.get('in_library')), (2, 0, 0))
+
+# With a costly check: a paid model is never handed to it, and one met inside
+# a chunk is counted as paid there too.
+handed = []
+search = ByCursor({None: ([model(n, 1) for n in range(1, 7)], None)})
+done = leaving_paid(search, 6, {2, 3}, inspect_many=inspect_all, workers=6)
+check('a paid model is never handed to the costly check', (sorted(set(handed)), ids(done)),
+      ([1, 4, 5, 6], [1, 4, 5, 6]))
+check('and counted as paid on the costly path too',
+      (done and done.get('paid'), done and done.get('rejected')), (2, 0))
+
+# Paid and outside the size range: counted once, as paid.
+search = ByCursor({None: ([model(1, 1), model(2, 1), model(3, 1)], None)})
+done = leaving_paid(search, 3, {2}, accept=lambda m: m['id'] != 2)
+check('a model paid and outside the size range is counted as paid alone',
+      (ids(done), done and done.get('paid'), done and done.get('rejected')), ([1, 3], 1, 0))
+
+# The running count rises within a batch, as the others do.
+search = ByCursor({None: ([model(n, 1) for n in range(1, 7)], None)})
+try:
+    events = list(pf.iter_models_with_usable_prompts(search, {'query': ''}, None, 6,
+                                                     paid=lambda m: m['id'] in {2, 3, 5}))
+except TypeError:
+    events = []
+check('within one batch, progress counts the paid models as they are passed over',
+      [p.get('paid') for kind, p in events if kind == 'progress'][-1:], [3])
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

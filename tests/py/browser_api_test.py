@@ -482,6 +482,46 @@ try:
 finally:
     endpoints.held_model_ids = real_held
 
+# --------------------------------------- Hide paid and Early Access models (#385)
+# A model whose shown version - Civitai's first, the card's - is paid or Early
+# Access is left out, read as the card's badge reads it; an older paid version
+# under a free shown one keeps the model.
+EARLY = '2026-12-01T00:00:00Z'
+OLDER_PAID = remote(90180, 90181)
+OLDER_PAID['modelVersions'].append(dict(remote(90180, 90182, paidAccess={'permanent': True})['modelVersions'][0]))
+PRICED = [remote(90140, 90141), remote(90150, 90151, paidAccess={'permanent': True}),
+          remote(90160, 90161, paidAccess={'endsAt': EARLY}), remote(90170, 90171, earlyAccessDeadline=EARLY),
+          OLDER_PAID]
+civitai(models={'items': PRICED, 'nextCursor': None})
+status, body = get('/model-manager/civitai/models', hide_paid='true', limit=10)
+check('the box alone leaves out Paid, Early Access by its end, and by a bare deadline; not an older paid version',
+      [m['id'] for m in body.get('models') or []], [90140, 90180])
+check('saying how many, and that it was on',
+      ((body.get('filterStats') or {}).get('paid'), (body.get('filterStats') or {}).get('paidFilter')), (3, True))
+check('a free check: Civitai asked for as much as it gives per call, no image looked up',
+      ([c[1] for c in Stub.calls if c[0] == 'search_models'][-1]['limit'],
+       [c for c in Stub.calls if c[0] == 'get_model_images']), (100, []))
+
+civitai(models={'items': PRICED, 'nextCursor': None})
+with client.stream('GET', '/model-manager/civitai/models/stream',
+                   params={'limit': 10, 'hide_paid': 'true', 'require_prompt': 'false'}) as response:
+    lines = [json.loads(line) for line in response.iter_lines() if line.strip()]
+check('the stream leaves them out too',
+      [line['model']['id'] for line in lines if line['type'] == 'model'], [90140, 90180])
+check('its progress counts them as it goes',
+      [line.get('paid') for line in lines if line['type'] == 'progress'][-1:], [3])
+check('and its summary says so',
+      ((lines[-1].get('filterStats') or {}).get('paid'), (lines[-1].get('filterStats') or {}).get('paidFilter')),
+      (3, True))
+
+# Unticked, with another free check on - the Hide box, none of them held - the loop runs and keeps them all.
+civitai(models={'items': PRICED, 'nextCursor': None})
+status, body = get('/model-manager/civitai/models', hide_owned='true', limit=10)
+check('unticked, with the Hide box on, every paid model stays',
+      [m['id'] for m in body.get('models') or []], [90140, 90150, 90160, 90170, 90180])
+check('and the status line is told the box was off, nothing passed over as paid',
+      ((body.get('filterStats') or {}).get('paidFilter'), (body.get('filterStats') or {}).get('paid')), (False, 0))
+
 # ------------------------------------------------- Only Show Models with SFW images
 # Each candidate's first images are looked at; one above PG-13 rules it out.
 from model_manager.api import prompts as prompt_checks          # noqa: E402

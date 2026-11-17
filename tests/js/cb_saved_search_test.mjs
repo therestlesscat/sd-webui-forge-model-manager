@@ -110,6 +110,9 @@ check('and the bar shows them - a base model Civitai\'s list brings included - a
 // A search saved before Hide models in my library (#217) has no value for it.
 check('a search saved before the library box leaves it unticked, and hides nothing',
       [$('cb_hide_owned')?.checked, first?.get('hide_owned') === 'true'], [false, false]);
+// Nor for Hide paid and Early Access models (#385).
+check('nor the paid box: unticked, nothing hidden',
+      [$('cb_hide_paid')?.checked, first?.get('hide_paid') === 'true'], [false, false]);
 clickTab();
 await new Promise((resolve) => setTimeout(resolve, 50));
 check('and not again when the tab is shown again', searches.length, 1);

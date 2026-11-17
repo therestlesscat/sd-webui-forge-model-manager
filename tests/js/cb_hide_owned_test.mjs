@@ -65,10 +65,10 @@ await waitFor('the saved search to finish', () => status().startsWith('Showing')
 
 // ---------------------------------------------------------------- the markup
 const group = $('cb_require_prompt').closest('.filter-group');
-check('the box sits under Post-processing Options, after the other two',
+check('the box sits under Post-processing Options, after the other two, the paid box after it (#385)',
       [group?.querySelector('label')?.textContent, Array.from(group?.querySelectorAll('input[type="checkbox"]') || [])
           .map((box) => box.id)],
-      ['Post-processing Options', ['cb_sfw_only', 'cb_require_prompt', 'cb_hide_owned']]);
+      ['Post-processing Options', ['cb_sfw_only', 'cb_require_prompt', 'cb_hide_owned', 'cb_hide_paid']]);
 check('saying what it does', $('cb_hide_owned_label')?.textContent.replace(/\s+/g, ' ').trim(),
       'Hide models in my library');
 check('and, held over, that owned means the library here', $('cb_hide_owned_label')?.title.includes('not a paid version'),

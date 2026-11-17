@@ -98,6 +98,9 @@ def create_civitai_browser_ui():
                                 <label class="cb-checkbox-label" id="cb_hide_owned_label" title="Leaves out every model you have a file of in this WebUI's folders, the ones marked Owned, and fills the page from the rest. Owned means your library here, not a paid version bought on Civitai. Free: no extra requests, though a search that is mostly owned may need more searches to fill a page.">
                                     <input type="checkbox" id="cb_hide_owned"> Hide models in my library
                                 </label>
+                                <label class="cb-checkbox-label" id="cb_hide_paid_label" title="Leaves out models whose card shows a version that costs Buzz, for good (Paid) or until a date (Early Access), and fills the page from the rest. A version you bought is left out too: untick the box to see it. Free: no extra requests, though a search of a creator who posts many paid models may need more searches to fill a page.">
+                                    <input type="checkbox" id="cb_hide_paid"> Hide paid and Early Access models
+                                </label>
                             </div>
                         </div>
                         <div class="filter-group-bordered">

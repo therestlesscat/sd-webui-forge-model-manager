@@ -14,6 +14,11 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.80 - Hide paid and Early Access models.** In the Civitai Browser, a new box under
+Post-processing Options, Hide paid and Early Access models, leaves out the models whose card
+shows a version that costs Buzz, and fills the page from the rest. It costs Civitai no request,
+and the status line says how many it passed over.
+
 **0.79 - Notices you can read.** The notices in the page's corner - what a Send did or could
 not do, and the bar shown while stored images are judged again after a settings save - stand in
 one column, newest at the bottom, where they sat on top of each other. Each has a × to close it -
@@ -288,10 +293,11 @@ do before it does it.
 
 Search Civitai without leaving the WebUI, by name, type, base model, tag and file size.
 Models you already have are marked **Owned**, with a jump to them in the Model Manager.
-Three checks Civitai cannot make are done here: **Only Show Models with SFW images** leaves out models
+Four checks Civitai cannot make are done here: **Only Show Models with SFW images** leaves out models
 whose first example images include anything NSFW, **Only with usable prompts** keeps
-only models whose images have a prompt worth reusing, and **Hide models in my library** leaves
-out the ones marked Owned. Results stream in as they are found.
+only models whose images have a prompt worth reusing, **Hide models in my library** leaves
+out the ones marked Owned, and **Hide paid and Early Access models** leaves out those whose
+card shows a version that costs Buzz. Results stream in as they are found.
 Save Search keeps the search, and runs it the first time the tab is opened.
 
 ![Civitai Browser search results](docs/images/cb-search.png)
@@ -431,6 +437,8 @@ Search Civitai and download directly into the right model folder.
   steps/sampler/CFG
 - **Hide models in my library**: leave out the models marked Owned, the page filled from
   the rest
+- **Hide paid and Early Access models**: leave out the models whose card shows a version
+  that costs Buzz, the page filled from the rest
 - Image gallery read live from Civitai, a page at a time, with Load More
 - **Downloads**, shared with the Model Manager: as many at a time as the settings say -
   two unless changed - with progress, speed and time left; a waiting one started now,
