@@ -283,6 +283,15 @@ the code (2026-10-16).
   three were moved into helpers Single pass shared; a side agent caught it,
   and the owner had them put back - a fault in shared code would have broken
   the fallback too (2026-10-14).
+- **A plan that moves an existing function's steps into a shared helper
+  names the checks that already cover each path it moves**, and adds a
+  guard, run on the old code, for a path none covers. #357's commit 4 moved
+  the settings window's Save into `postSettings`, and the owner asked "have
+  you validated against existing tests ... are there existing tests which
+  covers this logic?". A successful save had five checks and the re-judging
+  notice four; a refused one had none. The guard written then found an
+  older fault: the "Not saved:" line drawn over at once, since the window's
+  first version (2026-11-17).
 - Honour the existing structure rather than reorganising in passing.
 - Keep everything generic. No module exists to serve one workflow.
 - **Stop guessing after the second try.** Ask for a screenshot, a console
@@ -303,7 +312,13 @@ the code (2026-10-16).
   built, `--all` run and its checks proven on the code before it, and
   committed on the owner's yes before the next is started. A part over about
   600 lines says in the plan why it cannot be cut further, and the owner
-  decides. A change that moves or renames without changing what anything
+  decides. A commit's size is read from the staged diff when it is asked
+  for, not from the plan: #357's commit 4 was planned at 250 to 350 lines
+  and was 650 (+611 −39) at the ask - the build review's fixes, a notice
+  for a failed save and an older fault folded in, each with its checks, 372
+  of the lines - and the ask did not say so; noticed after the commit, the
+  owner accepted it. Over about 600, the ask says so and why, for the owner
+  to decide. A change that moves or renames without changing what anything
   does is a commit of its own. A round found while building - a review's
   fixes, a redesign - is planned as commits too. #377 (0.74.0) was built as
   one: its first round alone was over 2,000 lines, then a redesign, a

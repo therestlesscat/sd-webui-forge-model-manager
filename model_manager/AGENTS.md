@@ -352,6 +352,16 @@ The NSFW switch says what it alone hides; the prompt switch every image with an
 unusable prompt (`promptless_total`). The database's counts, a page's, the
 Civitai Browser's and your generations' are kept to the same meanings.
 
+**A setting is listed in a tab's view of the settings window only when it is
+tagged with that tab; `SEND` is no tab.** Opened from a tab's ⚙, the window
+lists the settings whose `tags` hold that tab, and All settings beside them.
+#357's Keep past notices was tagged Send alone, as Send's own settings are,
+and opened from any tab's ⚙ it was missing: only All settings listed it. The
+owner: "keep notices not shown in any tab mode, it should be shown for all
+tabs". A setting that acts on every tab is tagged with all five, as the
+database path, Check for updates and the two Access settings are. The 14
+settings tagged Send alone are #427.
+
 ### Your generations
 
 **A generation's result is known by the object Forge hands every script.**

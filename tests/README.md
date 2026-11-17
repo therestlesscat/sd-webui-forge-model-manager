@@ -176,6 +176,13 @@ that the WebUI does not - and ask a real browser ("Probes").
   or change whatever `disabled` says (`harness.mjs`, `press`), so a check
   that a control can be used reads `.disabled` itself: #415's Sort box,
   drawn always disabled, passed both list suites until one did.
+- **A window closed with a question is closed later.** Cancel on the
+  settings window with unsaved changes asks Discard?, which
+  `answerQuestions` answers asynchronously, and a window opened before that
+  answer is closed by it. #357's guard in `settings_window_test`, placed
+  right after such a Cancel, read the window closed on the old code and the
+  new alike. Made to wait, it then failed by chance. Moved after a Save,
+  which closes without asking, it passed 3 runs of 3.
 - **A `{ once: true }` listener goes without a `removeEventListener`.** A suite
   that tracks listeners by wrapping `addEventListener` drops one when it
   fires: `service_stop_test` counted core's `DOMContentLoaded` as left behind
@@ -336,7 +343,11 @@ git-ignored: a probe is local, and written again when needed.
   imports loaded. Served by Windows' `python -m http.server 8765 --bind
   127.0.0.1` from the repository, under `timeout`, it loaded, with `fetch`
   stubbed in a classic script before the import. Stop the server after, by its
-  PID from `netstat.exe -ano`, its command line checked first.
+  PID from `netstat.exe -ano`, its command line checked first. So did
+  `shared/notices.mjs` once it imported both `calls.mjs` and `ui_options.mjs`
+  (#357); with either alone it loaded. Over HTTP, Edge keeps the stylesheet
+  in its `--user-data-dir`: a re-measure after a CSS change read the old
+  16 px until a fresh profile read 14.4.
 - **A Node probe exits by itself, or never.** One that loads the shared modules
   or a tab keeps their timers alive - the update notice's, the downloads
   poll's. End it with `process.exit(0)`, run it under `timeout 30`, in a call
