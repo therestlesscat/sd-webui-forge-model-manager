@@ -3127,10 +3127,11 @@ body.mm-modal-open {
     to { transform: rotate(360deg); }
 }
 
-/* Scroll to Top Button */
+/* Scroll to Top Button. Above the corner's Past notices button (#357),
+   which stays once a notice has shown: at 30 px it covered the bottom 10 px. */
 .mm-scroll-to-top {
     position: fixed;
-    bottom: 30px;
+    bottom: 56px;
     right: 30px;
     width: 48px;
     height: 48px;
@@ -4524,15 +4525,112 @@ button.mm-banner-link {
     color: var(--body-text-color, #fff);
 }
 
-/* How many older notices wait hidden above the four shown. */
-.mm-notices-more {
+/* How many older notices wait hidden above the four shown, and under the
+   column the button to the past ones (#357): each opens Past notices. Buttons
+   outside Gradio's container, their font the browser's: set here. */
+.mm-notices-more,
+.mm-notices-past {
+    margin: 0;
     padding: 2px 10px;
     border: 1px solid var(--border-color-primary, #374151);
     border-radius: 999px;
     background: var(--background-fill-primary, #1f2937);
     color: var(--body-text-color-subdued, #9ca3af);
+    font: inherit;
     font-size: 12px;
     line-height: 1.5;
+    cursor: pointer;
+}
+
+.mm-notices-more:hover,
+.mm-notices-more:focus-visible,
+.mm-notices-past:hover,
+.mm-notices-past:focus-visible {
+    color: var(--body-text-color, #111827);
+    border-color: var(--body-text-color-subdued, #6b7280);
+}
+
+.dark .mm-notices-more:hover,
+.dark .mm-notices-more:focus-visible,
+.dark .mm-notices-past:hover,
+.dark .mm-notices-past:focus-visible {
+    color: var(--body-text-color, #fff);
+}
+
+/* Under Forge's own full-screen viewer, which covers the page (#lightboxModal,
+   z-index 1001 in both WebUIs, shown with display: flex): out of sight while
+   it shows, its room kept so no notice moves. The column's z-index is above
+   the viewer's, and a child cannot go below its parent's. The notices stay
+   above it, as they always were. */
+body:has(#lightboxModal[style*="display: flex"]) .mm-notices-past {
+    visibility: hidden;
+}
+
+/* Past notices (#357): one height whatever it holds, the list scrolling
+   inside, the title and the buttons always in sight. */
+.mm-question.mm-past-notices {
+    width: min(calc(100% - 40px), 640px);
+}
+
+.mm-past-notices .mm-question-box {
+    display: flex;
+    flex-direction: column;
+    height: min(560px, calc(100vh - 40px));
+    overflow: hidden;
+}
+
+.mm-past-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    margin: 0 0 10px;
+    padding: 0;
+    list-style: none;
+}
+
+/* A row's edge as the notice's was: blue, amber, or how a pass ended. */
+.mm-past-row {
+    display: flex;
+    gap: 10px;
+    margin: 0 0 6px;
+    padding: 6px 10px;
+    border-left: 3px solid var(--mm-past-accent, #f59e0b);
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.04);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.dark .mm-past-row {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.mm-past-row[data-kind="info"] {
+    --mm-past-accent: var(--primary-500, #3b82f6);
+}
+
+.mm-past-row[data-kind="good"] {
+    --mm-past-accent: #22c55e;
+}
+
+.mm-past-row[data-kind="bad"] {
+    --mm-past-accent: #ef4444;
+}
+
+.mm-past-time {
+    flex: none;
+    font-variant-numeric: tabular-nums;
+    color: var(--body-text-color-subdued, #6b7280);
+}
+
+.mm-past-words {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.mm-past-empty {
+    padding: 6px 0;
+    color: var(--body-text-color-subdued, #6b7280);
 }
 
 /* The Type row's note that Civitai lists the file as something else. */

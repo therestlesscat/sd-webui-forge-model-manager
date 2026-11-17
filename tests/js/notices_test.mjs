@@ -62,7 +62,10 @@ const clear = () => document.querySelectorAll('.mm-notice:not(.mm-restamp)').for
 const box = () => document.querySelector('.mm-restamp');
 const boxText = () => box()?.querySelector('.mm-notice-text')?.textContent;
 const boxShown = () => Boolean(box()) && !box().hidden;
-const last = () => Array.from(column()?.children || []).at(-1);
+// What the column holds above the button to the past notices, always its last
+// once one has been shown (past_notices_test.mjs).
+const held = () => Array.from(column()?.children || []).filter((c) => !c.classList.contains('mm-notices-past'));
+const last = () => held().at(-1);
 
 // --------------------------------- the re-judging box, before any notice
 // The usual case: a settings save, no Send yet, so no column either.
@@ -153,7 +156,7 @@ pointer('pointerenter');
 press(closeOf(notices()[1]));
 const gaps = () => document.querySelectorAll('.mm-notices-gap').length;
 check('× pressed while the pointer stays: the notice goes, its room kept empty',
-      [shown(), gaps(), Array.from(column()?.children || []).map((c) => c.className)],
+      [shown(), gaps(), held().map((c) => c.className)],
       [['Above.', 'Below.'], 1, ['mm-notices-more', 'mm-notice', 'mm-notices-gap', 'mm-notice']]);
 // Across the 8 px between two notices the pointer leaves the column, which
 // takes the pointer only on what is in it, and comes back at once.
@@ -167,7 +170,7 @@ pointer('pointerleave');
 const roomJustAfter = gaps();
 await sleep(LEAVE_MS * 2);
 check('the pointer gone, the room closes - a moment after, so a crossing does not count',
-      [roomJustAfter, gaps(), Array.from(column()?.children || []).map((c) => c.className)],
+      [roomJustAfter, gaps(), held().map((c) => c.className)],
       [1, 0, ['mm-notices-more', 'mm-notice', 'mm-notice']]);
 clear();
 

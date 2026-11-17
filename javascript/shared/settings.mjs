@@ -28,8 +28,9 @@ const { refreshWebUiModelList } = await shared('forge.mjs');
 const { showNotice } = await shared('notices.mjs');
 
 // Forge's refresh, pressed from the presets' Refresh, waits on the watcher of
-// Forge's calls, which it starts.
-export const STARTS = ['forge.mjs'];
+// Forge's calls, which it starts; the re-judging notice's end joins the
+// notices' list of past ones (#357).
+export const STARTS = ['forge.mjs', 'notices.mjs'];
 
 // The settings this window draws a control of its own for, or acts on. Every
 // setting's name, group, tab heading, tags, badges and the setting it sits

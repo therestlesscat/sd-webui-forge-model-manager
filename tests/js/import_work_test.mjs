@@ -90,6 +90,8 @@ const STARTED = {
     'downloads.mjs': ['fetch /model-manager/civitai/download/progress', 'onAfterUiUpdate',
                       'provide downloads.cancel', 'provide downloads.control', 'provide downloads.dismiss',
                       'provide downloads.dismissFinished'],
+    // Its list of past notices drawn as a button - none kept here, so nothing (#357).
+    'notices.mjs': [],
     'chips.mjs': [],
     'resources.mjs': [],
     // Its work wraps the page's fetch, which nothing here counts: forge_refresh_test.mjs.

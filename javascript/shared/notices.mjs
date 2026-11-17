@@ -9,13 +9,18 @@
  * pointer is over the column none goes. A notice can also stay until told,
  * with its words, a bar and its edge changed as it goes: the settings
  * window's progress while stored images are judged again is one.
+ *
+ * Each is kept in a list as it appears (Past notices): the last 50, in the
+ * browser tab's storage, so a reload keeps them. A button under the column
+ * opens them, as "+N more" does.
  */
 
 // The other shared modules, under the version this one was asked for under -
 // the copy the tabs loaded. A plain import would be another URL, and another
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
-const { TIMING } = await shared('core.mjs');
+const { TIMING, escapeHtml, settingLink } = await shared('core.mjs');
+const { openDialog } = await shared('dialog.mjs');
 
 // Notices shown at once; older ones wait out their time hidden, counted above.
 const SHOWN = 4;
@@ -27,9 +32,26 @@ let observer = null;
 let hovered = false;
 let focused = false;
 let leaving = null;
+// The last tab using this has stopped: what a Send still under way says goes
+// to the console alone, and the column does not come back for it.
+let stopped = false;
 const timers = new Set();
 
+// Past notices: oldest first, as they were raised. Read from the browser
+// tab's storage when first needed - a page loaded again in the same tab finds
+// the last page's - and written back at each change.
+const KEPT = 50;
+const STORE = 'mm-past-notices';
+const KINDS = ['info', 'warning', 'good', 'bad'];
+let past = null;
+let pastButton = null;
+let pastWindow = null;
+
 const paused = () => hovered || focused;
+// Only a ×'s focus holds the column. The buttons to Past notices take focus
+// too, back from the window when it closes; held by them, every notice stayed
+// until a click elsewhere.
+const isClose = (element) => Boolean(element?.classList?.contains('mm-notice-close'));
 
 /**
  * Run `work` after `ms`, a clock that stops while the column is paused and
@@ -86,9 +108,11 @@ function theColumn() {
     if (!column) {
         column = document.createElement('div');
         column.className = 'mm-notices';
-        more = document.createElement('div');
+        more = document.createElement('button');
+        more.type = 'button';
         more.className = 'mm-notices-more';
         more.hidden = true;
+        more.addEventListener('click', openPast);
         column.appendChild(more);
         // Only what is in the column takes the pointer (style.css): the space
         // beside a narrower notice is Forge's page. So the 8 px between two
@@ -101,9 +125,9 @@ function theColumn() {
             clearTimeout(leaving);
             leaving = setTimeout(() => setPaused(() => { hovered = false; }), TIMING.noticeLeave);
         });
-        column.addEventListener('focusin', () => setPaused(() => { focused = true; }));
+        column.addEventListener('focusin', (event) => setPaused(() => { focused = isClose(event.target); }));
         column.addEventListener('focusout', (event) => {
-            if (event.relatedTarget && column.contains(event.relatedTarget)) return;
+            if (isClose(event.relatedTarget) && column.contains(event.relatedTarget)) return;
             setPaused(() => { focused = false; });
         });
         // A notice taken off the page by anything - a test, another script -
@@ -136,6 +160,197 @@ function count() {
     if (more.hidden !== !hidden) more.hidden = !hidden;
 }
 
+// ------------------------------------------------------------ past notices
+
+function storage() {
+    try {
+        return globalThis.sessionStorage ?? null;
+    } catch {
+        // A browser that refuses storage keeps the list for this page alone.
+        return null;
+    }
+}
+
+const isPart = (part) => typeof part?.text === 'string'
+    && (part.setting === undefined || (typeof part.setting === 'string' && part.setting !== ''));
+const isEntry = (entry) => typeof entry?.at === 'number' && Number.isFinite(new Date(entry.at).getTime())
+    && KINDS.includes(entry.kind) && Array.isArray(entry.parts) && entry.parts.length > 0
+    && entry.parts.every(isPart);
+
+function pastList() {
+    if (past) return past;
+    past = [];
+    try {
+        const kept = JSON.parse(storage()?.getItem(STORE) || '[]');
+        if (Array.isArray(kept)) past = kept.filter(isEntry).slice(-KEPT);
+    } catch {
+        // Nothing readable kept: an empty list.
+    }
+    return past;
+}
+
+function keepPast() {
+    try {
+        if (past.length) storage()?.setItem(STORE, JSON.stringify(past));
+        else storage()?.removeItem(STORE);
+    } catch {
+        // Full or refused: the list still holds for this page.
+    }
+}
+
+/**
+ * A notice's words as parts: its text, and each link to a setting as its
+ * words and the setting it names - never markup, which the list would have
+ * to clean, and cleaning removes a button, words and all.
+ */
+function partsOf(element, skip) {
+    const parts = [];
+    const add = (text) => {
+        if (!text) return;
+        const lastPart = parts.at(-1);
+        if (lastPart && lastPart.setting === undefined) lastPart.text += text;
+        else parts.push({ text });
+    };
+    const walk = (node) => {
+        node.childNodes.forEach((child) => {
+            if (child === skip) return;
+            if (child.nodeType !== 1) {
+                add(child.textContent);
+            } else if (child.dataset?.action === 'settings.open' && child.dataset.focus) {
+                parts.push({ text: child.textContent, setting: child.dataset.focus });
+            } else {
+                walk(child);
+            }
+        });
+    };
+    walk(element);
+    return parts;
+}
+
+function remember(kind, parts) {
+    if (stopped) return;
+    const list = pastList();
+    list.push({ at: Date.now(), kind, parts });
+    if (list.length > KEPT) list.splice(0, list.length - KEPT);
+    keepPast();
+    drawPastButton();
+    pastWindow?.draw();
+}
+
+/** Under the column, while the list holds a notice. */
+function drawPastButton() {
+    const n = pastList().length;
+    if (!n) {
+        pastButton?.remove();
+        pastButton = null;
+        return;
+    }
+    const home = theColumn();
+    if (!pastButton) {
+        pastButton = document.createElement('button');
+        pastButton.type = 'button';
+        pastButton.className = 'mm-notices-past';
+        pastButton.addEventListener('click', openPast);
+    }
+    const words = `Past notices (${n})`;
+    if (pastButton.textContent !== words) pastButton.textContent = words;
+    if (home.lastElementChild !== pastButton) home.appendChild(pastButton);
+}
+
+const two = (n) => String(n).padStart(2, '0');
+const timeOf = (at) => {
+    const date = new Date(at);
+    return `${two(date.getHours())}:${two(date.getMinutes())}:${two(date.getSeconds())}`;
+};
+
+const wordsHtml = (parts) => parts.map((part) => (part.setting === undefined
+    ? escapeHtml(part.text) : settingLink(part.setting, part.text))).join('');
+
+/**
+ * The window: every notice kept, newest first, with its time and its edge.
+ * A link to a setting is drawn again as one, and opens the settings window
+ * there through the page's own listener.
+ */
+function openPast() {
+    if (pastWindow) return;
+    const element = document.createElement('dialog');
+    element.className = 'mm-question mm-past-notices';
+    element.setAttribute('aria-labelledby', 'mm_past_notices_title');
+    element.innerHTML = `<div class="mm-dialog mm-question-box">
+        <h3 id="mm_past_notices_title">Past notices</h3>
+        <p class="mm-question-message">Kept in this browser tab until it closes. The last ${KEPT}.</p>
+        <ul class="mm-past-list"></ul>
+        <div class="mm-dialog-buttons">
+            <button type="button" class="mm-btn secondary" data-past="clear">Clear</button>
+            <button type="button" class="mm-btn secondary" data-past="close">Close</button>
+        </div>
+    </div>`;
+    const list = element.querySelector('.mm-past-list');
+    const clear = element.querySelector('[data-past="clear"]');
+    const closer = element.querySelector('[data-past="close"]');
+    const draw = () => {
+        // A row's link with focus is drawn anew: focus goes to Close, not to
+        // the page, where Esc would reach Forge's Interrupt.
+        const hadFocus = list.contains(document.activeElement);
+        const rows = pastList().slice().reverse();
+        list.innerHTML = rows.length ? rows.map((entry) => `<li class="mm-past-row" data-kind="${entry.kind}">
+            <span class="mm-past-time">${timeOf(entry.at)}</span>
+            <span class="mm-past-words">${wordsHtml(entry.parts)}</span></li>`).join('')
+            : '<li class="mm-past-empty">No notices kept.</li>';
+        clear.disabled = !rows.length;
+        if (hadFocus) closer.focus();
+    };
+    element.addEventListener('click', (event) => {
+        const button = event.target.closest?.('[data-past]');
+        if (!button || button.disabled) return;
+        if (button.dataset.past === 'clear') {
+            // The list only: notices still showing stay.
+            past = [];
+            keepPast();
+            drawPastButton();
+            draw();
+            // Clear, now disabled, lets go of focus.
+            closer.focus();
+        } else {
+            handle.close('cancel');
+        }
+    });
+    draw();
+    const handle = openDialog(element, {
+        focus: closer,
+        onClose: () => {
+            element.remove();
+            pastWindow = null;
+        },
+    });
+    pastWindow = { draw, close: () => handle.close('code') };
+}
+
+/**
+ * Started with Send and the settings window (their STARTS): the list kept by
+ * this browser tab drawn as its button at once. Stopped with the last tab
+ * that uses them: the column, the button and the window go, and every
+ * notice's clock with them.
+ */
+export function start(scope) {
+    drawPastButton();
+    scope.onStop(() => {
+        stopped = true;
+        pastWindow?.close();
+        timers.forEach((timer) => clearTimeout(timer.id));
+        timers.clear();
+        clearTimeout(leaving);
+        observer?.disconnect();
+        column?.remove();
+        column = null;
+        more = null;
+        observer = null;
+        pastButton = null;
+        hovered = false;
+        focused = false;
+    });
+}
+
 /** The ×: no text of its own, so a notice's words and its console line are as they were. */
 function closeButton(close) {
     const button = document.createElement('button');
@@ -148,7 +363,9 @@ function closeButton(close) {
         // stayed paused for good. Let go of it first, then ask the page.
         if (document.activeElement === button) button.blur();
         close();
-        setPaused(() => { focused = Boolean(column?.contains(document.activeElement)); });
+        setPaused(() => {
+            focused = isClose(document.activeElement) && Boolean(column?.contains(document.activeElement));
+        });
     });
     return button;
 }
@@ -233,17 +450,37 @@ export function showNotice(text, { info = false, html = null, stay = false, bar,
 
     const log = () => ((stay ? notice.dataset.tone !== 'bad' : info) ? console.log : console.warn)(
         '[ModelManager]', notice.textContent);
+    // Kept as it appears; one that stays, as it ends - its last words, not
+    // each step of its bar, and once: an end said again in the same words is
+    // the same end (two polls of one pass each end it).
+    let keptAs = null;
+    const keep = () => {
+        const kind = KINDS.includes(notice.dataset.tone) ? notice.dataset.tone : (info ? 'info' : 'warning');
+        const parts = partsOf(words, close);
+        const as = JSON.stringify([kind, parts]);
+        if (as === keptAs) return;
+        keptAs = as;
+        remember(kind, parts);
+    };
 
     setWords(text, html);
     setBar(bar);
     setTone(tone);
     close.hidden = stay;
     notice.appendChild(close);
-    theColumn().appendChild(notice);
+    if (stopped) {
+        // Said, but not shown: the page's tabs are off.
+        log();
+        return { element: notice, get open() { return false; }, update() {}, closeAfter() {}, close() {} };
+    }
+    // Above the button to the past ones, the column's last.
+    const home = theColumn();
+    home.insertBefore(notice, pastButton?.parentNode === home ? pastButton : null);
     count();
     if (!stay) {
         timer = later(remove, TIMING.notice);
         log();
+        keep();
     }
 
     return {
@@ -263,7 +500,10 @@ export function showNotice(text, { info = false, html = null, stay = false, bar,
             cancel(timer);
             timer = later(remove, ms);
             close.hidden = false;
-            if (stay) log();
+            if (stay) {
+                log();
+                keep();
+            }
         },
         close: () => remove(),
     };

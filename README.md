@@ -14,6 +14,12 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.79 - Notices you can read.** The notices in the page's corner - what a Send did or could
+not do, and the bar shown while stored images are judged again after a settings save - stand in
+one column, newest at the bottom, where they sat on top of each other. Each has a × to close it -
+the judging bar once its pass ends - and none goes while the pointer is over them. Past notices, a button under them, shows the last
+50 again, newest first, through a reload of the page, until the browser tab closes.
+
 **0.78 - Sort your checkpoints, and tick them all at once.** The list of your checkpoints - in the
 Resources dialog, and in txt2img's Checkpoints to queue with window - has a Sort box beside its search:
 by name, file name or base model, by when a file came or its size, by Civitai's publish date, downloads

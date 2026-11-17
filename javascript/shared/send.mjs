@@ -56,10 +56,11 @@ export const IMG2IMG_SENDS = [
  * What a send relies on running, started with it by each tab that sends
  * (#182, #186): the chips kept under the prompt, the Resources dialog a
  * stopped send opens, and the watcher of Forge's calls its preset waits
- * read (forge.mjs, #321). Not the downloads list: that runs with the tabs
- * that download. The loading module starts these.
+ * read (forge.mjs, #321), and the notices' list of past ones (#357). Not
+ * the downloads list: that runs with the tabs that download. The loading
+ * module starts these.
  */
-export const STARTS = ['chips.mjs', 'resources.mjs', 'forge.mjs'];
+export const STARTS = ['chips.mjs', 'resources.mjs', 'forge.mjs', 'notices.mjs'];
 
 /** Where a generation's settings go: back to the tab it was made in. */
 export function sendTab(card) {
