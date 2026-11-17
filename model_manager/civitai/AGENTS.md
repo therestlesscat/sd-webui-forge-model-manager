@@ -33,7 +33,15 @@ because that would mean the assumption no longer holds.
 - **A search answers every version of a model**, in Civitai's order: 139 of
   139 and 58 of 58 versions on two models, the same as `/models/{id}` and as
   a sync's stored list (2026-10-16). A card can be judged from the search
-  answer alone (#218).
+  answer alone (#218). **Not with `baseModels` set:** the answer then lists
+  only the versions on those base models. 100 LoRAs searched with Illustrious
+  returned 295 versions, all Illustrious; 34 of 40 of those models, fetched
+  whole, had more - every one of the 34 on several base models, one 8 in the
+  search against 31 in full (2026-11-17). So with a Base Model picked in the
+  Civitai Browser, a card's first version is the first on that base model,
+  and the New version badge counts only its versions: a model whose held
+  version is on another base model is not in the list, and gets no badge
+  (#387).
 - **Civitai's `nsfw` search parameter has two states, not three, and neither
   is "every model".** `true` leaves out models Civitai keeps out of its NSFW
   lists (4 of 4 seen); left out, or `false`, it returns only models whose

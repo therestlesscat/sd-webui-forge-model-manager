@@ -145,7 +145,11 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   compile before suspecting anything else. A break runner gives each run a
   fresh bytecode folder (`PYTHONPYCACHEPREFIX`): two of #408's breaks, the
   same size and written within a second, ran the one before's bytecode, and
-  the runner reported 5 failures for a break that fails 1.
+  the runner reported 5 failures for a break that fails 1. A runner in WSL's
+  Python names it in `WSLENV` too (`tests/README.md`, `MM_ROOT`): #385's set
+  it alone, Windows' Python never saw it, and every break wrote its bytecode
+  into the copy's own `__pycache__`; one swap of two lines, the same size,
+  left its break there, and a build review's run of the copy failed on it.
 - **A check that fails once is run twenty times on HEAD before it is blamed
   on the change.** One download test asserted which of two threads started at
   once recorded itself last: the scheduler's choice, 1 run in 20.
