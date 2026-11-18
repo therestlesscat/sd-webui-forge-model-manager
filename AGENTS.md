@@ -229,7 +229,15 @@ the code (2026-10-16).
   cost, before it enters the plan. S1 (cross-site requests) folded in DNS
   rebinding unasked in round 1; it became rounds 2 to 5 and 2 of its 4
   commits, each round finding a hole after building, and still only "made
-  harder" - the owner: "feels like wild goose chase" (2026-11-10).
+  harder" - the owner: "feels like wild goose chase" (2026-11-10). Its
+  other side: a case of the same fault found while building is this
+  issue's, not a follow-up's. #393's build found two more cases of its
+  bug - a Neo X/Y/Z cell naming the selected checkpoint, a Several row on
+  it - and the ask proposed an issue for them; the owner: "working on an
+  issue means fixing issues, not yeild 10 other issues. if what you are
+  saying is related to content of this issue, it can be addressed in this
+  issue." They became a plan round and a second commit, 0.80.3
+  (2026-11-17).
 - **A sub-task goes to two agents or more where that is faster - asked
   first.** An agent's own time is about 76 s to start, 3.7 s a turn and 6.5
   s per 1,000 tokens it writes, thinking included; its tools take about a
