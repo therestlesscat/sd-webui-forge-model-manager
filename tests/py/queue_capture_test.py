@@ -68,6 +68,13 @@ class Checkbox(Component): pass
 class Dropdown(Component): pass
 class State(Component): pass
 class Files(Component): pass
+class File(Component): pass
+class UploadButton(Component): pass
+class Video(Component): pass
+class Audio(Component): pass
+class Model3D(Component): pass
+GrImage = type('Image', (Component,), {})   # gr.Image's name; PIL's Image is imported above
+class Upload(File): pass          # a File under a name of its own, as an extension's
 class LogicalImage(Component): pass
 class Button(Component):
     def click(self, **wiring):
@@ -219,6 +226,11 @@ check('a capture with no files makes no folder: only the first, with its image, 
 cn_dep.fn = UiControlNetUnit
 
 # ------------------------------------------------------------- img2img
+# An extension's upload controls, among its script's controls (#396).
+RUNNERS['img2img'].inputs += [UploadButton('Upload', 'up_button'), Video('Video', 'up_video'),
+                              Upload('Upload', 'up_file'), Audio('Audio', 'up_audio'), Model3D('3D', 'up_3d'),
+                              GrImage('Image', 'up_image')]
+RUNNERS['img2img'].scripts.append(script('Uploads', 7, 13))
 I_FIXED = [Textbox(None, None), Dropdown('Mode', None), Textbox('Prompt', 'img2img_prompt'),
            LogicalImage('background', 'uuid_0f3c'), Files('Files', 'img2img_batch_upload')]
 i_root, i_generate, i_own, i_others, _ = tab_blocks('img2img', I_FIXED)
@@ -230,6 +242,13 @@ i_inputs = capture.queue_inputs(i_own, i_others)
 i_values = {I_FIXED[0]: '', I_FIXED[1]: 0, I_FIXED[2]: 'an apple', I_FIXED[3]: source, I_FIXED[4]: [upload],
             i_runner.inputs[0]: 0, i_runner.inputs[1]: -1, i_runner.inputs[2]: -1,
             i_runner.inputs[3]: Unit(), i_runner.inputs[4]: 0, i_runner.inputs[5]: '', i_runner.inputs[6]: False}
+extension_uploads = []
+for at, name in ((7, 'button.png'), (8, 'clip.mp4'), (9, 'file.txt'), (10, 'sound.wav'), (11, 'shape.glb'),
+                 (12, 'picture.png')):
+    extension_uploads.append(os.path.join(WORK, name))
+    with open(extension_uploads[-1], 'wb') as f:
+        f.write(name.encode())
+    i_values[i_runner.inputs[at]] = extension_uploads[-1]
 i_values = [i_values.get(c, None) for c in i_inputs]
 task_id, _ = capture.capture('img2img', i_own, i_others, i_inputs, i_values, None)
 fixed = db.get_task(task_id)['inputs']['fixed']
@@ -242,6 +261,19 @@ copy = fixed['img2img_batch_upload'][0]['__file__']
 check('an upload is copied beside it', (os.path.isfile(copy), os.path.dirname(copy)),
       (True, os.path.dirname(image_path)))
 check('no script selected is None', db.get_task(task_id)['inputs']['script'], None)
+try:
+    batch = restore(fixed['img2img_batch_upload'])
+    read = [os.path.abspath(x.name) for x in batch]     # Forge's process_batch, in both WebUIs
+except AttributeError as e:
+    read = repr(e)
+check("Forge's Batch reads each restored upload's .name: the copy (#396)", read, [os.path.abspath(copy)])
+kept = [c['value'] for c in db.get_task(task_id)['inputs']['scripts']['Uploads']]
+check("an UploadButton's, a Video's, a File's under a name of its own, an Audio's, a Model3D's and a "
+      "file-path Image's are copied too (#396)",
+      [(isinstance(k, dict) and os.path.dirname(k.get('__file__') or '') == os.path.dirname(image_path),
+        os.path.basename(k['__file__']) if isinstance(k, dict) else k) for k in kept],
+      [(True, 'button.png'), (True, 'clip.mp4'), (True, 'file.txt'), (True, 'sound.wav'), (True, 'shape.glb'),
+       (True, 'picture.png')])
 
 # ------------------------------------------------- what cannot be named
 before = db.count_tasks(INSTALL_KEY)['pending']

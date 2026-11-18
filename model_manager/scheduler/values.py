@@ -26,7 +26,7 @@ import os
 import re
 import shutil
 import sys
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 # restore()'s answer for a value that was not kept, or cannot be rebuilt.
 MISSING = object()
@@ -70,6 +70,11 @@ def _image_shaped(array) -> bool:
     return str(array.dtype) == "uint8" and (array.ndim == 2 or (array.ndim == 3 and array.shape[2] in (3, 4)))
 
 
+def _safe(name: str) -> str:
+    """A control's name as a file name: images and arrays are named after it."""
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", name).strip("._") or "value"
+
+
 class Keeper:
     """
     Keeps one task's values. Files go to the task's own folder, made only
@@ -80,21 +85,47 @@ class Keeper:
         self.folder = folder
         self.files: List[str] = []
         self._used: Dict[str, int] = {}
+        self._copied: Dict[str, Dict[str, str]] = {}
+
+    def _free(self, stem: str, extension: str, count: int) -> Tuple[str, int]:
+        """
+        The first of stem, stem-1, stem-2... from `count` on that no file in
+        the task folder has. The disk judges it, so names it takes for one
+        file - differing in case, or by a trailing dot on Windows - are one.
+        """
+        while True:
+            path = os.path.join(self.folder, f"{stem}-{count}{extension}" if count else f"{stem}{extension}")
+            if not os.path.lexists(path):
+                return path, count
+            count += 1
 
     def _path(self, name: str, extension: str) -> str:
         os.makedirs(self.folder, exist_ok=True)
-        base = re.sub(r"[^A-Za-z0-9_.-]+", "_", name).strip("._") or "value"
-        count = self._used.get(base, 0)
+        base = _safe(name)
+        path, count = self._free(base, extension, self._used.get(base, 0))
         self._used[base] = count + 1
-        path = os.path.join(self.folder, f"{base}-{count}{extension}" if count else f"{base}{extension}")
         self.files.append(path)
         return path
 
     def keep_file(self, path: str) -> Dict[str, str]:
-        """A copy of a file Gradio had uploaded, which it may not keep."""
+        """
+        A copy of a file Gradio had uploaded, which it may not keep, under the
+        upload's own name: Forge's Batch reads it - the Filename it adds to
+        the prompt, the infotext it looks for in a PNG info folder, an output
+        named after it (#396). One file given twice is copied once.
+        """
         stem, extension = os.path.splitext(os.path.basename(path))
-        copy = self._path(stem, extension)
+        # Counted as when every upload took a numbered name, so an image named like one is numbered as it was.
+        base = _safe(stem)
+        self._used[base] = self._used.get(base, 0) + 1
+        source = os.path.normcase(os.path.abspath(path))
+        if source in self._copied:
+            return dict(self._copied[source])
+        os.makedirs(self.folder, exist_ok=True)
+        copy, _ = self._free(stem, extension, 0)
+        self.files.append(copy)
         shutil.copy2(path, copy)
+        self._copied[source] = {"__file__": copy}
         return {"__file__": copy}
 
     def keep(self, value: Any, name: str = "value") -> Any:
@@ -194,7 +225,9 @@ def _restore(stored: Any) -> Any:
         with Image.open(path) as image:
             return numpy.array(image)
     if "__file__" in stored:
-        return _existing(stored["__file__"])
+        # As Gradio hands an upload: a str with .name, which Forge's Batch reads (#396).
+        from gradio.utils import NamedString
+        return NamedString(_existing(stored["__file__"]))
     if "__enum__" in stored:
         try:
             return _lookup(stored["__enum__"])(_restore(stored["value"]))

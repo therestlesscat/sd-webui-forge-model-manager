@@ -477,11 +477,16 @@ def unique_key(title: str, taken: Dict[str, Any]) -> str:
     return key
 
 
+# Controls whose value can be a file Gradio uploaded - by any class a control
+# is made from, so an extension's own File is one too (#396).
+_UPLOADS = ("File", "Files", "UploadButton", "Gallery", "Video", "Audio", "Model3D", "Image")
+
+
 def _keep(component, value: Any, keeper: Keeper, name: str) -> Any:
     """A value as a task keeps it, by what its control is."""
     if getattr(component, "type", None) == "index" and getattr(component, "choices", None) is not None:
         return _label(component.choices, value)
-    if type(component).__name__ in ("File", "Files", "Gallery"):
+    if any(cls.__name__ in _UPLOADS for cls in type(component).__mro__):
         return _keep_uploads(value, keeper, name)
     return keeper.keep(value, name)
 

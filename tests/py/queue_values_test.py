@@ -138,6 +138,80 @@ check('an upload is copied into the task folder', (os.path.dirname(copied['__fil
       (FOLDER, True))
 os.remove(upload)
 check('and the copy outlives the original', restore(copied), copied['__file__'])
+back = restore(copied)
+check('it comes back as Gradio hands an upload: a string with .name, which Forge\'s Batch reads (#396)',
+      (isinstance(back, str), getattr(back, 'name', None)), (True, copied['__file__']))
+gone = keeper.keep_file(os.path.join(TESTS, 'py', 'queue_values_test.py'))
+os.remove(gone['__file__'])
+check('an upload whose copy is gone comes back MISSING', restore(gone) is MISSING, True)
+
+
+def source(folder, name, data):
+    """A file to upload, in a folder of its own: as Gradio keeps each upload."""
+    path = os.path.join(WORK, 'sources', folder, name)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'wb') as f:
+        f.write(data)
+    return path
+
+
+def read(kept):
+    with open(kept['__file__'], 'rb') as f:
+        return f.read()
+
+
+names = Keeper(os.path.join(WORK, 'names'))
+kept = [names.keep_file(source('1', 'my photo 1.png', b'one')), names.keep_file(source('2', 'café.png', b'two'))]
+check("a copy keeps its upload's own name: Forge's Batch reads it, for Filename, a PNG info folder, "
+      "an output named after it (#396)", [os.path.basename(k['__file__']) for k in kept],
+      ['my photo 1.png', 'café.png'])
+
+cases = Keeper(os.path.join(WORK, 'cases'))
+kept = [cases.keep_file(source('3', 'a.png', b'lower')), cases.keep_file(source('4', 'A.png', b'upper'))]
+check('two uploads whose names differ only in case are two copies, each its own bytes',
+      [read(k) for k in kept], [b'lower', b'upper'])
+numbered = Keeper(os.path.join(WORK, 'numbered'))
+kept = [numbered.keep_file(source('5', 'x.png', b'first')), numbered.keep_file(source('6', 'x.png', b'second')),
+        numbered.keep_file(source('7', 'x-1.png', b'third'))]
+check('an upload named as a numbered copy writes over none', [read(k) for k in kept],
+      [b'first', b'second', b'third'])
+twice = Keeper(os.path.join(WORK, 'twice'))
+one = source('8', 'same.png', b'same')
+kept = [twice.keep_file(one), twice.keep_file(one)]
+check('one file given twice is copied once, named by both values',
+      (kept[0] == kept[1], os.listdir(twice.folder)), (True, ['same.png']))
+
+def is_png(kept):
+    # The file's bytes, not the picture: an upload written over it must fail a line, not raise.
+    with open(kept['__image__'], 'rb') as f:
+        return f.read(8) == b'\x89PNG\r\n\x1a\n'
+
+
+mixed = Keeper(os.path.join(WORK, 'mixed'))
+shot = mixed.keep(image, 'init_img')
+copy = mixed.keep_file(source('9', 'init_img.png', b'upload'))
+check('an upload named as an image already kept writes over neither',
+      (copy['__file__'] != shot['__image__'], is_png(shot), read(copy)), (True, True, b'upload'))
+mixed = Keeper(os.path.join(WORK, 'mixed-2'))
+copy = mixed.keep_file(source('10', 'init_img.png', b'upload'))
+shot = mixed.keep(image, 'init_img')
+check('nor the other way round', (copy['__file__'] != shot['__image__'], is_png(shot), read(copy)),
+      (True, True, b'upload'))
+same = Keeper(os.path.join(WORK, 'same'))
+check('images are named as before: a name used again is numbered',
+      [os.path.basename(same.keep(image, 'x')['__image__']) for _ in range(2)], ['x.png', 'x-1.png'])
+same = Keeper(os.path.join(WORK, 'same-2'))
+check('and counted by name without extension, an image and an array alike',
+      [os.path.basename(p) for p in (same.keep(image, 'x')['__image__'], same.keep(weights, 'x')['__array__'])],
+      ['x.png', 'x-1.npy'])
+renamed = Keeper(os.path.join(WORK, 'renamed'))
+renamed.keep_file(source('11', 'my photo.png', b'upload'))
+check('and an image whose name an upload took before, rewritten, is numbered as before',
+      os.path.basename(renamed.keep(image, 'my_photo')['__image__']), 'my_photo-1.png')
+renamed.keep_file(one)
+renamed.keep_file(one)
+check('as is one after a file given twice, though it is copied once',
+      os.path.basename(renamed.keep(image, 'same')['__image__']), 'same-2.png')
 
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)
