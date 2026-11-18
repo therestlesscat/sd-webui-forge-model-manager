@@ -15,7 +15,9 @@ flag of our own would mislink - set before the call, it would be set while
 the person's Generate, holding the lock, still runs. So:
   - the hooks (scripts/model_manager_queue.py) act only on our id: before
     each process the task's checkpoint and modules join the run's override
-    settings, which Forge applies inside its lock and restores after (#154),
+    settings, which Forge applies inside its lock and restores after (#154) -
+    the checkpoint a script picked for the image kept in the task's place
+    (#393, on_before_process),
     and a Stop asked for while the task waited ends it at once (#152); after
     each, whether it was interrupted - Generate's wrapper clears it;
   - the recorder links each generation it writes to the task (#150).
@@ -447,7 +449,31 @@ def _run_of_now() -> Optional[Dict[str, Any]]:
 
 
 def on_before_process(p) -> None:
-    """Before each process of a queue's run: its checkpoint row's files, or its Stop."""
+    """
+    Before each process of a queue's run: its checkpoint row's files, or its Stop.
+
+    The checkpoint is the one this image is about to use, as Generate would
+    draw it (#393). In a task of one checkpoint:
+      1. one the override names already, if Forge lists it by that name -
+         a script's, as Prompts from file or textbox and the original
+         Forge's X/Y/Z plot write it, or a paste in Override settings;
+      2. else one a script set Forge's loading parameters to since the run
+         began, as Neo's X/Y/Z plot does (forge_host.script_checkpoint);
+      3. else the task's own.
+    Neo's X/Y/Z leaves no other mark, so a cell naming the checkpoint
+    selected now, when it is not the task's, still gets the task's. A task
+    of several checkpoints gives each run its row's, whatever a script
+    chose: its modules and settings were picked for that row's model family
+    (#400). The modules are always the row's.
+
+    It writes into an override of the image's own. X/Y/Z and Prompts from
+    textbox make each image from a shallow copy of one setup, all sharing
+    one override, and a checkpoint written there for one image would read as
+    a script's at the next. Neo drops a VAE override (sd_vae) as it
+    applies it - from that shared one under Generate, so it reaches the
+    first image only - and the same drop is made here in Neo, so the queue
+    draws what Generate draws. The original Forge keeps it for every image.
+    """
     run = _run_of_now()
     if run is None:
         return
@@ -455,12 +481,36 @@ def on_before_process(p) -> None:
         forge_host.stop_this_run()
         return
     row = run["row"]
-    overrides = getattr(p, "override_settings", None)
-    if overrides is None:
-        overrides = p.override_settings = {}
-    if row.get("checkpoint"):
-        overrides["sd_model_checkpoint"] = row["checkpoint"]
+    shared = getattr(p, "override_settings", None)
+    if shared is None:
+        shared = {}
+    overrides = dict(shared)
+    if forge_host.is_neo():
+        shared.pop("sd_vae", None)
+    chosen = None
+    if len(run["task"].get("checkpoints") or [{}]) == 1:
+        chosen = overrides.get("sd_model_checkpoint")
+        if not forge_host.checkpoint_listed(chosen):
+            chosen = forge_host.script_checkpoint(run.get("loading_at_start"))
+    chosen = chosen or row.get("checkpoint")
+    if chosen:
+        overrides["sd_model_checkpoint"] = chosen
     overrides["forge_additional_modules"] = list(row.get("modules") or [])
+    p.override_settings = overrides
+
+
+def on_setup(p) -> None:
+    """
+    As a queue's run makes its image settings, inside Forge's lock and before
+    any script runs: what Forge will load then (#393). Loading parameters
+    still these at an image were left from before the run - an X/Y/Z plot
+    whose run raised outside its images leaves its last cell's; one that
+    ends, a failed image's included, puts Forge's back - and are no script's
+    choice for it.
+    """
+    run = _run_of_now()
+    if run is not None:
+        run["loading_at_start"] = forge_host.loading_parameters()
 
 
 def on_postprocess(p, processed) -> None:

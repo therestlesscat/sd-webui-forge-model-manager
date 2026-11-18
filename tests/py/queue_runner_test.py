@@ -9,7 +9,8 @@ its label, a script's controls by id, an extension added since at its
 defaults, a label no longer offered failing the task. The queue runs this
 install's tasks in order, each through Generate's function under our own
 id, until none is left; ends a task as failed, stopped or completed, and
-goes on; sets each run up with its task's files; never interrupts the
+goes on; sets each run up with its task's files, keeping a checkpoint a
+script picks for an image (#393); never interrupts the
 person's own Generate, and waits for it before each task (#170); pauses
 between tasks; runs a task now, before the others (#169); asks before running tasks whose scripts are gone; and at
 startup stops what a restart left running.
@@ -146,6 +147,12 @@ class Forge(object):
         self.interrupts = []
         self.checkpoints = {'model.safetensors', 'other.safetensors'}
         self.modules = [VAE]
+        # What a press brings beyond its inputs (#393): Override settings, the
+        # images a script makes - each a shallow copy of one setup, with what
+        # it writes into their shared override and the loading parameters it
+        # sets - and what Forge will load next, a new object at each rebuild.
+        self.pasted, self.images, self.loading = {}, [], {}
+        self.neo = True
         self.waiting = threading.Event()
         self.release = threading.Event()
         self.lock = threading.Lock()
@@ -159,6 +166,12 @@ forge_host.was_interrupted = lambda: forge.interrupted
 forge_host.checkpoint_listed = lambda name: name in forge.checkpoints
 forge_host.installed_modules = lambda: {os.path.basename(p): p for p in forge.modules}
 forge_host.last_error = lambda: None
+forge_host.loading_parameters = lambda: forge.loading
+forge_host.is_neo = lambda: forge.neo
+# A script's choice, as forge_host's own answers it (forge_host_test): what
+# the loading parameters name, unless they are still those noted at the
+# run's start. The stand-in keeps a choice only where it is not the selection.
+forge_host.script_checkpoint = lambda since: None if forge.loading is since else forge.loading.get('chosen')
 
 
 def txt2img(id_task, request, *values):
@@ -171,10 +184,25 @@ def txt2img(id_task, request, *values):
         forge.release.wait(5)
     with forge.lock:
         forge.job, forge.interrupted = id_task, False
-        p = types.SimpleNamespace(override_settings={})
-        runner.on_before_process(p)
+        p = types.SimpleNamespace(override_settings=dict(forge.pasted))
+        setup = getattr(runner, 'on_setup', None)      # the queue's script had no setup before #393
+        if setup:
+            setup(p)
+        applied = []
+        for image in forge.images or [{}]:
+            if 'loading' in image:
+                forge.loading = image['loading']
+            image_p = types.SimpleNamespace(**vars(p))
+            image_p.override_settings.update(image.get('override', {}))
+            runner.on_before_process(image_p)
+            applied.append(dict(image_p.override_settings))
+            # Neo applies a VAE override and drops it from the override it was in;
+            # the original Forge leaves it there.
+            if forge.neo:
+                image_p.override_settings.pop('sd_vae', None)
         call = {'job': id_task, 'username': request.username, 'values': list(values),
-                'overrides': dict(p.override_settings), 'ended_at_start': forge.interrupted}
+                'overrides': applied[0], 'images': applied, 'shared': dict(p.override_settings),
+                'ended_at_start': forge.interrupted}
         forge.calls.append(call)
         if outcome == 'running':
             forge.waiting.set()
@@ -215,6 +243,7 @@ def clear():
         cursor.execute('DELETE FROM task_generations')
         cursor.execute('DELETE FROM task_checkpoints')
     forge.plan, forge.calls, forge.interrupts = [], [], []
+    forge.pasted, forge.images, forge.loading, forge.neo = {}, [], {}, True
     forge.waiting.clear()
     forge.release.clear()
     runner._first.clear()
@@ -320,6 +349,63 @@ with db._cursor() as cursor:
 run_queue()
 check('a task saved with no checkpoint runs on what Forge has loaded', (status_of(bare), forge.calls[0]['overrides']),
       ('completed', {'forge_additional_modules': []}))
+
+# ------------------------------------ a checkpoint a script picks (#393)
+# The task's checkpoint is model.safetensors; a script asks for
+# other.safetensors - Prompts from textbox and the original Forge's X/Y/Z in
+# the override, Neo's X/Y/Z in Forge's loading parameters alone.
+clear()
+queue_task('a script writes its checkpoint into the override')
+forge.images = [{'override': {'sd_model_checkpoint': 'other.safetensors'}}]
+run_queue()
+check("a checkpoint a script wrote into the image's override is kept, with the task's modules",
+      forge.calls[0]['overrides'], {'sd_model_checkpoint': 'other.safetensors', 'forge_additional_modules': [VAE]})
+
+clear()
+queue_task('a script sets the loading parameters')
+forge.images = [{'loading': {'chosen': 'other.safetensors'}}]
+run_queue()
+check("a checkpoint a script set Forge's loading parameters to is kept, with the task's modules",
+      forge.calls[0]['overrides'], {'sd_model_checkpoint': 'other.safetensors', 'forge_additional_modules': [VAE]})
+
+clear()
+queue_task('loading parameters left from before the run')
+forge.loading = {'chosen': 'other.safetensors'}
+run_queue()
+check("loading parameters left from before the run - an X/Y/Z plot whose run raised outside its images - are no script's choice",
+      forge.calls[0]['overrides']['sd_model_checkpoint'], 'model.safetensors')
+
+clear()
+queue_task("two images of one script share an override")
+forge.images = [{}, {'loading': {'chosen': 'other.safetensors'}}]
+run_queue()
+check("the task's checkpoint written for one image does not read as a script's at the next",
+      [image['sd_model_checkpoint'] for image in forge.calls[0]['images']], ['model.safetensors', 'other.safetensors'])
+check("and the override the images share stays as the script left it", forge.calls[0]['shared'], {})
+
+clear()
+queue_task('a VAE in Override settings, two images')
+forge.pasted = {'sd_vae': 'vae.safetensors'}
+forge.images = [{}, {}]
+run_queue()
+check('a VAE given in Override settings reaches the first image only, as under Neo\'s Generate',
+      ['sd_vae' in image for image in forge.calls[0]['images']], [True, False])
+
+clear()
+queue_task('a VAE in Override settings, two images, the original Forge')
+forge.neo = False
+forge.pasted = {'sd_vae': 'vae.safetensors'}
+forge.images = [{}, {}]
+run_queue()
+check('in the original Forge it reaches every image, as under its Generate',
+      ['sd_vae' in image for image in forge.calls[0]['images']], [True, True])
+
+clear()
+queue_task('a checkpoint Forge does not list')
+forge.images = [{'override': {'sd_model_checkpoint': 'missing.safetensors'}}]
+run_queue()
+check("a checkpoint in the override Forge does not list by that name gives way to the task's",
+      forge.calls[0]['overrides']['sd_model_checkpoint'], 'model.safetensors')
 
 # ------------------------------------------------- failures go on
 clear()
@@ -761,6 +847,16 @@ check("row 2's checkpoint gone: rows 1 and 3 run", [c['overrides']['sd_model_che
 check('the task ends Failed, its error naming row 2', (status_of(gone), db.get_task(gone)['error']),
       ('failed', '1 of 3 failed: The checkpoint is not in this WebUI: other.safetensors'))
 check('each row as its run ended', statuses(gone), ['completed', 'failed', 'completed'])
+
+# A row's modules and settings are for its own model family: a script's
+# checkpoint does not take its place (#393).
+clear()
+several('a script picks its checkpoint in each run')
+forge.images = [{'override': {'sd_model_checkpoint': 'third.safetensors'}, 'loading': {'chosen': 'third.safetensors'}}]
+run_queue()
+check("in a task of several checkpoints each run keeps its row's checkpoint, whatever a script picks",
+      [c['overrides']['sd_model_checkpoint'] for c in forge.calls],
+      ['model.safetensors', 'other.safetensors', 'third.safetensors'])
 
 clear()
 stopped = several('stopped in run 2')

@@ -79,6 +79,17 @@ check('the recording script records with the extension the API uses',
       recorder.generations is current('model_manager.generations'), True)
 check('the queue\'s hooks act on the queue the API runs',
       queue_script.runner is current('model_manager.scheduler.runner'), True)
+# Forge's setup step, as each press makes its image settings, notes what Forge
+# would load then: without it a run cannot tell a script's choice of
+# checkpoint from loading parameters left from before (#393).
+noted, held_setup = [], getattr(queue_script.runner, 'on_setup', None)
+queue_script.runner.on_setup = noted.append
+press = object()
+setup = getattr(queue_script.ModelManagerQueue(), 'setup', None)
+if setup:
+    setup(press)
+queue_script.runner.on_setup = held_setup
+check("the queue's script hands Forge's setup step to the runner", noted == [press], True)
 check('its image_saved hook is that copy\'s',
       registered['on_image_saved'][0] is getattr(current('model_manager.generations'), 'image_saved', None), True)
 settings = current('model_manager.ui.settings')

@@ -670,9 +670,65 @@ def listed_checkpoints() -> List[Tuple[str, str]]:
         return []
 
 
-def checkpoint_listed(name: str) -> bool:
+def checkpoint_listed(name: Optional[str]) -> bool:
     """Whether Forge lists a checkpoint by exactly this name: checkpoint_file()."""
     return checkpoint_file(name) is not None
+
+
+# What could not be asked of Forge, said once: the queue's hook asks at
+# every image.
+_said: set = set()
+
+
+def _say_once(message: str) -> None:
+    if message not in _said:
+        _said.add(message)
+        say(message)
+
+
+def loading_parameters():
+    """
+    What Forge will load for the next image: its loading parameters,
+    `sd_models.model_data.forge_loading_parameters` in both WebUIs, a new
+    object each time Forge rebuilds them. None where Forge cannot be asked,
+    said once.
+    """
+    try:
+        from modules import sd_models
+        return sd_models.model_data.forge_loading_parameters
+    except Exception as e:
+        _say_once(f"Could not ask Forge what it will load next: {type(e).__name__}: {e}")
+        return None
+
+
+def script_checkpoint(since) -> Optional[str]:
+    """
+    The checkpoint a script chose for the next image by setting Forge's
+    loading parameters itself, as Neo's X/Y/Z plot does (#393): theirs, by
+    the name Forge's override takes, when they were rebuilt since `since` -
+    another object than the one noted then - Forge lists that name, and its
+    file is not the selected checkpoint's.
+
+    None otherwise: parameters left over from before (`since` itself), the
+    selection's own, a name Forge no longer lists, or a selection Forge
+    cannot find - Forge then loads its first listed checkpoint, a fallback,
+    no script's choice. Never raises.
+    """
+    params = loading_parameters()
+    if params is None or params is since:
+        return None
+    try:
+        from modules import sd_models, shared
+        name = getattr(params.get("checkpoint_info"), "name", None)
+        chosen = sd_models.checkpoint_aliases.get(name) if name else None
+        selected = sd_models.checkpoint_aliases.get(getattr(shared.opts, "sd_model_checkpoint", None))
+        if chosen is None or selected is None:
+            return None
+        same = os.path.normcase(os.path.abspath(chosen.filename)) == os.path.normcase(os.path.abspath(selected.filename))
+        return None if same else name
+    except Exception as e:
+        _say_once(f"Could not ask Forge which checkpoint it will load next: {type(e).__name__}: {e}")
+        return None
 
 
 def current_job() -> Optional[str]:

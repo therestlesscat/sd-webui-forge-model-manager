@@ -235,5 +235,64 @@ check('    the original Forge: Distilled CFG Scale for flux alone, never a Shift
       answers[False], {p: 'distilled' if p == 'flux' else None for p in ALL})
 check('    Neo\'s module failing to answer: nothing, not an error', broken, None)
 
+# ------------------------------------ what Forge will load next (#393)
+# A script's choice of checkpoint for one image, as Neo's X/Y/Z plot makes it:
+# Forge's loading parameters rebuilt - a new object - naming another file than
+# the selection. Forge stood in: its model data and its checkpoint names.
+def ckpt(name, filename):
+    return types.SimpleNamespace(name=name, filename=filename)
+
+
+ALPHA = ckpt('alpha.safetensors [aaaa1111]', os.path.join('models', 'alpha.safetensors'))
+GAMMA = ckpt('gamma.safetensors', os.path.join('models', 'gamma.safetensors'))
+model_data = types.SimpleNamespace(forge_loading_parameters={'checkpoint_info': GAMMA})
+sd_models = types.ModuleType('modules.sd_models')
+sd_models.model_data = model_data
+sd_models.checkpoint_aliases = {ALPHA.name: ALPHA, 'alpha.safetensors': ALPHA, GAMMA.name: GAMMA,
+                                'gamma.safetensors [cccc3333]': GAMMA}
+held_sd_models = sys.modules.get('modules.sd_models')
+sys.modules['modules.sd_models'] = sd_models
+held_selected = shared.opts.__dict__.get('sd_model_checkpoint', 'unset')
+shared.opts.sd_model_checkpoint = 'gamma.safetensors'
+said, real_say = [], host.say
+host.say = said.append
+loading_parameters = getattr(host, 'loading_parameters', lambda: 'missing')
+script_checkpoint = getattr(host, 'script_checkpoint', lambda since: 'missing')
+try:
+    noted = loading_parameters()
+    check('32. what Forge will load next: its loading parameters, the very object',
+          noted is model_data.forge_loading_parameters, True)
+    model_data.forge_loading_parameters = {'checkpoint_info': ALPHA}
+    check("    rebuilt since the note and naming another file than the selection: that checkpoint, by Forge's name",
+          script_checkpoint(noted), 'alpha.safetensors [aaaa1111]')
+    check('    the noted object itself, whatever it names: none',
+          script_checkpoint(model_data.forge_loading_parameters), None)
+    model_data.forge_loading_parameters = {'checkpoint_info': ckpt('gamma.safetensors [cccc3333]', GAMMA.filename)}
+    check("    rebuilt, naming the selection's own file by another name: none", script_checkpoint(noted), None)
+    model_data.forge_loading_parameters = {'checkpoint_info': ALPHA}
+    shared.opts.sd_model_checkpoint = 'renamed.safetensors'
+    check("    a selection Forge cannot find: none, not the first checkpoint Forge falls back on",
+          script_checkpoint(noted), None)
+    shared.opts.sd_model_checkpoint = 'gamma.safetensors'
+    model_data.forge_loading_parameters = {'checkpoint_info': ckpt('gone.safetensors', 'gone.safetensors')}
+    check('    naming a checkpoint Forge no longer lists: none', script_checkpoint(noted), None)
+    model_data.forge_loading_parameters = {}
+    check('    none built yet: none', script_checkpoint(noted), None)
+    check('    nothing said while Forge answers', said, [])
+    del sys.modules['modules.sd_models']
+    check('    no model data to ask: none, every time',
+          (loading_parameters(), script_checkpoint(noted), loading_parameters()), (None, None, None))
+    check('    and said once', len(said), 1)
+finally:
+    host.say = real_say
+    if held_sd_models is None:
+        sys.modules.pop('modules.sd_models', None)
+    else:
+        sys.modules['modules.sd_models'] = held_sd_models
+    if held_selected == 'unset':
+        shared.opts.__dict__.pop('sd_model_checkpoint', None)
+    else:
+        shared.opts.sd_model_checkpoint = held_selected
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

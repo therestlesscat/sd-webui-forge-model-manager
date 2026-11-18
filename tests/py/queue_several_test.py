@@ -66,6 +66,9 @@ asked = []
 
 forge_host.checkpoint_listed = lambda name: name in FILES
 forge_host.checkpoint_file = lambda name: FILES.get(name)
+# No script's choice of checkpoint (#393): Forge's loading parameters, stood in.
+forge_host.loading_parameters = lambda: None
+forge_host.script_checkpoint = lambda since: None
 forge_host.installed_modules = lambda: dict(INSTALLED)
 order = []
 
