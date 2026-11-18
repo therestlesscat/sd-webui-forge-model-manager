@@ -123,7 +123,9 @@ class ModelsDatabase:
         try:
             self._init_tables()
         except Exception as error:
-            # Rolled back: the database is as it was (#285).
+            # Rolled back to the step before the one that failed: each earlier
+            # step is committed with its version, so the next start goes on
+            # from the failed one (#391).
             _migration_failed(str(error))
             raise
         # Committed: the page's notice goes, and its tabs start.
@@ -150,6 +152,15 @@ class ModelsDatabase:
                     f"newer than this copy of the extension knows (v{SCHEMA_VERSION}). "
                     "Update this copy - another WebUI sharing the database has been updated.")
 
+            if current_version == 0:
+                # A database made now, by this version: notes for people
+                # updating from before it do not apply (release_notes.py).
+                # Written before the run, so it is committed with its first
+                # step: a first run that fails keeps the steps it finished,
+                # and the next start no longer reads v0 (#391).
+                from ..version import VERSION
+                cursor.execute("INSERT OR IGNORE INTO schema_info (key, value) VALUES ('created_by', ?)",
+                               (VERSION,))
             if current_version < SCHEMA_VERSION:
                 # Said to the page while it runs (#285), the tabs held until it
                 # ends - a library's, not a new file's, which takes no time.
@@ -158,12 +169,6 @@ class ModelsDatabase:
                     said("")
                 run_migrations(cursor, current_version, SCHEMA_VERSION,
                                self.db_path, self.db_dir, progress=said)
-            if current_version == 0:
-                # A database made now, by this version: notes for people
-                # updating from before it do not apply (release_notes.py).
-                from ..version import VERSION
-                cursor.execute("INSERT OR IGNORE INTO schema_info (key, value) VALUES ('created_by', ?)",
-                               (VERSION,))
 
     # ==================== Notes to the user ====================
 

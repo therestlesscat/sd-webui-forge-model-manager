@@ -38,12 +38,21 @@ covers its tabs until it ends, and whatever reads the database waits. A
 failed one is not run again in the same process, each request with a backup
 of its own. A long migration calls `progress(text)` where it prints.
 
-**A run of several migrations is not one transaction.** `_back_up` commits
-what the run's earlier migrations wrote before it copies the file, so a
-failure in a later one leaves those in place. #285's notice first said "the
-database is as it was" - true of v42 alone - and says the update "stopped
-before it finished". Each backup is the database's size: 7880's v40 library
-made two of 357 MB, two seconds apart.
+**Each migration step is committed with its version** (#391). The runner
+opens a transaction for each step, writes the step's version into
+`schema_info` and commits, so a run that fails keeps every step before the
+one that failed, and the next start goes on from it. Before 0.80.7 the version
+was written once, at the run's end, while a step backing up (`_back_up`, and
+v25, v32, v37 on their own) or opening its own transaction (v48) committed
+the run so far: a failure after one left those steps committed under the
+start's version, the next start ran them again over the tables they had
+changed, and a library at v26 or older failed at every start. Every suite had
+passed: each ran a step twice on the shape it left, never after a later step
+had changed it. A new database's `created_by` is written before its first
+step for the same reason. #285's notice first said "the database is as it
+was" - true of v42 alone - and says the update "stopped before it finished".
+Each backup is the database's size: 7880's v40 library made two of 357 MB,
+two seconds apart.
 
 **A compact holds this WebUI's writes, never its reads** (#287). A VACUUM
 holds the database's write lock for its whole length - 17 s for 1.8 GB on

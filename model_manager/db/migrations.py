@@ -2,8 +2,9 @@
 Schema history.
 
 Every version the database has ever had, and the steps between them. This is
-write-once material: once a migration ships it is never edited, only added to,
-because someone out there is still on the version before it.
+write-once material: what a shipped migration writes into the database is
+never changed, only added to, because someone out there is still on the
+version before it.
 
 Nothing here is read during normal work - open the database, run what is
 missing, and never look at this file again until the schema changes.
@@ -14,6 +15,10 @@ ADDING A MIGRATION
   3. add it to run_migrations() in order
 A migration must tolerate being re-run: check PRAGMA table_info before adding
 a column, and use CREATE ... IF NOT EXISTS.
+
+The runner commits each step with its version (run_migrations, #391), so after
+a failure the run goes on from the failed step, on the tables the step before
+it left.
 """
 import json
 import os
@@ -1090,10 +1095,10 @@ def _migrate_to_v25(cursor, db_path: str):
     # migration on its first start, and would leave an empty copy behind.
     cursor.execute("SELECT EXISTS (SELECT 1 FROM images)")
     if cursor.fetchone()[0]:
-        # Migrations before this one in the same run write inside a
-        # transaction still open on this connection, and a backup waits on it
-        # for ever. Each migration tolerates being run again, so committing
-        # them is safe - and the backup then holds them.
+        # A transaction open on this connection - the one the runner opened
+        # for this step - makes a backup wait on it for ever, so it is
+        # committed first. Every earlier step is already committed with its
+        # version (run_migrations, #391).
         if cursor.connection.in_transaction:
             cursor.connection.commit()
         backup_path = f"{db_path}.backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -2116,9 +2121,10 @@ def _back_up(connection, db_path: str, version: int) -> str:
     in a second - a database coming from v36 does, for v37 and for v41 - and
     the second would have written over the first.
 
-    A transaction an earlier migration of the same run left open is committed
-    first, or the backup waits on it for ever; each migration tolerates being
-    run again, so committing them is safe, and the backup then holds them.
+    The transaction open on the connection - the one the runner opened for
+    this step - is committed first, or the backup waits on it for ever. Every
+    earlier step of the run is already committed with its version
+    (run_migrations, #391), so the backup holds the version before this step.
     """
     if connection.in_transaction:
         connection.commit()
@@ -3020,9 +3026,25 @@ def run_migrations(cursor, from_version: int, to_version: int,
         48: lambda c: _migrate_to_v48(c, progress),
         49: lambda c: _migrate_to_v49(c, db_path),
     }
+    # Each step is committed with its version (#391): a run that fails keeps
+    # every step before the one that failed, and the next start goes on from
+    # it. Saved once at the end, a failure late in a run left the steps before
+    # it committed - a step backing up commits the run so far - under the
+    # start's version, and the next start ran them again over the tables they
+    # had changed: from v26 or older, at every start. Each step runs in a
+    # transaction of its own, so table changes made before its first write
+    # are undone with it too (v47's rename).
+    connection = cursor.connection
     for version in sorted(steps):
         if from_version < version <= to_version:
+            if not connection.in_transaction:
+                cursor.execute("BEGIN")
             steps[version](cursor)
+            cursor.execute(
+                "INSERT OR REPLACE INTO schema_info (key, value) VALUES ('version', ?)",
+                (str(version),)
+            )
+            connection.commit()
 
     cursor.execute(
         "INSERT OR REPLACE INTO schema_info (key, value) VALUES ('version', ?)",
