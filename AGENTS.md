@@ -932,6 +932,21 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   new rows were read, until the owner asked "did you verify that bug not
   happens in 7880"; the whole library's count of files held twice (0) came
   then.
+- **A fault behind another is seen with the first one fixed alone.** #396's
+  renamed copies could reach a queued run's prompt only once the run stopped
+  failing on `.name`: Generate's prompt set beside the copy's name showed the
+  inputs, not the fault. A scratch `values.py` holding part 1 alone, put on
+  7880 and never committed, showed it - prompts `my_photo_1` and `caf`
+  against Generate's `my photo 1` and `café` - and the full fix then matched
+  Generate. The owner asked for that run: "do we want to run repro after
+  this fix?" (2026-11-18).
+- **An extension's error does not stop a run.** Forge's script runner
+  catches it (`*** Error running process`, `modules/scripts.py`) and goes on
+  without the extension: #396's queued ControlNet tasks 2 to 4 on 7860 each
+  ended Completed with one image while ControlNet had failed in every one.
+  The infotext still carried its ControlNet line, written from the unit's
+  settings, and the images' colours told nothing. Only the console showed
+  it, and 7860's console is the owner's window: ask for it.
 - **A file Civitai should not know has a byte changed inside AutoV1's
   window.** AutoV1 hashes the 64 KB at 1 MB (`hashing.py`), and Civitai is
   asked with it when the SHA-256 misses. #350's live check appended a byte
@@ -1262,6 +1277,15 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
 - **A script named after a standard module shadows it** for every script in
   its folder: `tests/work/r313/inspect.py` broke another script there, whose
   imports reached Python's `inspect`. Name a probe after what it does.
+- **OpenCV cannot open a non-ASCII path on Windows.** The original Forge's
+  ControlNet reads Batch Upload pictures with `cv2.imread`, which returned
+  nothing for `café.png` (its warning names it `caf├⌐.png`) in every run: #396's
+  first repro lost its second picture so, in tasks 2 to 4. A live check
+  through ControlNet uses ASCII file names.
+- **The WebUIs' databases are read with Windows' Python.** WSL has no
+  `sqlite3` command ("command not found"), and WSL Python's `sqlite3`
+  answered "disk I/O error" on 7880's database, `mode=ro`; Neo's venv Python
+  opened it read-only at once (#396).
 - Running the tests: `tests/AGENTS.md`, "The environment". Running Neo's
   detector outside the WebUI: `model_manager/AGENTS.md`, "The environment".
 

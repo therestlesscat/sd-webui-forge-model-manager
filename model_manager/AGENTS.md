@@ -409,6 +409,16 @@ with the last row naming its path - every removal the app makes calls
 unasked: a sync makes them when its box is ticked, the recorder only with
 the setting on.
 
+**The queue and the recorder keep a press through one `_keep`**
+(`scheduler/capture.py`): a task with `Keeper`, a recorded generation with
+`NoFiles`, which writes no file and keeps an image, an array or an upload as
+missing - and a missing part makes a whole dataclass missing when restored,
+a ControlNet unit with it. So a change to `_keep` or `Keeper.keep` changes
+what the recorder stores: #396's wider list of upload controls (0.80.4)
+reached recorded generations without the plan saying so; a build review
+found it and the owner accepted it. 0.80.5 kept its copying of text naming a
+file in Gradio's upload folder off the recorder (`NoFiles._held_upload`).
+
 **Files the extension keeps go beside the database, in two-letter
 subfolders** (#5, #34). Thumbnails (`thumbnails`) and the images an img2img
 press started from (`generation-inputs`) sit beside the database unless a
