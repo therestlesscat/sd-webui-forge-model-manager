@@ -444,6 +444,14 @@ body.mm-modal-open {
     min-width: 140px;
 }
 
+/* A filter group may shrink to 120px, the box it holds not below 140px: on
+   a Model Manager tab 980-1050px wide the Type and NSFW Levels boxes ran up
+   to 15px into the gap after them, touching the next box. The group keeps
+   its box's width, and the row wraps first. */
+.filter-group:has(> .mm-multiselect, > .cb-multiselect) {
+    min-width: 140px;
+}
+
 .mm-multiselect-display,
 .cb-multiselect-display {
     display: flex;
