@@ -66,9 +66,12 @@ asked = []
 
 forge_host.checkpoint_listed = lambda name: name in FILES
 forge_host.checkpoint_file = lambda name: FILES.get(name)
-# No script's choice of checkpoint (#393): Forge's loading parameters, stood in.
+# No script's choice of checkpoint, no X/Y/Z axis, nothing for Forge to
+# rebuild (#393): Forge's loading parameters and the press's script, stood in.
 forge_host.loading_parameters = lambda: None
-forge_host.script_checkpoint = lambda since: None
+forge_host.script_checkpoint = lambda since, selection_too=False: None
+forge_host.checkpoint_axis = lambda p: False
+forge_host.load_next = lambda name: False
 forge_host.installed_modules = lambda: dict(INSTALLED)
 order = []
 
@@ -308,9 +311,14 @@ check('a refused press saves nothing and says why; no list, or one not as the pa
       (saved, said),
       ([], [('warning', 'Forge does not list the checkpoint gone.safetensors: refresh its list, or pick another.')]
        + [('warning', 'No checkpoint to queue for.')] * 3))
+# Fewer than two is refused, as the page refuses it: a task of one row would
+# run as a task of one checkpoint, a script's choice over its row's (#393).
 said.clear()
 press(request, 'a red apple', 20, json.dumps({'names': ['photo.safetensors']}))
-check('one checkpoint is said as one', said, [('info', 'Queued for 1 checkpoint: a red apple')])
+press(request, 'a red apple', 20, json.dumps({'names': ['photo.safetensors', 'photo.safetensors']}))
+check('one checkpoint, or one named twice, is refused and queues nothing',
+      (saved, said),
+      ([], [('warning', 'Tick two checkpoints or more. To generate with one, use Queue or Generate.')] * 2))
 # A list Load to UI loaded from a task deleted since: what each name ran
 # with there went with it, so each takes its usual settings, and the press
 # says so. A task still there says nothing more.

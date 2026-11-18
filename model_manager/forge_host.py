@@ -701,7 +701,12 @@ def loading_parameters():
         return None
 
 
-def script_checkpoint(since) -> Optional[str]:
+def _same_file(one, other) -> bool:
+    """Whether two of Forge's checkpoint entries are one file on disk."""
+    return os.path.normcase(os.path.abspath(one.filename)) == os.path.normcase(os.path.abspath(other.filename))
+
+
+def script_checkpoint(since, selection_too: bool = False) -> Optional[str]:
     """
     The checkpoint a script chose for the next image by setting Forge's
     loading parameters itself, as Neo's X/Y/Z plot does (#393): theirs, by
@@ -713,6 +718,11 @@ def script_checkpoint(since) -> Optional[str]:
     selection's own, a name Forge no longer lists, or a selection Forge
     cannot find - Forge then loads its first listed checkpoint, a fallback,
     no script's choice. Never raises.
+
+    With `selection_too` - the run's script is an X/Y/Z plot with a
+    Checkpoint name axis (checkpoint_axis), whose every cell sets them just
+    before its image - a rebuilt set naming the selection's file is that
+    cell's choice too, and answers its name.
     """
     params = loading_parameters()
     if params is None or params is since:
@@ -724,11 +734,77 @@ def script_checkpoint(since) -> Optional[str]:
         selected = sd_models.checkpoint_aliases.get(getattr(shared.opts, "sd_model_checkpoint", None))
         if chosen is None or selected is None:
             return None
-        same = os.path.normcase(os.path.abspath(chosen.filename)) == os.path.normcase(os.path.abspath(selected.filename))
-        return None if same else name
+        return name if selection_too or not _same_file(chosen, selected) else None
     except Exception as e:
         _say_once(f"Could not ask Forge which checkpoint it will load next: {type(e).__name__}: {e}")
         return None
+
+
+def checkpoint_axis(p) -> bool:
+    """
+    Whether the script this press chose is an X/Y/Z plot with a Checkpoint
+    name axis (#393). Forge keeps on the press the chosen script's number
+    (0: none) and then each script's own arguments; X/Y/Z's X, Y and Z
+    types are its arguments 0, 3 and 6, numbers into its list of axis kinds
+    (`run` in both Forges' scripts/xyz_grid.py). An axis is a Checkpoint
+    name axis when its kind applies X/Y/Z's `apply_checkpoint`, a name both
+    Forges give it; the label is not read. Never raises: when the scripts
+    cannot be read, says so once and answers False.
+    """
+    try:
+        args = list(getattr(p, "script_args", None) or [])
+        runner = getattr(p, "scripts", None)
+        index = args[0] if args else None
+        if runner is None or isinstance(index, bool) or not isinstance(index, int) or index < 1:
+            return False
+        script = runner.selectable_scripts[index - 1]
+        if script is None:      # Forge's own run skips such an entry too
+            return False
+        options = list(getattr(script, "current_axis_options", None) or [])
+        own = args[script.args_from:script.args_to]
+        for at in (0, 3, 6):
+            kind = own[at] if at < len(own) else None
+            if isinstance(kind, int) and not isinstance(kind, bool) and 0 <= kind < len(options) \
+                    and getattr(getattr(options[kind], "apply", None), "__name__", "") == "apply_checkpoint":
+                return True
+        return False
+    except Exception as e:
+        _say_once(f"Could not read the script this press chose: {type(e).__name__}: {e}")
+        return False
+
+
+def load_next(name: Optional[str]) -> bool:
+    """
+    Have Forge load the checkpoint `name` for the next image where its
+    override will not (#393). An override naming the selected checkpoint
+    changes nothing in Forge, so loading parameters a script set to another
+    file - or left from before - would stay. When `name` is the selection's
+    file and the loading parameters name another, Forge rebuilds them from
+    the selection with its own function, as at every change of checkpoint;
+    unless the image then reloads the model, that also has Forge unload the
+    models from the graphics card before it. Nothing puts the rebuild back:
+    over parameters left from before the run, the person's next Generate
+    loads the selection too. Returns whether it did. Never raises; says once
+    when Forge cannot be asked.
+    """
+    params = loading_parameters()
+    if params is None or not name:
+        return False
+    try:
+        from modules import sd_models, shared
+        wanted = sd_models.checkpoint_aliases.get(name)
+        selected = sd_models.checkpoint_aliases.get(getattr(shared.opts, "sd_model_checkpoint", None))
+        loading = params.get("checkpoint_info")
+        if wanted is None or selected is None or loading is None:
+            return False
+        if not _same_file(wanted, selected) or _same_file(wanted, loading):
+            return False
+        from modules_forge import main_entry
+        main_entry.refresh_model_loading_parameters()
+        return True
+    except Exception as e:
+        _say_once(f"Could not have Forge load {name} next: {type(e).__name__}: {e}")
+        return False
 
 
 def current_job() -> Optional[str]:

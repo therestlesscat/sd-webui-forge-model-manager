@@ -313,6 +313,10 @@ def _several_handler(tab: str, own, others, inputs, run_next: Optional[Callable]
         try:
             db = get_models_db()
             rows = several.checkpoint_rows(db, names, source, selected_models())
+            if len(rows) < 2:
+                # As the page refuses it: a task of one row would run as a task of
+                # one checkpoint, a script's choice over the row's (#393).
+                raise several.Refused("Tick two checkpoints or more. To generate with one, use Queue or Generate.")
             gone = several.gone_task(db, source)
             task_id, prompt = capture(tab, own, others, inputs, values[:-1],
                                       getattr(request, "username", None), checkpoints=rows)
@@ -325,7 +329,7 @@ def _several_handler(tab: str, own, others, inputs, run_next: Optional[Callable]
             return
         prompt = " ".join(str(prompt or "").split())
         shown = prompt[:60] + '…' if len(prompt) > 60 else prompt or '(no prompt)'
-        count = f"{len(rows)} checkpoint{'' if len(rows) == 1 else 's'}"
+        count = f"{len(rows)} checkpoints"
         if run_next is None:
             gr.Info(f"Queued for {count}: {shown}")
         else:

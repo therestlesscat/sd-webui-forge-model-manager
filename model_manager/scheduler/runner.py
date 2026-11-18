@@ -458,13 +458,20 @@ def on_before_process(p) -> None:
          a script's, as Prompts from file or textbox and the original
          Forge's X/Y/Z plot write it, or a paste in Override settings;
       2. else one a script set Forge's loading parameters to since the run
-         began, as Neo's X/Y/Z plot does (forge_host.script_checkpoint);
+         began, as Neo's X/Y/Z plot does (forge_host.script_checkpoint) -
+         the selected checkpoint too when the run's script is an X/Y/Z
+         plot with a Checkpoint name axis, noted as the run began: Neo's
+         X/Y/Z leaves no other mark, and naming the selection its loading
+         parameters look as Forge's own put-back after an image leaves them;
       3. else the task's own.
-    Neo's X/Y/Z leaves no other mark, so a cell naming the checkpoint
-    selected now, when it is not the task's, still gets the task's. A task
-    of several checkpoints gives each run its row's, whatever a script
-    chose: its modules and settings were picked for that row's model family
-    (#400). The modules are always the row's.
+    A task of several checkpoints gives each run its row's, whatever a
+    script chose: its modules and settings were picked for that row's model
+    family (#400). The modules are always the row's.
+
+    Forge then loads what was chosen. An override naming the selected
+    checkpoint changes nothing in Forge, so where the loading parameters
+    name another file - a script's, or left from before - Forge is asked to
+    rebuild them (forge_host.load_next).
 
     It writes into an override of the image's own. X/Y/Z and Prompts from
     textbox make each image from a shallow copy of one setup, all sharing
@@ -491,10 +498,11 @@ def on_before_process(p) -> None:
     if len(run["task"].get("checkpoints") or [{}]) == 1:
         chosen = overrides.get("sd_model_checkpoint")
         if not forge_host.checkpoint_listed(chosen):
-            chosen = forge_host.script_checkpoint(run.get("loading_at_start"))
+            chosen = forge_host.script_checkpoint(run.get("loading_at_start"), run.get("checkpoint_axis", False))
     chosen = chosen or row.get("checkpoint")
     if chosen:
         overrides["sd_model_checkpoint"] = chosen
+        forge_host.load_next(chosen)
     overrides["forge_additional_modules"] = list(row.get("modules") or [])
     p.override_settings = overrides
 
@@ -502,15 +510,17 @@ def on_before_process(p) -> None:
 def on_setup(p) -> None:
     """
     As a queue's run makes its image settings, inside Forge's lock and before
-    any script runs: what Forge will load then (#393). Loading parameters
-    still these at an image were left from before the run - an X/Y/Z plot
-    whose run raised outside its images leaves its last cell's; one that
-    ends, a failed image's included, puts Forge's back - and are no script's
-    choice for it.
+    any script runs: what Forge will load then, and whether the press's
+    script is an X/Y/Z plot with a Checkpoint name axis (#393). Loading
+    parameters still these at an image were left from before the run - an
+    X/Y/Z plot whose run raised outside its images leaves its last cell's;
+    one that ends, a failed image's included, puts Forge's back - and are no
+    script's choice for it.
     """
     run = _run_of_now()
     if run is not None:
         run["loading_at_start"] = forge_host.loading_parameters()
+        run["checkpoint_axis"] = forge_host.checkpoint_axis(p)
 
 
 def on_postprocess(p, processed) -> None:

@@ -87,9 +87,12 @@ FILES['photo_old.safetensors'] = FILES['photo.safetensors']
 LISTED = (set(FILES) - {'photo_old.safetensors'}) | {'ghost.safetensors'}
 forge_host.checkpoint_listed = lambda name: name in LISTED
 forge_host.checkpoint_file = lambda name: FILES.get(name)
-# No script's choice of checkpoint (#393): Forge's loading parameters, stood in.
+# No script's choice of checkpoint, no X/Y/Z axis, nothing for Forge to
+# rebuild (#393): Forge's loading parameters and the press's script, stood in.
 forge_host.loading_parameters = lambda: None
-forge_host.script_checkpoint = lambda since: None
+forge_host.script_checkpoint = lambda since, selection_too=False: None
+forge_host.checkpoint_axis = lambda p: False
+forge_host.load_next = lambda name: False
 INSTALLED = {'ae.safetensors': r'F:\models\VAE\ae.safetensors', 't5xxl.safetensors': r'F:\models\TE\t5xxl.safetensors'}
 forge_host.installed_modules = lambda: dict(INSTALLED)
 PICKS = {'flux': (['ae.safetensors', 't5xxl.safetensors'], []), 'chroma': (['ae.safetensors'], ['t5xxl'])}

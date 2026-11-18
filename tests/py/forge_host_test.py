@@ -294,5 +294,139 @@ finally:
     else:
         shared.opts.sd_model_checkpoint = held_selected
 
+# ---------------- an X/Y/Z Checkpoint name axis, and Forge's load (#393)
+# The press's script and its arguments as Forge keeps them: the chosen
+# script's number, then each script's own arguments - X/Y/Z's X, Y and Z
+# types numbers into its list of axis kinds. Stood in after both Forges'
+# scripts.py and xyz_grid.py; only a live run checks this reading.
+def apply_checkpoint(p, x, xs):
+    pass
+
+
+def apply_seed(p, x, xs):
+    pass
+
+
+AXES = [types.SimpleNamespace(label='Nothing', apply=lambda p, x, xs: None),
+        types.SimpleNamespace(label='Seed', apply=apply_seed),
+        types.SimpleNamespace(label='Checkpoint name', apply=apply_checkpoint),
+        # A kind is known by the function it applies, never by its label.
+        types.SimpleNamespace(label='Checkpoint name', apply=apply_seed)]
+XYZ = types.SimpleNamespace(current_axis_options=AXES, args_from=3, args_to=12)
+PLAIN = types.SimpleNamespace(args_from=12, args_to=14)        # a script with no axes
+SCRIPTS = types.SimpleNamespace(selectable_scripts=[PLAIN, XYZ, None])    # Forge's own run skips a None
+
+
+def press(index, x=0, y=0, z=0):
+    return types.SimpleNamespace(scripts=SCRIPTS, script_args=[index, 'a', 'b', x, '', None, y, '', None, z, '', None,
+                                                               'p', 'q'])
+
+
+checkpoint_axis = getattr(host, 'checkpoint_axis', lambda p: 'missing')
+load_next = getattr(host, 'load_next', lambda name: 'missing')
+
+
+def cell_choice(since):
+    """script_checkpoint with an X/Y/Z Checkpoint name axis noted; before #393's
+    second commit it took no such word, and fails a check rather than the suite."""
+    try:
+        return host.script_checkpoint(since, True)
+    except TypeError:
+        return 'takes no axis'
+
+
+said, real_say = [], host.say
+host.say = said.append
+check('33. the press\'s script is an X/Y/Z plot with a Checkpoint name axis: at X, at Y, at Z',
+      [checkpoint_axis(press(2, x=2)), checkpoint_axis(press(2, y=2)), checkpoint_axis(press(2, z=2))],
+      [True, True, True])
+check('    no script, another script, an axis of another kind, one only labelled so, a kind out of range,'
+      ' short arguments, an empty entry: no',
+      [checkpoint_axis(press(0, x=2)), checkpoint_axis(press(1, x=2)), checkpoint_axis(press(2, x=1, y=1)),
+       checkpoint_axis(press(2, x=3)), checkpoint_axis(press(2, x=9)),
+       checkpoint_axis(types.SimpleNamespace(scripts=SCRIPTS, script_args=[2, 'a'])), checkpoint_axis(press(3, x=2))],
+      [False] * 7)
+check('    nothing said while it reads', said, [])
+unreadable = types.SimpleNamespace(scripts=types.SimpleNamespace(), script_args=[2])
+check('    scripts it cannot read: no, every time, and said once',
+      (checkpoint_axis(unreadable), checkpoint_axis(unreadable), len(said)), (False, False, 1))
+
+refreshed = []
+main_entry = types.ModuleType('modules_forge.main_entry')
+main_entry.refresh_model_loading_parameters = lambda: refreshed.append('rebuilt')
+held_entry = sys.modules.get('modules_forge.main_entry')
+held_forge = sys.modules.get('modules_forge')
+forge_package = held_forge or types.ModuleType('modules_forge')
+held_attr = getattr(forge_package, 'main_entry', 'unset')
+forge_package.main_entry = main_entry
+sys.modules['modules_forge'] = forge_package
+sys.modules['modules_forge.main_entry'] = main_entry
+model_data = types.SimpleNamespace(forge_loading_parameters={'checkpoint_info': GAMMA})
+sd_models = types.ModuleType('modules.sd_models')
+sd_models.model_data = model_data
+sd_models.checkpoint_aliases = {ALPHA.name: ALPHA, 'alpha.safetensors': ALPHA, GAMMA.name: GAMMA,
+                                'gamma.safetensors [cccc3333]': GAMMA}
+held_sd_models = sys.modules.get('modules.sd_models')
+sys.modules['modules.sd_models'] = sd_models
+held_selected = shared.opts.__dict__.get('sd_model_checkpoint', 'unset')
+shared.opts.sd_model_checkpoint = 'gamma.safetensors'
+said.clear()
+try:
+    noted = host.loading_parameters()
+    model_data.forge_loading_parameters = {'checkpoint_info': ckpt('gamma.safetensors [cccc3333]', GAMMA.filename)}
+    check("    with that axis, loading parameters rebuilt naming the selection: that cell's choice",
+          cell_choice(noted), 'gamma.safetensors [cccc3333]')
+    check('    and the noted object still none', cell_choice(model_data.forge_loading_parameters), None)
+    model_data.forge_loading_parameters = {'checkpoint_info': ckpt('gone.safetensors', 'gone.safetensors')}
+    unlisted = cell_choice(noted)
+    model_data.forge_loading_parameters = {'checkpoint_info': GAMMA}
+    shared.opts.sd_model_checkpoint = 'renamed.safetensors'
+    unfound = cell_choice(noted)
+    shared.opts.sd_model_checkpoint = 'gamma.safetensors'
+    check('    nor a checkpoint Forge no longer lists, nor a selection it cannot find', (unlisted, unfound), (None, None))
+
+    model_data.forge_loading_parameters = {'checkpoint_info': ALPHA}
+    asked = [load_next('gamma.safetensors'), load_next('gamma.safetensors [cccc3333]')]
+    check("    the selection's file asked for while the loading parameters name another: Forge rebuilds them,"
+          " by either of its names", (asked, refreshed), ([True, True], ['rebuilt', 'rebuilt']))
+    refreshed.clear()
+    model_data.forge_loading_parameters = {'checkpoint_info': ckpt('gamma.safetensors [cccc3333]', GAMMA.filename)}
+    no_need = [load_next('gamma.safetensors')]
+    model_data.forge_loading_parameters = {'checkpoint_info': GAMMA}
+    no_need += [load_next('alpha.safetensors'), load_next('missing.safetensors'), load_next(None)]
+    model_data.forge_loading_parameters = {}
+    no_need.append(load_next('gamma.safetensors'))
+    model_data.forge_loading_parameters = None
+    no_need.append(load_next('gamma.safetensors'))
+    check('    not when they name its file already, under another name; not for another checkpoint than the'
+          ' selection - Forge\'s override loads that - one Forge does not list, none, or nothing built yet',
+          (no_need, refreshed), ([False] * 6, []))
+    check('    nothing said while Forge answers', said, [])
+    model_data.forge_loading_parameters = {'checkpoint_info': ALPHA}
+    del sys.modules['modules_forge.main_entry']
+    del forge_package.main_entry
+    check("    Forge's rebuild not there: no, every time, and said once",
+          (load_next('gamma.safetensors'), load_next('gamma.safetensors'), refreshed, len(said)), (False, False, [], 1))
+finally:
+    host.say = real_say
+    if held_entry is None:
+        sys.modules.pop('modules_forge.main_entry', None)
+    else:
+        sys.modules['modules_forge.main_entry'] = held_entry
+    if held_forge is None:
+        sys.modules.pop('modules_forge', None)
+    elif held_attr == 'unset':
+        forge_package.__dict__.pop('main_entry', None)
+    else:
+        forge_package.main_entry = held_attr
+    if held_sd_models is None:
+        sys.modules.pop('modules.sd_models', None)
+    else:
+        sys.modules['modules.sd_models'] = held_sd_models
+    if held_selected == 'unset':
+        shared.opts.__dict__.pop('sd_model_checkpoint', None)
+    else:
+        shared.opts.sd_model_checkpoint = held_selected
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

@@ -153,6 +153,9 @@ class Forge(object):
         # sets - and what Forge will load next, a new object at each rebuild.
         self.pasted, self.images, self.loading = {}, [], {}
         self.neo = True
+        # Whether the press's script is an X/Y/Z plot with a Checkpoint name
+        # axis, and each checkpoint Forge is asked to load next (#393).
+        self.axis, self.load_asked = False, []
         self.waiting = threading.Event()
         self.release = threading.Event()
         self.lock = threading.Lock()
@@ -170,8 +173,15 @@ forge_host.loading_parameters = lambda: forge.loading
 forge_host.is_neo = lambda: forge.neo
 # A script's choice, as forge_host's own answers it (forge_host_test): what
 # the loading parameters name, unless they are still those noted at the
-# run's start. The stand-in keeps a choice only where it is not the selection.
-forge_host.script_checkpoint = lambda since: None if forge.loading is since else forge.loading.get('chosen')
+# run's start. The stand-in's 'chosen' is a checkpoint other than the
+# selection, kept; its 'selected' names the selection, kept only with
+# selection_too - the run's X/Y/Z has a Checkpoint name axis.
+forge_host.script_checkpoint = lambda since, selection_too=False: (
+    None if forge.loading is since
+    else forge.loading.get('chosen') or (forge.loading.get('selected') if selection_too else None))
+forge_host.checkpoint_axis = lambda p: forge.axis
+# When Forge really rebuilds is forge_host's own (forge_host_test, group 33).
+forge_host.load_next = lambda name: forge.load_asked.append(name) or False
 
 
 def txt2img(id_task, request, *values):
@@ -244,6 +254,7 @@ def clear():
         cursor.execute('DELETE FROM task_checkpoints')
     forge.plan, forge.calls, forge.interrupts = [], [], []
     forge.pasted, forge.images, forge.loading, forge.neo = {}, [], {}, True
+    forge.axis, forge.load_asked = False, []
     forge.waiting.clear()
     forge.release.clear()
     runner._first.clear()
@@ -857,6 +868,41 @@ run_queue()
 check("in a task of several checkpoints each run keeps its row's checkpoint, whatever a script picks",
       [c['overrides']['sd_model_checkpoint'] for c in forge.calls],
       ['model.safetensors', 'other.safetensors', 'third.safetensors'])
+# An override naming the selected checkpoint changes nothing in Forge, so
+# loading parameters a script set stay: each row's checkpoint is handed to
+# Forge to load (#393).
+check("and each row's checkpoint is handed to Forge to load",
+      forge.load_asked, ['model.safetensors', 'other.safetensors', 'third.safetensors'])
+
+# Neo's X/Y/Z with a Checkpoint name axis sets only the loading parameters;
+# a cell naming the selected checkpoint looks as Forge's own put-back after
+# an image leaves them. The axis, noted as the run began, tells them apart.
+clear()
+queue_task('an X/Y/Z Checkpoint name axis, a cell naming the selection')
+forge.axis = True
+forge.images = [{'loading': {'chosen': 'other.safetensors'}}, {'loading': {'selected': 'delta.safetensors'}}]
+run_queue()
+check("with a Checkpoint name axis, a cell naming the selected checkpoint keeps it",
+      [image['sd_model_checkpoint'] for image in forge.calls[0]['images']],
+      ['other.safetensors', 'delta.safetensors'])
+check("and each image hands Forge the checkpoint it was given, the script's, to load",
+      forge.load_asked, ['other.safetensors', 'delta.safetensors'])
+
+clear()
+queue_task('no axis, loading parameters naming the selection')
+forge.images = [{}, {'loading': {'selected': 'delta.safetensors'}}]
+run_queue()
+check("with no such axis, loading parameters naming the selection are no script's choice",
+      [image['sd_model_checkpoint'] for image in forge.calls[0]['images']],
+      ['model.safetensors', 'model.safetensors'])
+
+clear()
+queue_task('a plain task')
+forge.loading = {'chosen': 'other.safetensors'}
+forge.images = [{}, {}]
+run_queue()
+check("a task of one checkpoint hands Forge the checkpoint each image was given, to load",
+      forge.load_asked, ['model.safetensors', 'model.safetensors'])
 
 clear()
 stopped = several('stopped in run 2')
