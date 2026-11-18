@@ -47,9 +47,10 @@ check('while it runs, both tabs are covered', ROOTS.map((root) => notices(root))
 server = { ...server, error: ERROR };
 await waitFor('the failure on the notice', () => failedText('civitai_browser_app').includes(ERROR));
 check('a failure replaces the notice on each tab, one notice each', ROOTS.map((root) => notices(root)), [1, 1]);
-check('saying it could not, with the server\'s error, and that a restart tries it again',
-      ROOTS.map((root) => ['could not update', ERROR, 'restarted'].map((part) => failedText(root).includes(part))),
-      ROOTS.map(() => [true, true, true]));
+check('saying it could not, with the server\'s error, that what it finished is kept, and that a restart goes on from there',
+      ROOTS.map((root) => ['could not update', ERROR, 'What it finished is kept', 'restarted', 'goes on from where it stopped']
+          .map((part) => failedText(root).includes(part))),
+      ROOTS.map(() => [true, true, true, true, true]));
 check('without the running notice\'s progress', Boolean(byId('model_manager_app')
     .querySelector('.database-migrating-progress')), false);
 const after = routeAsks();

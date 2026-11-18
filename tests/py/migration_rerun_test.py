@@ -13,8 +13,10 @@ and started again: each finishes with exactly a fresh database's tables, and
 the failure leaves the version of the step before it. v25 and v32, which
 commit and back up only when they hold rows, fail inside with rows in them.
 v47's rename, run outside any transaction before, is undone with its copy.
-A new database whose first run fails still records which version created it.
-A fresh database is made as before: the same tables, one backup beside it.
+A new database whose first run fails still records which version created it,
+and a library that is only updated records none. Backups made in one second
+keep apart, each named for its step and holding the version it is listed as
+holding. A fresh database is made as before: the same tables, one backup beside it.
 """
 import contextlib
 import io
@@ -151,18 +153,23 @@ def step_by_step(folder):
     return at
 
 
-def filled(path, table, values):
+def fill(cursor, table, values):
     """One row in `table`: the given values, and a stand-in for every other column that needs one."""
+    row = {}
+    for _, name, kind, notnull, default, pk in cursor.execute(f'PRAGMA table_info("{table}")').fetchall():
+        if name in values:
+            row[name] = values[name]
+        elif (notnull or pk) and default is None:
+            row[name] = 1 if 'INT' in (kind or '').upper() else f'{name}_1'
+    cursor.execute(f'INSERT INTO "{table}" ({", ".join(row)}) VALUES ({", ".join("?" * len(row))})',
+                   tuple(row.values()))
+
+
+def filled(path, table, values):
+    """One row in `table` of the database at `path`, committed."""
     connection = sqlite3.connect(path)
     try:
-        row = {}
-        for _, name, kind, notnull, default, pk in connection.execute(f'PRAGMA table_info("{table}")'):
-            if name in values:
-                row[name] = values[name]
-            elif (notnull or pk) and default is None:
-                row[name] = 1 if 'INT' in (kind or '').upper() else f'{name}_1'
-        connection.execute(f'INSERT INTO "{table}" ({", ".join(row)}) VALUES ({", ".join("?" * len(row))})',
-                           tuple(row.values()))
+        fill(connection.cursor(), table, values)
         connection.commit()
     finally:
         connection.close()
@@ -294,6 +301,51 @@ info = dict(raw.execute("SELECT key, value FROM schema_info"))
 raw.close()
 check('a library updated from v48 is migrated, and records no version as its creator',
       (info.get('version'), 'created_by' in info), (str(SCHEMA_VERSION), False))
+
+# ------------------------------------------------- three backups in one second
+# v25, v32 and v37 back up only where their tables hold rows: a run from v24
+# with an image and a version's file, and a generation recorded once v27 makes
+# its table, backs up for each - and for v42, which names its own. Named to the
+# second alone, the three shared a name in one second, and the last was all
+# that was left of them. Held at one second, each is named for its step, and
+# holds the tables of the version the settings window lists it as holding -
+# the step before its own.
+from datetime import datetime as _datetime                # noqa: E402
+from model_manager.db import upkeep                       # noqa: E402
+
+
+class OneSecond(_datetime):
+    @classmethod
+    def now(cls, tz=None):
+        return cls(2026, 11, 18, 12, 0, 0)
+
+
+path = copy(AT[24], os.path.join(WORK, 'backups'))
+filled(path, 'images', {'id': 7, 'version_id': 70, 'page': 1, 'data': json.dumps({'id': 7, 'url': 'u'})})
+filled(path, 'model_versions', {'id': 70, 'model_id': 700, 'file_path': 'C:\\m\\a.safetensors',
+                                'file_name': 'a.safetensors'})
+original_v27, original_datetime = migrations._migrate_to_v27, migrations.datetime
+def v27_then_a_generation(cursor):
+    original_v27(cursor)
+    fill(cursor, 'generations', {})
+migrations._migrate_to_v27, migrations.datetime = v27_then_a_generation, OneSecond
+try:
+    error = run(path, 24)
+finally:
+    migrations._migrate_to_v27, migrations.datetime = original_v27, original_datetime
+check('a run from v24 that backs up at every such step finishes', error, None)
+made = sorted(f for f in os.listdir(os.path.dirname(path)) if '.backup_' in f)
+check('in one second, it leaves a backup for each step, each named for its step', made,
+      ['models.db.backup_20261118_120000_v25', 'models.db.backup_20261118_120000_v32',
+       'models.db.backup_20261118_120000_v37', 'models.db.backup_20261118_120000_v42'])
+HELD = {'models.db.backup_20261118_120000_v25': 24, 'models.db.backup_20261118_120000_v32': 31,
+        'models.db.backup_20261118_120000_v37': 36, 'models.db.backup_20261118_120000_v42': 41}
+listed = {b['name']: b['holds'] for b in upkeep.backups(path) if b['kind'] == 'database'}
+check('the settings window lists each as holding the version before its step', listed, HELD)
+check('which is the version each says inside',
+      {name: version(os.path.join(os.path.dirname(path), name)) for name in made}, HELD)
+check('and each holds that version\'s tables', [shape(os.path.join(os.path.dirname(path), name)) == shape(AT[held])
+                                             for name, held in sorted(listed.items())], [True] * len(listed))
 
 # ------------------------------------------------- a fresh database, as before
 FOLDER = os.path.join(WORK, 'fresh')

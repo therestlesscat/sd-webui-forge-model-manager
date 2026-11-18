@@ -295,8 +295,9 @@ except RuntimeError as error:
 finally:
     migrations.shutil.disk_usage = real
 connection.rollback()
-check('no room: refused, saying how much it needs and that nothing changed',
-      (bool(said) and 'GB free' in said and 'unchanged' in said, version(connection), old_rows(connection),
+check('no room: refused, saying how much it needs, that nothing of v42 was written, and that a start goes on from it',
+      (bool(said) and 'GB free' in said and 'Nothing of v42 has been written' in said and 'goes on from v42' in said,
+       version(connection), old_rows(connection),
        backups(os.path.dirname(path))), (True, '41', before, []))
 connection.close()
 

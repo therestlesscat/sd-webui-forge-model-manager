@@ -683,7 +683,8 @@ function migratingNotice() {
         return `<div class="newer-database database-migrating database-migration-failed">
             <h3>The Model Manager could not update its database.</h3>
             <p>The update of its tables from ${versions} stopped before it finished.
-               The tabs stay off until the WebUI is restarted, which tries it again.</p>
+               What it finished is kept. The tabs stay off until the WebUI is restarted,
+               which goes on from where it stopped.</p>
             <p>The WebUI's console says more.</p>
             <p class="newer-database-path">${escapeHtml(error)}</p>
         </div>`;

@@ -74,7 +74,8 @@ def _migrate_then_start():
     try:
         get_models_db()
     except Exception:
-        say_failure("The database's migration failed; it is as it was, its backup beside it")
+        say_failure("The database's migration failed. What it finished is kept, and the next start goes on "
+                    "from the step that failed.")
         return
     _start_services()
 

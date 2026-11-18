@@ -1101,7 +1101,7 @@ def _migrate_to_v25(cursor, db_path: str):
         # version (run_migrations, #391).
         if cursor.connection.in_transaction:
             cursor.connection.commit()
-        backup_path = f"{db_path}.backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        backup_path = f"{db_path}.backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}_v25"
         backup = sqlite3.connect(backup_path)
         try:
             cursor.connection.backup(backup)
@@ -1493,7 +1493,7 @@ def _migrate_to_v32(cursor, db_path: str):
         if cursor.execute("SELECT EXISTS (SELECT 1 FROM model_versions)").fetchone()[0]:
             if cursor.connection.in_transaction:
                 cursor.connection.commit()
-            backup_path = f"{db_path}.backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            backup_path = f"{db_path}.backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}_v32"
             backup = sqlite3.connect(backup_path)
             try:
                 cursor.connection.backup(backup)
@@ -1877,7 +1877,7 @@ def _migrate_to_v37(cursor, db_path: str):
     if connection.in_transaction:
         connection.commit()
     if cursor.execute("SELECT EXISTS (SELECT 1 FROM generations)").fetchone()[0]:
-        backup_path = f"{db_path}.backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        backup_path = f"{db_path}.backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}_v37"
         backup = sqlite3.connect(backup_path)
         try:
             connection.backup(backup)
@@ -2382,8 +2382,8 @@ def _v42_room(db_path: str) -> None:
     if free < 2 * size:
         raise RuntimeError(
             f"[ModelManager] Updating the database (v42) needs about {2 * size / 1e9:.1f} GB free beside it - "
-            f"a backup of it and its new tables - and {free / 1e9:.1f} GB is free. The database is unchanged: "
-            "free some space and start the WebUI again.")
+            f"a backup of it and its new tables - and {free / 1e9:.1f} GB is free. Nothing of v42 has been written: "
+            "free some space and start the WebUI again, which goes on from v42.")
 
 
 def _migrate_to_v42(cursor, db_path: str, progress=None):

@@ -18,8 +18,8 @@ writers cannot be told; the page warns before it starts.
 
 A compact is one of the long jobs (model_manager.jobs), as a sync is.
 
-Every migration that reshapes the database backs it up beside itself first
-(`migrations._back_up`), and nothing deleted those copies. `backups` lists
+Some migrations back the database up first - v4, v25, v32, v37, v41, v42 and
+v49, named in `run_migrations` - and nothing deleted those copies. `backups` lists
 them by the names migrations give them, and `delete_backups` deletes only
 what it lists.
 """
