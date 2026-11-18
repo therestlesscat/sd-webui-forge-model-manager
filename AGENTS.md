@@ -455,6 +455,14 @@ the code (2026-10-16).
   `mode=ro`), never opened through `ModelsDatabase` - its migrations and
   writes would run - and never copied to a file. An in-memory copy of the
   columns a measurement needs is fine when agreed.
+- **`mode=ro` writes beside the file.** On a database in WAL mode it makes
+  `-shm` and an empty `-wal` beside it where they are missing: reading the
+  test WebUI's backups so for #391 touched six `-shm` files and made three
+  `-wal`, deleted after. A file that must stay as it is - a backup, a closed
+  copy - is read with `immutable=1` (journal mode read as delete, nothing
+  written), or copied first. The live database, which the WebUI holds open
+  with its own `-wal`, is still read with `mode=ro`: `immutable=1` would skip
+  what the WAL holds.
 - **The owner restarts the WebUI on the working tree, mid-task.** Neo loads
   this folder, and the database is the live one, shared: a migration not yet
   committed runs on it at the next restart (v32 did, three times, in #133).

@@ -192,6 +192,13 @@ the lookup and the write leaves a row naming nothing.
 
 ### Proving a change
 
+- **A harness that runs the migrations opens its connection as
+  `_get_connection` does** (`row_factory = sqlite3.Row`). v37 reads each row
+  by name (`_v37_row` falls back to `cursor.description`, which is None
+  there): #391's real-data runs on a plain connection failed at v37 under the
+  old runner and the new alike, `TypeError: 'NoneType' object is not
+  iterable`, while every empty-database case passed - v37 had no row to read.
+  `migration_rerun_test` opens its connections so.
 - **Measure on a database file, not in memory.** For #231, reading today's
   columns with indexes measured 37 to 153 ms on an in-memory copy and was
   recommended; on a file the same queries took 158 to 747 ms. A side agent
