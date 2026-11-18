@@ -23,10 +23,13 @@ for _p in (ROOT, TESTS):
 import numpy                                             # noqa: E402
 from PIL import Image                                    # noqa: E402
 
-from model_manager.scheduler.values import Keeper, MISSING, files, restore   # noqa: E402
+from model_manager.scheduler.values import Keeper, MISSING, NoFiles, files, restore   # noqa: E402
 
 WORK = os.path.join(TESTS, 'work', 'queue_values')
 shutil.rmtree(WORK, ignore_errors=True)
+# Gradio's upload folder, as get_upload_folder() reads it: a folder of this suite's own, before any keep.
+UPLOADS = os.path.join(WORK, 'gradio')
+os.environ['GRADIO_TEMP_DIR'] = UPLOADS
 FOLDER = os.path.join(WORK, 'task')
 
 fails = []
@@ -212,6 +215,86 @@ renamed.keep_file(one)
 renamed.keep_file(one)
 check('as is one after a file given twice, though it is copied once',
       os.path.basename(renamed.keep(image, 'same')['__image__']), 'same-2.png')
+
+# ------------------------------------------- an upload held inside a value
+
+
+def uploaded(folder, name, data, root=UPLOADS):
+    """A file as Gradio keeps an upload: in a folder of its own, named by a hash."""
+    path = os.path.join(root, folder, name)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'wb') as f:
+        f.write(data)
+    return path
+
+
+def kept_or_error(keeper, value):
+    try:
+        return keeper.keep(value)
+    except Exception as e:  # a break that copies what it must not fails a line
+        return repr(e)
+
+
+held = Keeper(os.path.join(WORK, 'held'))
+up = uploaded('h1', 'held.png', b'held')
+kept = kept_or_error(held, up)
+back = restore(kept)
+check("text naming a file in Gradio's upload folder is copied with the task, under its own name (#396)",
+      (isinstance(kept, dict) and os.path.dirname(kept.get('__file__') or '') == held.folder,
+       os.path.basename(str(back)), getattr(back, 'name', None) == str(back)), (True, 'held.png', True))
+
+
+@dataclasses.dataclass
+class BatchUnit:
+    """As ControlNet's unit in the original Forge: its Batch Upload pictures held as paths."""
+    enabled: bool = True
+    batch_input_gallery: object = None
+
+
+def gallery_unit(keeper, tag):
+    pictures = [uploaded(f'{tag}-1', 'one.png', b'one'), uploaded(f'{tag}-2', 'two.png', b'two')]
+    return pictures, kept_or_error(keeper, BatchUnit(batch_input_gallery=[(p, None) for p in pictures]))
+
+
+def read_items(unit, folder):
+    if unit is MISSING or not isinstance(unit, BatchUnit):
+        return repr(unit)
+    out = []
+    for item in unit.batch_input_gallery:
+        try:
+            with open(item[0], 'rb') as f:
+                out.append((os.path.dirname(item[0]) == folder, f.read()))
+        except OSError as e:
+            out.append(type(e).__name__)
+    return out
+
+
+gallery = Keeper(os.path.join(WORK, 'gallery'))
+pictures, stored = gallery_unit(gallery, 'g')
+for p in pictures:
+    os.remove(p)                          # Gradio's folder cleared before Start
+check("a unit holding uploads in a gallery, as ControlNet's Batch Upload, reads them from the task's copies "
+      "once Gradio's folder is cleared (#396)", read_items(restore(stored), gallery.folder), [(True, b'one'), (True, b'two')])
+
+lost = Keeper(os.path.join(WORK, 'lost'))
+pictures, stored = gallery_unit(lost, 'l')
+copies = files(stored) if isinstance(stored, (dict, list)) else []
+check('the unit names a copy of each picture', len(copies), 2)
+if copies:
+    os.remove(copies[0])
+check('and with one copy gone the whole unit comes back MISSING, so its control takes its default',
+      restore(stored) is MISSING, True)
+
+plain = Keeper(os.path.join(WORK, 'plain'))
+for what, text in (('a file elsewhere', source('12', 'outside.png', b'outside')),
+                   ("a path in Gradio's folder naming no file", os.path.join(UPLOADS, 'h6', 'gone.png')),
+                   ('a folder in it', os.path.dirname(uploaded('h5', 'in.png', b'in'))),
+                   ('a file in a sibling folder named like it', uploaded('h4', 'x.png', b'x', root=UPLOADS + '-old')),
+                   ('a relative path to a file in it', os.path.relpath(uploaded('h7', 'relative.png', b'r')))):
+    check(f'text naming no upload is kept as text: {what}', kept_or_error(plain, text), text)
+recorded = uploaded('h8', 'recorded.png', b'recorded')
+check("the recorder keeps text naming an upload as text: a missing part would make a whole unit missing",
+      kept_or_error(NoFiles(), recorded), recorded)
 
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

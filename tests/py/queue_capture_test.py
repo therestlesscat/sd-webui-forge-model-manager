@@ -27,6 +27,8 @@ for _p in (ROOT, TESTS):
 import webui_stub                                        # noqa: E402
 
 WORK = os.path.join(TESTS, 'work', 'queue_capture')
+# Gradio's upload folder, as get_upload_folder() reads it: a folder of this suite's own, before any capture.
+os.environ['GRADIO_TEMP_DIR'] = os.path.join(WORK, 'gradio')
 INPUTS = os.path.join(WORK, 'queue-inputs')
 opts = webui_stub.install(model_manager_queue_inputs_dir=INPUTS,
                           sd_model_checkpoint='model.safetensors [abc123]',
@@ -233,7 +235,7 @@ RUNNERS['img2img'].inputs += [UploadButton('Upload', 'up_button'), Video('Video'
 RUNNERS['img2img'].scripts.append(script('Uploads', 7, 13))
 I_FIXED = [Textbox(None, None), Dropdown('Mode', None), Textbox('Prompt', 'img2img_prompt'),
            LogicalImage('background', 'uuid_0f3c'), Files('Files', 'img2img_batch_upload')]
-i_root, i_generate, i_own, i_others, _ = tab_blocks('img2img', I_FIXED)
+i_root, i_generate, i_own, i_others, (i_cn_enabled, _, i_cn_image) = tab_blocks('img2img', I_FIXED)
 i_runner = RUNNERS['img2img']
 source = Image.new('RGBA', (6, 6), (10, 200, 10, 255))
 upload = os.path.join(WORK, 'batch-one.png')
@@ -242,6 +244,12 @@ i_inputs = capture.queue_inputs(i_own, i_others)
 i_values = {I_FIXED[0]: '', I_FIXED[1]: 0, I_FIXED[2]: 'an apple', I_FIXED[3]: source, I_FIXED[4]: [upload],
             i_runner.inputs[0]: 0, i_runner.inputs[1]: -1, i_runner.inputs[2]: -1,
             i_runner.inputs[3]: Unit(), i_runner.inputs[4]: 0, i_runner.inputs[5]: '', i_runner.inputs[6]: False}
+# ControlNet's unit holding uploads in a gallery, as its Batch Upload does: paths in Gradio's upload folder.
+held_upload = os.path.join(WORK, 'gradio', 'h1', 'held.png')
+os.makedirs(os.path.dirname(held_upload), exist_ok=True)
+with open(held_upload, 'wb') as f:
+    f.write(b'held')
+i_values[i_cn_enabled], i_values[i_cn_image] = True, [(held_upload, None)]
 extension_uploads = []
 for at, name in ((7, 'button.png'), (8, 'clip.mp4'), (9, 'file.txt'), (10, 'sound.wav'), (11, 'shape.glb'),
                  (12, 'picture.png')):
@@ -267,6 +275,11 @@ try:
 except AttributeError as e:
     read = repr(e)
 check("Forge's Batch reads each restored upload's .name: the copy (#396)", read, [os.path.abspath(copy)])
+unit = db.get_task(task_id)['inputs']['scripts']['ControlNet'][0]['value']
+item = (((unit.get('fields') or {}).get('image') or [{}])[0] or {}).get('__tuple__', [None])[0]
+check("an upload a script's unit holds, refreshed by its listener as ControlNet's is, is copied too (#396)",
+      (isinstance(item, dict) and os.path.dirname(item.get('__file__') or '') == os.path.dirname(image_path),
+       os.path.basename(item['__file__']) if isinstance(item, dict) else item), (True, 'held.png'))
 kept = [c['value'] for c in db.get_task(task_id)['inputs']['scripts']['Uploads']]
 check("an UploadButton's, a Video's, a File's under a name of its own, an Audio's, a Model3D's and a "
       "file-path Image's are copied too (#396)",

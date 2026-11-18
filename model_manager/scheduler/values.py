@@ -128,6 +128,17 @@ class Keeper:
         self._copied[source] = {"__file__": copy}
         return {"__file__": copy}
 
+    def _held_upload(self, text: str) -> bool:
+        """
+        Text naming a file in Gradio's upload folder: an upload an extension
+        holds in a value of its own - ControlNet's Batch Upload pictures, in
+        the original Forge - which, like a File's, may be gone by Start (#396).
+        """
+        if not os.path.isabs(text):
+            return False
+        from gradio.utils import get_upload_folder, is_in_or_equal
+        return is_in_or_equal(text, get_upload_folder()) and os.path.isfile(text)
+
     def keep(self, value: Any, name: str = "value") -> Any:
         """The value as JSON can hold it. `name` names any file it needs."""
         # An enum first: some are ints or strings too.
@@ -136,7 +147,7 @@ class Keeper:
         if value is None or isinstance(value, (bool, int, float)):
             return value
         if isinstance(value, str):
-            return str(value)
+            return self.keep_file(value) if self._held_upload(value) else str(value)
         if _is_image(value):
             path = self._path(name, ".png")
             try:
@@ -188,6 +199,12 @@ class NoFiles(Keeper):
 
     def keep_file(self, path: str) -> Dict[str, str]:
         return {"__missing__": "file"}
+
+    def _held_upload(self, text: str) -> bool:
+        # Kept as text: a part missing would make the whole value missing - a
+        # ControlNet unit - and Send, which leaves a unit as it is on screen,
+        # would then say it took its default.
+        return False
 
     def keep(self, value: Any, name: str = "value") -> Any:
         if _is_image(value) or _is_array(value):
