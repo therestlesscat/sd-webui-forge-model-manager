@@ -94,6 +94,12 @@ because that would mean the assumption no longer holds.
   `usageControl` is each version's. Setting it takes a Gold membership or a
   permission (Civitai's `model-version-usage-control.ts`), which is why it is
   rare.
+- **A Civitai image's `meta.comfy` - the ComfyUI workflow kept beside its
+  fields - is an object** holding `prompt` (the run version) and `workflow`
+  (the editor version): 5,048 of 5,048 stored records of one library
+  (read-only, 2026-11-19). Fixtures take that shape: a string `comfy` passes
+  through `build_infotext` into the pasted text, and a check of #232's fill
+  once failed on it where the real data cannot.
 - **An image's size comes as `Size`, or as `width` and `height`.** Of one
   library's 120,104 stored images, 17,672 had both, and they always agreed;
   24,315 had `width`/`height` alone - 14,416 the picture's own size, 8,932

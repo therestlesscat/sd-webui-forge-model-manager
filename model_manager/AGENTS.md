@@ -384,8 +384,13 @@ or for a video (#8). See `model_manager/generations.py`.
 reads what Forge wrote into the file, so a synced generation has a
 `source_id` and lacks what only the recorder sees - the script arguments,
 the inputs. The recorder wins: saving a file a sync holds replaces the
-synced row. The presses are rebuilt by settings alike, seed +1 and running
-number +1: 630 of 630 recorded generations came out exactly. A delete that
+synced row. The synced rows go first, in a transaction of their own
+(`replace_imported_images`, `generations.py:636`), then the recorder writes
+(`:637`): a write that fails loses both. A seed of 2^63 did so, the file
+left with no row (a run on the code before 0.81.2); any other failure of
+the write still would, until the next sync adds the file back. The presses
+are rebuilt by settings alike, seed +1 and running number +1: 630 of 630
+recorded generations came out exactly. A delete that
 keeps the file puts it on `generation_images_removed`, with its size and time, or the
 next sync brings it back. A checkpoint the library lacks is kept by its
 name, a resource row with no path: Send stops on it and opens Resources.
@@ -555,6 +560,10 @@ LoRAs from); anything that shows one says whose it is (a whole path).
 - **A bool is an int.** An enum checked `isinstance(value, int)` before
   `bool`, so a model's `nsfw: true` read as bitmask 1 - PG - and its own
   branch for booleans never ran. Test for `bool` first.
+- **Forge Neo's Seed box is a number field**, so a seed past 2^53 reaches
+  Forge rounded: 9223372036854775808 typed became 9223372036854776000 in the
+  infotext (7880, twice). A replay that sets a seed through it, or a fix that
+  hands one back, cannot be exact there; `--use-textbox-seed` makes it text.
 - **Forge Neo:** T5 and UMT5 files load only in Hugging Face's layout; switching
   a UI preset brings back that preset's checkpoint; Flux.1 and Flux.2 share
   block names and differ in MLP width, which a LoRA's shapes show. It lists
