@@ -510,6 +510,21 @@ LoRAs from); anything that shows one says whose it is (a whole path).
   Civitai said (#224). A sample of about 2,000 versions found none; one
   library's sync of 4,496 found 3 `Generation` and 5 `ExternalGeneration`
   (#226), kept in `version_records` (`model_manager/db/AGENTS.md`).
+- **A generation's stored data is Forge's reading of its infotext, not the
+  infotext.** `infotext_meta` stores what Forge's `parse_generation_parameters`
+  hands back: the infotext's Seed, Steps, Sampler and CFG scale renamed to
+  Civitai's `seed`, `steps`, `sampler`, `cfgScale` (`_META_NAMES`); `Size`
+  beside the `Size-1` and `Size-2` the parser splits it into; and defaults the
+  infotext never held - Hires checkpoint, Hires sampler, Hires schedule type,
+  Hires resize 0 and 0, RNG CPU, Emphasis Original, and from extensions
+  MaHiRo False and Rescale CFG 0, each on 47,795 to 70,097 of one library's
+  70,097 images with infotext. An image without infotext stores its file
+  name's fields under Forge's own names (`Seed`, `Steps`, `CFG scale`). So a
+  count by key counts the stored name and the parser's defaults: #409's issue
+  counted `Seed`, missed `seed` on all 70,097, and said the seed was not
+  listed twice; its plan's first count took any `Hires` key for hires, and
+  called hires 1,016 images whose size Forge had rounded down to a multiple
+  of 8.
 
 ### The code
 
