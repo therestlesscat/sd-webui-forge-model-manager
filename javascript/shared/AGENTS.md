@@ -207,11 +207,21 @@ showed:
   original Forge's has no id, and is found by its label in the quick settings.
   Forge's `selectCheckpoint` matches a name loosely. Neo
   (`get_closet_checkpoint_match`) takes an alias, else the shortest title
-  holding the name, and warns "Failed to find model" for none; the original
-  Forge (`match_checkpoint_to_name`) takes the first title that holds the
-  name or sits inside it. So Send hands it Forge's own name
+  holding the name, and warned "Failed to find model" for none until its
+  30 October change (`1f2f068d`) - since then it asserts, and answers 500;
+  the original Forge (`match_checkpoint_to_name`) takes the first title that
+  holds the name or sits inside it. So Send hands it Forge's own name
   (`checkpoint_name`): a guessed one can select another file (#323; read
-  from the code, not seen).
+  from the code, not seen). That change gave `selectCheckpoint` a second
+  argument, a list of VAE / text encoders, which its server step requires
+  (`json.loads` of the hidden `change_modules_text` box,
+  `modules/ui_settings.py:337`): called with the name alone it answered 500
+  and changed no checkpoint - every Send on such a Neo until 0.81.4 (#430).
+  Once a checkpoint card has been clicked, the box keeps that card's list,
+  and a one-argument call passes, inheriting it. Send passes `[]`; every
+  earlier Neo `ui.js` (128 of the 130 commits that touch it) and the
+  original Forge define `selectCheckpoint(name)` alone, and drop the second
+  argument in the browser.
 - **The checkpoint list.** Both WebUIs refresh it at every page load
   (`Context.root_block.load(...)` in `modules_forge/main_entry.py`: Neo line
   65, the original Forge line 96), so a checkpoint Forge does not list is one
@@ -240,7 +250,16 @@ showed:
   Forge keeps the last selection, and a switch to the flux preset brings
   back that preset's saved list (`forge_additional_modules_flux`). Over 397
   Sends on Neo (2026-10-21), 9 ended so: 4 after a fresh page, 4 after the
-  flux switch, 1 of two changes.
+  flux switch, 1 of two changes. On a Neo with its 30 October change each
+  Send runs Neo's whole checkpoint step (`_load_presets`): it first copies
+  the page's box, and its Diffusion in Low Bits value, into Forge's settings
+  without saving, and refreshes what Forge will load only when the
+  checkpoint changes. So with the checkpoint already loaded and the box
+  stale, Forge's settings take the box's list, Send's check agrees - it reads
+  the settings (`forge_host.current_modules`), not what will load - and the
+  old list loads: on 7870 no "Model Selected:" line followed such a Send,
+  the last still naming the VAE (#430, left as Neo's own). That line, or a
+  Generate's "Loading Model:", is the only witness of what will load.
 
 ## Kept elsewhere, and true here too
 

@@ -1168,7 +1168,13 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   to the same preset in one check finds the modules the first left there,
   kept by Forge per preset, and logs "already as needed": #404's second
   Civitai press on 7880 proved nothing until the flux preset's list was
-  cleared with Forge's own remove buttons (2026-11-15).
+  cleared with Forge's own remove buttons (2026-11-15). And a fresh page
+  draws Forge's controls as the UI was built, not as Forge holds them: on
+  7870 its Checkpoint box showed an SDXL file and its preset `xl` while
+  Forge held `sd` and an SD 1.5 file, and a VAE picked there was saved as
+  `forge_additional_modules_xl` (#430's set-up). Read
+  `/model-manager/forge-modules/current` and `config.json`, not the page,
+  before setting anything by hand.
 - **A whole-tab fingerprint is not stable across a restart.** ADetailer's
   checkpoint box on each tab takes a value per process, and ForgeCanvas names
   its elements with a uuid per process. #307's old-against-new run differed
