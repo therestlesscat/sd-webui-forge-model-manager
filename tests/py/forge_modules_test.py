@@ -296,6 +296,15 @@ body = plan(base_model='Anima', module=['clip_l', 'qwen_image_vae'])
 check('a module of a kind the model does not use is left out',
       (body.get('target'), body.get('named_unused')),
       (['qwen_3_06b_base.safetensors', 'qwen_image_vae.safetensors'], ['clip_l.safetensors']))
+import model_manager.send as send_said                   # noqa: E402
+said, was_said = [], send_said.say
+send_said.say = said.append
+try:
+    plan(base_model='Flux.1 D', vae='sdxl_vae')
+finally:
+    send_said.say = was_said
+check('and the console says so, naming it: a Flux image naming an SDXL VAE',
+      [line for line in said if 'sdxl_vae.safetensors' in line and 'does not use' in line] != [], True)
 body = plan(base_model='Anima', module=['gone_vae', 'qwen_image_vae'])
 check('one Forge does not list is said, and its kind is picked as ever',
       (body.get('target'), body.get('modules_not_found')),

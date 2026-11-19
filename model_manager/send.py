@@ -445,9 +445,7 @@ def civitai_plan(db, file_path: str = "", base_model: str = "", version_ids: str
         upscaler's, upscaler: the name Forge lists it under, for Hires fix's;
         upscaler_not_listed, its file's when Forge does not.
     """
-    from .file_identity import classify_file
-    from .forge_host import embedding_kind, installed_modules, saved_modules
-    from .forge_modules import CLASS_FOR_PRESET, NEEDS, match_module, pick, preferred_modules
+    from .forge_host import embedding_kind, installed_modules
     from .send_plan import SendModel, local_checkpoint, named_ids, picked_model, plan_model
 
     # The library's checkpoint the image names: the model to set up for and
@@ -476,7 +474,6 @@ def civitai_plan(db, file_path: str = "", base_model: str = "", version_ids: str
         say(f"Could not work out the architecture: {e}")
         found = SendModel()
     preset, model_class, source = found.preset, found.model_class, found.source
-    bundled_te, bundled_vae = found.bundled_text_encoder, found.bundled_vae
 
     answer = {"success": True, "preset": preset, "model_class": model_class,
               "source": source, "video": found.video,
@@ -513,21 +510,48 @@ def civitai_plan(db, file_path: str = "", base_model: str = "", version_ids: str
         answer["own_not_listed"] = None if own else os.path.basename(file_path)
     own_vae = gallery_type == "VAE"
 
-    # The modules the image names, as Forge lists them (#204): its VAE,
-    # and each `Module N` - Forge's own record of what was selected. By name
-    # first; a Civitai AIR id by its version; and a VAE no name finds by a
-    # hash the image gives for it, else the version civitaiResources lists
-    # (#326). Not the hash first: where a name found a file, A1111's `VAE
-    # hash` named a VAE of the other family - SD 1.5 for SDXL, or the
-    # reverse - 277 times in 449 on one library, the name 7 in 9,416. A pick
-    # of another model takes none of them (#377): they are of the image's.
+    # The modules the image names (#204): its VAE, and each `Module N` -
+    # Forge's own record of what was selected. A pick of another model
+    # takes none of them (#377): they are of the image's.
     keys = (vae_keys or {}) if kind != "model" else {}
     if kind == "model":
         vae, module = "", ()
         own = _family_takes(own, own_vae, installed, found, answer)
+    module_names = list(dict.fromkeys(n.strip() for n in [vae, *module] if n and n.strip()))
+    plan_modules(db, found, module_names, answer, installed, own, own_vae, keys)
+    return answer
+
+
+def plan_modules(db, found: Any, module_names: List[str], answer: Dict[str, Any], installed: Dict[str, str],
+                 own: Optional[str] = None, own_vae: bool = False,
+                 keys: Optional[Dict[str, Any]] = None) -> List[str]:
+    """
+    The VAE / text encoders to select for the modules an image names, as
+    Forge lists them (#204), for the model `found` is (a send_plan.SendModel).
+    `module_names`: each name trimmed, none empty, each once - a name is
+    matched and compared as handed. `answer` holds `manage_modules` and
+    `modules_unfit` (a list), and is given `target` and `modules_not_found`;
+    for SD and SDXL, `modules_unfit` gains a VAE of another family; for a
+    model whose modules are managed, `bundled` and pick()'s answer, and the
+    console names what the model does not use. `own`: the label of a
+    gallery's own VAE or text encoder (`own_vae` for a VAE's), which nothing
+    named takes the place of; `keys`: what else says which VAE the image used
+    (vae_keys()). Returns the labels the names were matched to.
+
+    By name first; a Civitai AIR id by its version; and a VAE no name finds
+    by a hash the image gives for it, else the version civitaiResources
+    lists (#326). Not the hash first: where a name found a file, A1111's
+    `VAE hash` named a VAE of the other family - SD 1.5 for SDXL, or the
+    reverse - 277 times in 449 on one library, the name 7 in 9,416.
+    """
+    from .file_identity import classify_file
+    from .forge_host import saved_modules
+    from .forge_modules import CLASS_FOR_PRESET, NEEDS, match_module, pick, preferred_modules
+    keys = keys or {}
+    preset, model_class = found.preset, found.model_class
+    bundled_te, bundled_vae = found.bundled_text_encoder, found.bundled_vae
     vae_name = keys.get("name")
     by_hash = _held_label(db, installed, hashes=keys.get("hashes") or [])
-    names = list(dict.fromkeys(n.strip() for n in [vae, *module] if n and n.strip()))
 
     def by_name(name: str) -> Optional[str]:
         label = match_module(name, installed)
@@ -535,7 +559,7 @@ def civitai_plan(db, file_path: str = "", base_model: str = "", version_ids: str
         return _held_label(db, installed, versions=[int(air.group(1))]) if air else label
 
     named, unlisted = [], []
-    for name in names:
+    for name in module_names:
         if name == vae_name:
             label = by_name(name) or by_hash or _held_label(db, installed, versions=keys.get("versions") or [])
         else:
@@ -544,10 +568,11 @@ def civitai_plan(db, file_path: str = "", base_model: str = "", version_ids: str
             unlisted.append(name)
         elif label not in named:
             named.append(label)
-    if vae_name not in names:
+    if vae_name not in module_names:
         label = by_hash or _held_label(db, installed, versions=keys.get("versions") or [])
         if label and label not in named:
             named.insert(0, label)
+    matched = list(named)
 
     if not answer["manage_modules"]:
         # SD and SDXL bring their own: what the image names, if anything;
@@ -565,7 +590,7 @@ def civitai_plan(db, file_path: str = "", base_model: str = "", version_ids: str
                      if not str(classify_file(installed[label])[0] or "").startswith("vae")]
         answer["target"] = list(dict.fromkeys(label for label in (*named, own) if label))
         answer["modules_not_found"] = unlisted
-        return answer
+        return matched
 
     # What the checkpoint brings itself, of what its model needs: seen to
     # work with nothing selected for Krea 2 (Qwen3-VL 4B) and Flux.1
@@ -582,7 +607,7 @@ def civitai_plan(db, file_path: str = "", base_model: str = "", version_ids: str
             "does not use; left out")
     answer["modules_not_found"] = unlisted
     answer["target"] = list(answer["select"])
-    return answer
+    return matched
 
 
 # ------------------------------------------------- the VAEs an image names
