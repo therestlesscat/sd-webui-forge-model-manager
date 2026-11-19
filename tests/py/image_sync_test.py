@@ -757,7 +757,8 @@ check('408. its level judged from them as an image with text is, above the dialo
       (got['level'], got['level'] > PG), (generated_level(got['meta']), True))
 check('408. its data: the prompts, Made with, the size and what the file name gives',
       got['meta'], {'prompt': 'a portrait, %s, <lora:x:1>' % EXPLICIT, 'negativePrompt': 'blurry',
-                    'Made with': 'Endless', 'Model': 'modelx', 'Steps': '20', 'Size': '64x64'})
+                    'Made with': 'Endless', 'Model': 'modelx', 'Steps': '20', 'Size': '64x64',
+                    'Read from': 'text in the file, file name'})
 check('408. its <lora:> tag names no file',
       rows("SELECT COUNT(*) FROM generation_resources r JOIN generation_images gi ON gi.id = r.image_id "
            "WHERE gi.path = ? AND r.role = 'lora'", (spicy,))[0][0], 0)
@@ -1172,7 +1173,8 @@ def seed_of(path):
 
 GRAPH_META = {'prompt': 'a lighthouse at dusk', 'negativePrompt': 'blurry', 'Made with': 'ComfyUI',
               'Sampler': 'dpmpp_2m', 'scheduler': 'karras', 'Steps': 25, 'CFG scale': 7.5, 'Seed': 4321,
-              'Size': '512x768', 'Model': os.path.splitext(CK_FILE)[0], 'Module 1': 'sdxl_vae.safetensors'}
+              'Size': '512x768', 'Model': os.path.splitext(CK_FILE)[0], 'Module 1': 'sdxl_vae.safetensors',
+              'Read from': 'workflow'}
 png = save_comfy(COMFY, 'ComfyUI_00001_.png', run_graph(loras=[('characters\\' + LORA_NAME + '.safetensors', 0.6)]),
                  workflow={'nodes': [], 'links': []})
 webp = save_comfy(COMFY, 'ComfyUI_00002_.webp', run_graph(seed=99), workflow={'nodes': []}, kind='webp', at=1)
@@ -1249,6 +1251,14 @@ check('232. a Forge text\'s seed of 2^63 and a variation seed past it: none stor
       'kept; the chunk written', outcome, [(None, None, forge_big_text), (2 ** 63 - 1, None, forge_edge_text)])
 check('232. two images of one press whose seeds are past 2^63: one generation, as they join by seed + 1',
       len({stored(p)['generation'] for p in pressed}) if outcome != 'OverflowError' else outcome, 1)
+try:
+    image_sync.ImageSync([{'path': FORGE_BIG}], PG, True, force=True).run()
+    outcome = rows("SELECT gi.seed, d.infotext FROM generation_images gi JOIN generation_image_details d "
+                   "ON d.image_id = gi.id WHERE gi.path = ?", (forge_big,))
+except Exception as e:                    # noqa: BLE001 - a failed write is the fault
+    outcome = type(e).__name__
+check('232. Read every image again over it: rebuilt, its seed none, its infotext whole', outcome,
+      [(None, forge_big_text)])
 got = stored(no_prompt)
 check('232. a graph whose prompt cannot be reached: its settings and LoRAs, no prompt in its data - Send\'s '
       'refusal reads that - and the dialog\'s level',
@@ -1330,6 +1340,35 @@ got = stored(later)
 check('232. Read every image again on a ComfyUI file synced before with nothing: read in full, judged from its prompt',
       (before['prompt'], got['prompt'], got['meta'].get('Sampler'), seed_of(later), got['level']),
       (None, 'a %s harbour' % EXPLICIT, 'dpmpp_2m', 31, generated_level(got['meta'])))
+
+# Read from (#232): where the data of an image without infotext came from -
+# the file's own text, the workflow, the file name - and nothing on an image
+# whose data is Forge's text, or that gave nothing.
+READ_FROM = os.path.join(WORK, 'read-from')
+text_only = save_prompts(READ_FROM, 'just-text.png', 'a text prompt')
+name_only = save(READ_FROM, '04000-modely-40.png', None, at=600)
+nothing = save(READ_FROM, 'plain-picture.png', None, at=1200)
+opts.samples_filename_pattern = '[seed]-[model_name]-[steps]'
+run([READ_FROM], level=PG)
+CLIPPED = os.path.join(WORK, 'read-from-clip')
+clipped = save_comfy(CLIPPED, '04010-2.png', run_graph(seed=58))
+opts.samples_filename_pattern = '[seed]-[clip_skip]'
+run([CLIPPED], level=PG)
+opts.samples_filename_pattern = pattern_was
+read_from = lambda path: (stored(path)['meta'] or {}).get('Read from')  # noqa: E731
+check('232. Read from: a ComfyUI file whose name gives nothing: the workflow', read_from(png), 'workflow')
+check('232. Read from: an Endless file: its prompts\' text, then the workflow', read_from(endless),
+      'text in the file, workflow')
+check('232. Read from: a ComfyUI file whose name gives a field no graph does: the workflow, then the file name',
+      (read_from(clipped), stored(clipped)['meta'].get('Clip skip')), ('workflow, file name', '2'))
+check('232. Read from: a name whose fields the graph gives too, its checkpoint included: the workflow alone',
+      read_from(pair[0]), 'workflow')
+check('232. Read from: a graph whose prompt cannot be reached: the workflow', read_from(no_prompt), 'workflow')
+check('232. Read from: #408\'s prompts and its file name; its prompts alone',
+      (read_from(spicy), read_from(text_only)), ('text in the file, file name', 'text in the file'))
+check('232. Read from: an image with no text whose name gives fields: the file name', read_from(name_only), 'file name')
+check('232. no Read from on an image that gave nothing, nor on one with Forge\'s text',
+      (read_from(nothing), 'Read from' in (stored(saver)['meta'] or {})), (None, False))
 
 print('image_sync: %d failure(s)' % len(fails))
 for f in fails:

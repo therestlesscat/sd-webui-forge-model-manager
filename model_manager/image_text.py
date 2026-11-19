@@ -42,7 +42,8 @@ def read_text(path: str) -> Tuple[Optional[str], int, int, Optional[image_format
     none, `prompts` is the prompt and negative another tool wrote
     (image_formats), else None - never both. A file ComfyUI saved has its
     graph read too (`_comfy`): `prompts` then also holds its fields under
-    "comfy", and its prompt may be None where the graph gives none.
+    "comfy", and "text" where its prompts are the file's own text; its
+    prompt may be None where the graph gives none.
 
     Forge's text is looked for where Forge writes it - `parameters`, the Exif
     part's UserComment, a JPEG's comment - then at the EXIF's top level, where
@@ -100,7 +101,8 @@ def _comfy(image, info) -> Optional[image_formats.Prompts]:
     file's. Where the file gives its prompts in plain text, both are its own,
     as #408 reads them; where it gives none, both are the graph's, trimmed
     as #408's are. The graph gives the rest. Made with is ComfyUI wherever
-    the graph gave anything.
+    the graph gave anything; `text` marks prompts the file's text gave, for
+    its Read from.
     """
     found = image_formats.from_chunks(info)
     run, editor = info.get("prompt"), info.get("workflow")
@@ -113,6 +115,8 @@ def _comfy(image, info) -> Optional[image_formats.Prompts]:
                                         "negative": image_formats._value(fields.get("negative"))}
     answer["tool"] = "ComfyUI"
     answer["comfy"] = fields
+    if found:
+        answer["text"] = True
     return answer
 
 

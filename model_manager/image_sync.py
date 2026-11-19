@@ -362,17 +362,6 @@ def _seed(value: Any) -> Optional[int]:
         return None
 
 
-def _stored(seed: Optional[int]) -> Optional[int]:
-    """
-    A seed as SQLite can keep it: within 64 bits, else none. ComfyUI's run to
-    2^64 - 1, and a text a saver wrote can carry one: 2^63 or more failed its
-    chunk's write, and every sync after it at the same file (#232). Read
-    whole, it still joins a press by seed + 1; the infotext keeps it whole,
-    and Send pastes that.
-    """
-    return seed if seed is not None and -2 ** 63 <= seed < 2 ** 63 else None
-
-
 def _joins_text(a: _Image, b: _Image) -> bool:
     """One press, both with text: settings alike, the prompts aside, the seed
     one on, the running number one on where both have one."""
@@ -545,6 +534,18 @@ def _graph_meta(comfy: Dict[str, Any]) -> Dict[str, Any]:
             meta[f"Module {number}"] = module
     meta["Made with"] = "ComfyUI"
     return meta
+
+
+def _read_from(text: bool, comfy: Dict[str, Any], fields: Dict[str, Any], graph: Dict[str, Any]) -> Optional[str]:
+    """
+    Where the data of an image without infotext came from, as its Read from
+    says it (#232): its prompts from the file's own text (#408's readers),
+    the workflow ComfyUI saved in it, and its file name - a field the graph
+    does not give, as the graph's checkpoint is put among the file name's.
+    The picture's own size is none of them. None where nothing came.
+    """
+    sources = [("text in the file", text), ("workflow", bool(comfy)), ("file name", bool(set(fields) - set(graph)))]
+    return ", ".join(name for name, given in sources if given) or None
 
 
 def _graph_loras(matcher, comfy: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -805,7 +806,7 @@ class ImageSync(object):
                        "negative_prompt": meta.get("negativePrompt"),
                        "hr_prompt": meta.get("Hires prompt") or None,
                        "hr_negative_prompt": meta.get("Hires negative prompt") or None,
-                       "subseed": _stored(_seed(image.params.get("Variation seed"))), "loras": loras}
+                       "subseed": _seed(image.params.get("Variation seed")), "loras": loras}
             elif image.prompts and image.prompts.get("prompt"):
                 # Another tool's prompts (#408): judged as a text's are; its
                 # infotext stays empty, and a <lora:> tag in it names no file.
@@ -820,6 +821,9 @@ class ImageSync(object):
                 meta.update(graph)
                 if image.width and image.height:
                     meta.setdefault("Size", f"{image.width}x{image.height}")
+                read_from = _read_from(not comfy or bool(found.get("text")), comfy, fields, graph)
+                if read_from:
+                    meta["Read from"] = read_from
                 level = generated_level(meta)
                 loras = _graph_loras(matcher, comfy)
                 row = {"meta": meta, "prompt": found["prompt"], "negative_prompt": found.get("negative")}
@@ -830,6 +834,9 @@ class ImageSync(object):
                 meta.update(graph)
                 if image.width and image.height:
                     meta.setdefault("Size", f"{image.width}x{image.height}")
+                read_from = _read_from(False, comfy, fields, graph)
+                if read_from:
+                    meta["Read from"] = read_from
                 level = self.level
                 loras = _graph_loras(matcher, comfy)
                 row = {"meta": meta or None}
@@ -843,7 +850,7 @@ class ImageSync(object):
             else:
                 seed = image.seed if image.seed is not None else _seed(
                     (image.name or {}).get("fields", {}).get("Seed"))
-            row.update({"position": position, "path": image.path, "seed": _stored(seed), "width": image.width,
+            row.update({"position": position, "path": image.path, "seed": seed, "width": image.width,
                 "height": image.height, "prompt_nsfw_level": level})
             rows.append(row)
             used.append([f for f in [checkpoint_path, *modules, *(lora["path"] for lora in loras)] if f])

@@ -155,17 +155,17 @@ counter = [0]
 
 
 def generate(p, prompts, loras_by_iteration, replace=(), extra_saves=True, video=None,
-             names=None):
+             names=None, seeds=None, subseeds=None):
     """Drive one generation through the hooks, as processing.py does. Its
     files are numbered on from the last, as Forge numbers them, unless names
-    says otherwise."""
+    says otherwise; its seeds 1000 and 5000 on, unless seeds and subseeds do."""
     generations.before_process(p)
     # Styles are merged, then Dynamic Prompts rewrites the prompts - and p.prompt.
     p.prompt = 'a {fox|cat}, cinematic'
     p.all_prompts = prompts
     p.all_negative_prompts = ['blurry'] * len(prompts)
-    p.all_seeds = [1000 + i for i in range(len(prompts))]
-    p.all_subseeds = [5000 + i for i in range(len(prompts))]
+    p.all_seeds = list(seeds) if seeds else [1000 + i for i in range(len(prompts))]
+    p.all_subseeds = list(subseeds) if subseeds else [5000 + i for i in range(len(prompts))]
     generations.process(p)
     for n in range(p.n_iter):
         p.iteration = n
@@ -178,7 +178,7 @@ def generate(p, prompts, loras_by_iteration, replace=(), extra_saves=True, video
             if index in replace:                 # a later script's hook
                 pp.image = Image('resized %d' % index, (1664, 2432))
             pp.image.infotext = '%s\nNegative prompt: blurry\nSteps: 30, Sampler: Euler, Seed: %d' % (
-                prompts[index], 1000 + index)
+                prompts[index], p.all_seeds[index])
             if names:
                 name = names[index]
             else:
@@ -1078,6 +1078,24 @@ check('the recorder replaces the row a sync wrote for its file',
           "JOIN generations g ON g.id = gi.generation_id JOIN generation_image_details d ON d.image_id = gi.id "
           "WHERE gi.path = ?", (synced,)).fetchall()],
       [(1, 1)])
+# Forge takes a typed seed of 2^63 (its box rounds 9223372036854775808 to
+# ...6000, and torch takes up to 2^64 - 1); binding it failed the write, and
+# the recorder lost the generation, after taking the synced row away (#232).
+big_synced = os.path.join(OUT, 'big-0.png')
+db.record_generation({'created_at': '2026-01-01T00:00:00', 'mode': 'txt2img', 'image_count': 1,
+                      'source_id': db.image_source_id(OUT)},
+                     [{'position': 0, 'path': big_synced, 'meta': {'Steps': '30'}}], [[]])
+big_id = generate(Processing(n_iter=1, batch_size=1), PROMPTS[:1], [[]], extra_saves=False, names=['big-0.png'],
+                  seeds=[2 ** 63], subseeds=[2 ** 64 - 2])
+big = db.get_generation(big_id) if isinstance(big_id, int) else {'images': [{}]}
+check('232. a seed of 2^63 and a variation seed past it: recorded, neither stored, its infotext whole, the synced '
+      'row replaced',
+      (isinstance(big_id, int), big['images'][0].get('seed'), big['images'][0].get('subseed'),
+       'Seed: %d' % 2 ** 63 in (big['images'][0].get('infotext') or ''),
+       [tuple(r) for r in db._get_connection().execute(
+           "SELECT g.source_id IS NULL FROM generation_images gi JOIN generations g ON g.id = gi.generation_id "
+           "WHERE gi.path = ?", (big_synced,)).fetchall()]),
+      (True, None, None, True, [(1,)]))
 
 # ------------------------------------------ a prompt goes with its last user (#248)
 # Each prompt's text is one row of `prompts`, shared by every generation and

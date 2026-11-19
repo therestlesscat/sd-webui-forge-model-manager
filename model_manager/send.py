@@ -1580,9 +1580,11 @@ def prompts_only(generation: Dict[str, Any]) -> bool:
 
 def prompts_only_data(meta: Dict[str, Any]) -> Dict[str, Any]:
     """A prompts-only image's data under the names a Civitai image's data
-    uses, which build_infotext and the schedule type read; Made with left
-    out."""
-    return {_NAME_FIELDS.get(key, key): value for key, value in (meta or {}).items() if key != "Made with"}
+    uses, which build_infotext and the schedule type read; Made with and
+    Read from (#232) left out: build_infotext writes any key it does not
+    know into the settings line."""
+    return {_NAME_FIELDS.get(key, key): value for key, value in (meta or {}).items()
+            if key not in ("Made with", "Read from")}
 
 
 def prompts_only_text(meta: Dict[str, Any], samplers: List[Any], schedulers: List[Any],

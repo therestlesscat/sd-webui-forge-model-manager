@@ -704,6 +704,9 @@ PROMPTS_ONLY = {'prompt': 'a cat', 'negativePrompt': 'dog', 'Made with': 'SwarmU
 po = send.prompts_only_text(PROMPTS_ONLY, PO_SAMPLERS, PO_SCHEDULERS)
 check('408. a prompts-only image\'s text: its prompts, the file name\'s settings as Forge names them, no Made with',
       po, 'a cat\nNegative prompt: dog\nSteps: 30, Sampler: Euler a, Size: 64x64, Model: mx, ADetailer enable: False')
+check('232. Read from, where the data came from, stays out of the text, as Made with does',
+      send.prompts_only_text({**PROMPTS_ONLY, 'Read from': 'text in the file, file name'}, PO_SAMPLERS, PO_SCHEDULERS),
+      po)
 check('408. a size alone: Size-1, Size-2 and ADetailer\'s switch, three fields Forge reads as settings',
       send.prompts_only_text({'prompt': 'a cat', 'Size': '64x64'}, PO_SAMPLERS, PO_SCHEDULERS),
       'a cat\nSize-1: 64, Size-2: 64, ADetailer enable: False')

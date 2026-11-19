@@ -38,7 +38,7 @@ from ..gallery import nsfw_kept_sql, switch_counts_sql
 from ..nsfw import SFW_MAX
 from ..prompt_rules import MIN_PROMPT_LENGTH
 from .library import LIBRARY
-from .params_table import GENERATION_COLUMNS, generation_params_row, settings_group
+from .params_table import GENERATION_COLUMNS, generation_params_row, settings_group, sqlite_whole
 from .prompt_table import PromptTable, like_pattern, tidy  # noqa: F401 - tidy is read from here
 
 # A generation's columns as the recorder hands them, by the table keeping them.
@@ -51,6 +51,11 @@ _GENERATION_DETAILS = ("checkpoint_path", "modules", "hr_checkpoint_path", "hr_m
 _IMAGE_COLUMNS = ("position", "iteration", "path", "seed", "subseed", "width", "height",
                   "prompt_nsfw_level", "user_nsfw_level")
 _IMAGE_DETAILS = ("infotext", "meta", "loras", "hr_prompt", "hr_negative_prompt")
+# An image's seeds as SQLite holds them: ComfyUI's run to 2^64 - 1 and Forge
+# takes a typed 2^63, and one past 64 bits failed the write - the recorder
+# lost that generation, Sync images its chunk (#232). Stored as none; the
+# infotext and the data keep it whole, and Send pastes that.
+_IMAGE_WHOLE = ("seed", "subseed")
 # Stored as JSON text: lists and dicts.
 _JSON_COLUMNS = {"styles", "modules", "hr_modules", "params", "extra_params",
                  "script_args", "settings", "meta", "loras", "inputs"}
@@ -554,7 +559,7 @@ class GenerationsOps:
             cursor.execute(
                 f"INSERT INTO generation_images (generation_id, {', '.join(columns)}, prompt_id, negative_id) "
                 f"VALUES ({', '.join('?' * (len(columns) + 3))})",
-                [generation_id] + [image[c] for c in columns]
+                [generation_id] + [sqlite_whole(image[c]) if c in _IMAGE_WHOLE else image[c] for c in columns]
                 + [self._prompt_id(cursor, image.get("prompt")),
                    self._prompt_id(cursor, image.get("negative_prompt"))])
             image_id = cursor.lastrowid

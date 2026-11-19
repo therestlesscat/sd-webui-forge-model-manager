@@ -250,7 +250,9 @@ the lookup and the write leaves a row naming nothing.
   them: v48 would have failed on them, and every later fetch of those images.
   `db/params_table.py` keeps such a value, and a meta that is not an object,
   as no value (#378). A new column filled from a record's meta needs the
-  same guard.
+  same guard, `sqlite_whole`. So do your images' `seed` and `subseed`
+  (`_record`, #232): Forge takes a typed seed of 2^63, ComfyUI's run to
+  2^64 - 1, and the recorder lost such a generation whole.
 
 ### The code
 

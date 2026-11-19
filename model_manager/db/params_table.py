@@ -108,6 +108,13 @@ def _typed(kind: str, value: Any) -> Any:
     # A whole count written `20.0` is 20; a REAL column keeps 7 and 7.0 as one.
     if kind == WHOLE and isinstance(value, float) and value.is_integer():
         value = int(value)
+    return sqlite_whole(value)
+
+
+def sqlite_whole(value: Any) -> Any:
+    """A value as an SQLite INTEGER can hold it: a whole number past 64 bits
+    as None - binding one raises OverflowError, and fails the whole write -
+    anything else as it is."""
     if isinstance(value, int) and not _SQLITE_INTEGER[0] <= value <= _SQLITE_INTEGER[1]:
         return None
     return value
