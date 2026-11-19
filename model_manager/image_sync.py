@@ -362,6 +362,17 @@ def _seed(value: Any) -> Optional[int]:
         return None
 
 
+def _stored(seed: Optional[int]) -> Optional[int]:
+    """
+    A seed as SQLite can keep it: within 64 bits, else none. ComfyUI's run to
+    2^64 - 1, and a text a saver wrote can carry one: 2^63 or more failed its
+    chunk's write, and every sync after it at the same file (#232). Read
+    whole, it still joins a press by seed + 1; the infotext keeps it whole,
+    and Send pastes that.
+    """
+    return seed if seed is not None and -2 ** 63 <= seed < 2 ** 63 else None
+
+
 def _joins_text(a: _Image, b: _Image) -> bool:
     """One press, both with text: settings alike, the prompts aside, the seed
     one on, the running number one on where both have one."""
@@ -380,6 +391,13 @@ def _same_prompts(a: _Image, b: _Image) -> bool:
     wrote - none and none alike (#408)."""
     return ((a.prompts or {}).get("prompt"), (a.prompts or {}).get("negative")) \
         == ((b.prompts or {}).get("prompt"), (b.prompts or {}).get("negative"))
+
+
+def _from_graph(image: _Image) -> bool:
+    """An image whose settings were read from ComfyUI's graph (#232): it joins
+    no other - a batch's files share one seed, while two runs of one graph
+    differ only in theirs, so nothing tells a batch from two runs."""
+    return bool((image.prompts or {}).get("comfy"))
 
 
 def _next_number(a: _Image, b: _Image) -> bool:
@@ -454,7 +472,8 @@ def group(images: List[_Image], no_text: bool, gap: Optional[float],
             if image.text and last.text:
                 joins = _joins_text(last, image)
             elif no_text and not image.text and not last.text and _same_name(last, image) \
-                    and _next_number(last, image) and _same_prompts(last, image):
+                    and _next_number(last, image) and _same_prompts(last, image) \
+                    and not _from_graph(last) and not _from_graph(image):
                 joins = in_trusted or gap is None or _gap(last, image) <= gap
         if joins:
             out[-1].append(image)
@@ -501,6 +520,45 @@ class _Matcher(object):
             rows = files_by_name(self.db, [{"name": name}], {}, self.loadable)
             self._by_name[key] = (rows.get(key) or {}).get("file_path")
         return self._by_name[key]
+
+
+def _graph_meta(comfy: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    What ComfyUI's graph gave (comfy_graph), under the names a file name's
+    fields take, so the rules that read them stay as they are: the schedule
+    type under `scheduler`, which Send matches to Forge's label; the
+    checkpoint as `Model`, by its stem; the VAE and text encoders as an
+    infotext's `Module N`, each kept by name whether Forge has it or not.
+    """
+    if not comfy:
+        return {}
+    meta: Dict[str, Any] = {}
+    for key, name in (("sampler", "Sampler"), ("scheduler", "scheduler"), ("steps", "Steps"), ("cfg", "CFG scale"),
+                      ("seed", "Seed"), ("distilled_cfg", "Distilled CFG Scale"), ("shift", "Shift"),
+                      ("checkpoint", "Model")):
+        if comfy.get(key) is not None:
+            meta[name] = comfy[key]
+    if comfy.get("width") and comfy.get("height"):
+        meta["Size"] = f"{comfy['width']}x{comfy['height']}"
+    for number, module in enumerate([comfy.get("vae"), *(comfy.get("text_encoders") or [])], 1):
+        if module:
+            meta[f"Module {number}"] = module
+    meta["Made with"] = "ComfyUI"
+    return meta
+
+
+def _graph_loras(matcher, comfy: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """A graph's LoRAs with their model strengths, matched by their stems (a
+    graph has no hash); one the library lacks keeps its name. A strength is
+    kept as a float, as a text's is: a whole number past 64 bits failed the
+    chunk's write."""
+    return [{"name": lora["name"], "weight": _weight(lora.get("strength_model")),
+             "path": matcher.lora(lora["name"], None)}
+            for lora in comfy.get("loras") or [] if lora.get("name")]
+
+
+def _weight(value: Any) -> Optional[float]:
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
 
 def _modules(params: Dict[str, str]) -> List[str]:
@@ -721,10 +779,21 @@ class ImageSync(object):
         modules: List[str] = []
         for position, image in enumerate(images):
             fields = (image.name or {}).get("fields", {}) if not image.text else {}
+            comfy = (image.prompts or {}).get("comfy") or {}
+            graph = _graph_meta(comfy)
+            if graph:
+                # The graph's over a file name's where both give one: its
+                # checkpoint, by its stem, over a [model_hash] too, and its
+                # schedule type, kept as `scheduler`, over a [scheduler].
+                fields = {k: v for k, v in fields.items()
+                          if not (k == "Model hash" and "Model" in graph)
+                          and not (k == "Schedule type" and "scheduler" in graph)}
+                if "Model" in graph:
+                    fields["Model"] = graph["Model"]
             path, name = matcher.checkpoint(image.params, fields)
             if position == 0:
                 checkpoint_path, checkpoint_name = path, name
-                modules = _modules(image.params)
+                modules = _modules(graph if comfy else image.params)
             if image.text:
                 meta = infotext_meta(image.text, image.width, image.height)
                 hashes = lora_hashes(image.params.get("Lora hashes"))
@@ -736,10 +805,11 @@ class ImageSync(object):
                        "negative_prompt": meta.get("negativePrompt"),
                        "hr_prompt": meta.get("Hires prompt") or None,
                        "hr_negative_prompt": meta.get("Hires negative prompt") or None,
-                       "subseed": _seed(image.params.get("Variation seed")), "loras": loras}
-            elif image.prompts:
+                       "subseed": _stored(_seed(image.params.get("Variation seed"))), "loras": loras}
+            elif image.prompts and image.prompts.get("prompt"):
                 # Another tool's prompts (#408): judged as a text's are; its
                 # infotext stays empty, and a <lora:> tag in it names no file.
+                # ComfyUI's graph gives its settings, over a file name's (#232).
                 found = image.prompts
                 meta = {"prompt": found["prompt"]}
                 if found.get("negative"):
@@ -747,22 +817,33 @@ class ImageSync(object):
                 if found.get("tool"):
                     meta["Made with"] = found["tool"]
                 meta.update(fields)
+                meta.update(graph)
                 if image.width and image.height:
                     meta.setdefault("Size", f"{image.width}x{image.height}")
                 level = generated_level(meta)
-                loras = []
+                loras = _graph_loras(matcher, comfy)
                 row = {"meta": meta, "prompt": found["prompt"], "negative_prompt": found.get("negative")}
             else:
+                # Nothing to judge: a graph whose prompt the reader could not
+                # reach keeps its settings, as a file name's are kept.
                 meta = dict(fields)
+                meta.update(graph)
                 if image.width and image.height:
                     meta.setdefault("Size", f"{image.width}x{image.height}")
                 level = self.level
-                loras = []
+                loras = _graph_loras(matcher, comfy)
                 row = {"meta": meta or None}
-            # A seed of 0 is a seed: `or` once stored none for it (#409).
-            seed = image.seed if image.seed is not None else _seed(
-                (image.name or {}).get("fields", {}).get("Seed"))
-            row.update({"position": position, "path": image.path, "seed": seed, "width": image.width,
+            if comfy:
+                # A graph's LoRAs, stored as a text's are; #408's rows as before.
+                row["loras"] = loras
+            # A seed of 0 is a seed: `or` once stored none for it (#409). A
+            # graph's over a file name's.
+            if "seed" in comfy:
+                seed = _seed(comfy["seed"])
+            else:
+                seed = image.seed if image.seed is not None else _seed(
+                    (image.name or {}).get("fields", {}).get("Seed"))
+            row.update({"position": position, "path": image.path, "seed": _stored(seed), "width": image.width,
                 "height": image.height, "prompt_nsfw_level": level})
             rows.append(row)
             used.append([f for f in [checkpoint_path, *modules, *(lora["path"] for lora in loras)] if f])

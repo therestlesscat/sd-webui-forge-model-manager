@@ -174,7 +174,8 @@ def generation_params_row(infotext: Any, name_fields: Any = None) -> Optional[Di
     if not fields and isinstance(name_fields, dict):
         fields = name_fields
     return _row(GENERATION_COLUMNS, {
-        "sampler": fields.get("Sampler"), "schedule_type": fields.get("Schedule type"),
+        # A ComfyUI image synced keeps its schedule type as `scheduler` (#232).
+        "sampler": fields.get("Sampler"), "schedule_type": fields.get("Schedule type") or fields.get("scheduler"),
         "steps": fields.get("Steps"), "cfg": fields.get("CFG scale"),
         "distilled_cfg": fields.get("Distilled CFG Scale"), "shift": fields.get("Shift"),
         **_size(fields, "Size", "Size-1", "Size-2"),

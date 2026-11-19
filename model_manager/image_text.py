@@ -9,7 +9,7 @@ reader (#232):
   by Forge's read_info_from_image, which in the original Forge scans a file's
   pixels for hidden text when there is none, and imports the WebUI to do it.
   Where it is not there, the prompts another tool wrote (image_formats.py,
-  #408);
+  #408), and ComfyUI's graph read into plain fields (comfy_graph.py, #232);
 - the file's own name and folders, read back by Forge's naming settings:
   for an image with no text, what its name says - model, sampler, steps,
   size, time - is all there is.
@@ -25,7 +25,7 @@ import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from . import image_formats
+from . import comfy_graph, image_formats
 from .forge_host import infotext_line_pattern
 
 # What a sync reads as an image.
@@ -40,7 +40,9 @@ def read_text(path: str) -> Tuple[Optional[str], int, int, Optional[image_format
     What an image file says about how it was made, and its size: (text, width,
     height, prompts). `text` is Forge's generation text; where the file has
     none, `prompts` is the prompt and negative another tool wrote
-    (image_formats), else None - never both.
+    (image_formats), else None - never both. A file ComfyUI saved has its
+    graph read too (`_comfy`): `prompts` then also holds its fields under
+    "comfy", and its prompt may be None where the graph gives none.
 
     Forge's text is looked for where Forge writes it - `parameters`, the Exif
     part's UserComment, a JPEG's comment - then at the EXIF's top level, where
@@ -69,7 +71,7 @@ def read_text(path: str) -> Tuple[Optional[str], int, int, Optional[image_format
             if not value.strip() and found:
                 break
             return (value.strip() or None), width, height, None
-        return None, width, height, found or image_formats.from_chunks(info)
+        return None, width, height, found or _comfy(image, info)
 
 
 def _places(image, info):
@@ -83,6 +85,52 @@ def _places(image, info):
         yield "comment", comment.decode("utf-8", "ignore") if isinstance(comment, bytes) else comment
     if "exif" in info:
         yield "top", _top_user_comment(image)
+
+
+# Where ComfyUI's WebP save writes its two graphs: the EXIF's Model and Make,
+# each holding `prompt:` or `workflow:` before its JSON.
+_EXIF_GRAPH_TAGS = (0x0110, 0x010F, 0x010E)
+
+
+def _comfy(image, info) -> Optional[image_formats.Prompts]:
+    """
+    A file's own chunks read by #408's readers, and ComfyUI's graph read
+    beside them (#232): the run version from a PNG's `prompt` chunk or a
+    WebP's `prompt:`, else the editor version from `workflow` - an Endless
+    file's. Where the file gives its prompts in plain text, both are its own,
+    as #408 reads them; where it gives none, both are the graph's, trimmed
+    as #408's are. The graph gives the rest. Made with is ComfyUI wherever
+    the graph gave anything.
+    """
+    found = image_formats.from_chunks(info)
+    run, editor = info.get("prompt"), info.get("workflow")
+    if run is None and editor is None and "exif" in info:
+        run, editor = _exif_graphs(image)
+    fields = comfy_graph.read_either(run, editor) if (run is not None or editor is not None) else {}
+    if not fields:
+        return found
+    answer = dict(found) if found else {"prompt": image_formats._value(fields.get("prompt")),
+                                        "negative": image_formats._value(fields.get("negative"))}
+    answer["tool"] = "ComfyUI"
+    answer["comfy"] = fields
+    return answer
+
+
+def _exif_graphs(image) -> Tuple[Optional[str], Optional[str]]:
+    """The run and the editor version a WebP's EXIF holds, as ComfyUI writes them."""
+    try:
+        exif = image.getexif()
+    except Exception:
+        return None, None
+    graphs = {}
+    for tag in _EXIF_GRAPH_TAGS:
+        value = exif.get(tag)
+        if isinstance(value, bytes):
+            value = value.decode("utf-8", "ignore")
+        if isinstance(value, str) and ":" in value:
+            name, _, text = value.partition(":")
+            graphs.setdefault(name.strip(), text)
+    return graphs.get("prompt"), graphs.get("workflow")
 
 
 # The eight bytes that start a UserComment, naming its encoding.

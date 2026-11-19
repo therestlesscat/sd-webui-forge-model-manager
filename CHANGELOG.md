@@ -11,9 +11,10 @@ structure keeps its version and moves the build on, and is not listed here.
 *18 November 2026*
 
 The images ComfyUI makes carry the workflow they were made with, and the extension learns to read it (#232): 0.81.0
-brings the reader, and 0.81.1 puts it to use in Sync images, in Send, and for Civitai images whose own fields leave out
-what their workflow holds.
+brings the reader, 0.81.1 puts it to use in Sync images, and 0.81.2 in Send and for Civitai images whose own fields
+leave out what their workflow holds.
 
+- **0.81.1** (build 737) - Sync images reads the workflow in ComfyUI's images (#232): a PNG or WebP ComfyUI saved has its prompts, sampler, schedule type, steps, CFG, seed, size, checkpoint, LoRAs, VAE and text encoders read from it, where the image had nothing before; a file of Endless-Nodes' saver keeps the prompts it writes as plain text and takes the rest from its workflow. Where a file's name gives a value too, the workflow's is kept. Each such image is a generation of its own: a batch and two runs of one workflow cannot be told apart. Images synced before are read in full by Read every image again. And an image whose infotext gives a seed or a variation seed of 2^63 or more, past what the database can hold, made Sync images fail: that value is now left out of the image's seed columns and kept whole in its infotext, and a press of such images is still joined into one generation.
 - **0.81.0** (build 735) - A reader of ComfyUI's workflow (#232), the part both places will use. It follows the graph ComfyUI ran back from the node that saved the picture to the sampler that made the first pass, and reads from there the prompts, sampler, schedule type, steps, CFG, seed, size, checkpoint, LoRAs, VAE, text encoders, shift and Flux's distilled CFG, each only where a wire leads to a value through nodes it knows how to read. A graph it cannot follow - a custom sampler, several outputs, a picture blended from two - gives nothing rather than a guess. Over one library's 4,826 workflows that Civitai keeps beside its images, it agrees with Civitai's own fields on 97 to 99% of the values both hold. Nothing uses it yet; 0.81.1 puts it to use.
 
 ## 0.80 - Hide paid and Early Access models

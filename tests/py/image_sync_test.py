@@ -1072,6 +1072,265 @@ run([SEED_ZERO])
 check('409. an image whose text says Seed: 0 is stored with seed 0',
       rows("SELECT seed FROM generation_images WHERE path = ?", (zero,)), [(0,)])
 
+# ComfyUI's files (#232): a PNG's run version in `prompt`, the editor version
+# in `workflow`; a WebP's in the EXIF's Model and Make.
+COMFY = os.path.join(WORK, 'comfy')
+CK_FILE = os.path.basename(CHECKPOINT)
+
+
+def run_graph(seed=4321, prompt='a lighthouse at dusk', checkpoint='SD\\' + CK_FILE, loras=(), loader='Checkpoint',
+              vae='sdxl_vae.safetensors', clips=None):
+    """ComfyUI's SD 1.5 graph, as its own save writes the run version."""
+    def node(kind, **inputs):
+        return {"class_type": kind, "inputs": inputs}
+    graph = {
+        "5": node("EmptyLatentImage", width=512, height=768, batch_size=1),
+        "7": node("CLIPTextEncode", text="blurry", clip=["4", 1]),
+        "3": node("KSampler", seed=seed, steps=25, cfg=7.5, sampler_name="dpmpp_2m", scheduler="karras",
+                  denoise=1.0, model=["4", 0], positive=["6", 0], negative=["7", 0], latent_image=["5", 0]),
+        "8": node("VAEDecode", samples=["3", 0], vae=["40", 0] if vae else ["4", 2]),
+        "9": node("SaveImage", filename_prefix="ComfyUI", images=["8", 0]),
+    }
+    graph["4"] = node("UNETLoader", unet_name=checkpoint, weight_dtype="default") if loader == 'UNET' \
+        else node("CheckpointLoaderSimple", ckpt_name=checkpoint)
+    graph["6"] = node("CLIPTextEncode", text=prompt, clip=["4", 1]) if prompt is not None \
+        else node("SomeTextNodeNobodyKnows", clip=["4", 1])
+    if vae:
+        graph["40"] = node("VAELoader", vae_name=vae)
+    if clips:
+        graph["41"] = node("DualCLIPLoader", clip_name1=clips[0], clip_name2=clips[1], type="flux")
+        graph["6"]["inputs"]["clip"] = ["41", 0]
+    model = ["4", 0]
+    for n, (name, strength) in enumerate(loras):
+        graph[str(50 + n)] = node("LoraLoader", lora_name=name, strength_model=strength, strength_clip=strength,
+                                  model=model, clip=["4", 1])
+        model = [str(50 + n), 0]
+    graph["3"]["inputs"]["model"] = model
+    return graph
+
+
+def save_comfy(folder, name, graph=None, workflow=None, plain=None, kind='png', at=0.0):
+    """A file as ComfyUI's save writes one: its graphs as JSON text."""
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, name)
+    image = Image.new('RGB', (64, 64), (70, 80, 90))
+    if kind == 'png':
+        info = PngInfo()
+        if plain is not None:
+            info.add_text('prompt', plain)
+            info.add_text('negative_prompt', 'blurry')
+            info.add_text('batch_index', '0')
+        elif graph is not None:
+            info.add_text('prompt', json.dumps(graph))
+        if workflow is not None:
+            info.add_text('workflow', json.dumps(workflow))
+        image.save(path, pnginfo=info)
+    else:
+        # As ComfyUI's WebP save writes them, at the EXIF's top level, which
+        # PIL 9.5 writes out too (#370's trap is the Exif sub-IFD).
+        exif = Image.Exif()
+        if graph is not None:
+            exif[0x0110] = 'prompt:' + json.dumps(graph)
+        if workflow is not None:
+            exif[0x010F] = 'workflow:' + json.dumps(workflow)
+        image.save(path, exif=exif.tobytes())
+    stamp = int((BASE + at) * 1e9)
+    os.utime(path, ns=(stamp, stamp))
+    return path
+
+
+def editor_version(prompt='an editor prompt'):
+    """The SD 1.5 graph as ComfyUI's canvas holds it, with no run version."""
+    def n(nid, kind, widgets, inputs=(), outputs=()):
+        return {"id": nid, "type": kind, "mode": 0, "widgets_values": widgets,
+                "inputs": [{"name": k, "type": t, "link": l} for k, l, t in inputs], "outputs": [{"type": t} for t in outputs]}
+    return {"nodes": [
+        n(4, "CheckpointLoaderSimple", [CK_FILE], outputs=("MODEL", "CLIP", "VAE")),
+        n(5, "EmptyLatentImage", [512, 768, 1]),
+        n(6, "CLIPTextEncode", [prompt], [("clip", 3, "CLIP")]),
+        n(7, "CLIPTextEncode", ["blurry"], [("clip", 4, "CLIP")]),
+        n(3, "KSampler", [777, "fixed", 30, 6.0, "euler", "normal", 1.0],
+          [("model", 1, "MODEL"), ("positive", 5, "CONDITIONING"), ("negative", 6, "CONDITIONING"),
+           ("latent_image", 2, "LATENT")]),
+        n(8, "VAEDecode", [], [("samples", 7, "LATENT"), ("vae", 8, "VAE")]),
+        n(9, "SaveImage", ["x"], [("images", 9, "IMAGE")]),
+        n(10, "LoraLoader", [LORA_NAME + ".safetensors", 0.8, 0.8], [("model", 10, "MODEL"), ("clip", 11, "CLIP")],
+          outputs=("MODEL", "CLIP"))],
+        "links": [[1, 10, 0, 3, 0, "MODEL"], [10, 4, 0, 10, 0, "MODEL"], [11, 4, 1, 10, 1, "CLIP"], [2, 5, 0, 3, 3, "LATENT"], [3, 4, 1, 6, 0, "CLIP"], [4, 4, 1, 7, 0, "CLIP"],
+                  [5, 6, 0, 3, 1, "CONDITIONING"], [6, 7, 0, 3, 2, "CONDITIONING"], [7, 3, 0, 8, 0, "LATENT"],
+                  [8, 4, 2, 8, 1, "VAE"], [9, 8, 0, 9, 0, "IMAGE"]]}
+
+
+def settings_row(path):
+    return rows("SELECT gp.sampler, gp.schedule_type, gp.steps, gp.cfg FROM generation_params gp JOIN "
+                "generation_images gi ON gi.generation_id = gp.generation_id WHERE gi.path = ?", (path,))
+
+
+def seed_of(path):
+    return rows("SELECT seed FROM generation_images WHERE path = ?", (path,))[0][0]
+
+
+GRAPH_META = {'prompt': 'a lighthouse at dusk', 'negativePrompt': 'blurry', 'Made with': 'ComfyUI',
+              'Sampler': 'dpmpp_2m', 'scheduler': 'karras', 'Steps': 25, 'CFG scale': 7.5, 'Seed': 4321,
+              'Size': '512x768', 'Model': os.path.splitext(CK_FILE)[0], 'Module 1': 'sdxl_vae.safetensors'}
+png = save_comfy(COMFY, 'ComfyUI_00001_.png', run_graph(loras=[('characters\\' + LORA_NAME + '.safetensors', 0.6)]),
+                 workflow={'nodes': [], 'links': []})
+webp = save_comfy(COMFY, 'ComfyUI_00002_.webp', run_graph(seed=99), workflow={'nodes': []}, kind='webp', at=1)
+unet = save_comfy(COMFY, 'ComfyUI_00003_.png', run_graph(seed=7, loader='UNET', vae=None), at=2)
+missing = save_comfy(COMFY, 'ComfyUI_00004_.png', run_graph(seed=8, checkpoint='nowhere_xl.safetensors'), at=3)
+flux = save_comfy(COMFY, 'ComfyUI_00005_.png', run_graph(seed=9, clips=('t5xxl_fp16.safetensors', 'clip_l.safetensors')),
+                  at=4)
+CLIP_L = os.path.join(facts['models_dir'], 'text_encoder', 'clip_l.safetensors')
+no_prompt = save_comfy(COMFY, 'ComfyUI_00007_.png', run_graph(seed=10, prompt=None, loras=[(LORA_NAME + '.safetensors', 0.4)]),
+                       at=6)
+blank = save_comfy(COMFY, 'ComfyUI_00008_.png', run_graph(seed=11, prompt='  \n '), at=7)
+editor_webp = save_comfy(COMFY, 'ComfyUI_00009_.webp', workflow=editor_version(), kind='webp', at=8)
+modules_before = forge_host.installed_modules
+forge_host.installed_modules = lambda: {'sdxl_vae.safetensors': VAE, 'clip_l.safetensors': CLIP_L}
+run([COMFY], level=R)
+forge_host.installed_modules = modules_before
+got = stored(png)
+check('232. a ComfyUI PNG: its prompts, its settings under the file-name names, Made with ComfyUI',
+      (got['prompt'], got['negative'], got['infotext'], got['meta']),
+      ('a lighthouse at dusk', 'blurry', None, GRAPH_META))
+check('232. its schedule type in the settings row', settings_row(png), [('dpmpp_2m', 'karras', 25, 7.5)])
+check('232. its seed in its column', seed_of(png), 4321)
+check('232. its level judged from its prompt', got['level'], generated_level(got['meta']))
+# The role a module the text names is recorded under, as the matching section saw it.
+VAE_ROLE = next(r[0] for r in resources(matched) if r[2] == VAE)
+check('232. its checkpoint found by stem, its LoRA by stem with its strength, its VAE as a module',
+      sorted((r[0], r[2], r[3]) for r in resources(png)),
+      sorted([('checkpoint', CHECKPOINT, None), ('lora', LORA_PATH, 0.6), (VAE_ROLE, VAE, None)]))
+got = stored(webp)
+check('232. a ComfyUI WebP, its graph in the EXIF: read as the PNG is',
+      (got['prompt'], got['meta'].get('Sampler'), seed_of(webp), [r[2] for r in resources(webp) if r[0] == 'checkpoint']),
+      ('a lighthouse at dusk', 'dpmpp_2m', 99, [CHECKPOINT]))
+check('232. a bare diffusion model (UNETLoader) the library files as a Checkpoint: found',
+      [r[2] for r in resources(unet) if r[0] == 'checkpoint'], [CHECKPOINT])
+check('232. a checkpoint the library lacks: kept by name',
+      [(r[1], r[2]) for r in resources(missing) if r[0] == 'checkpoint'], [('nowhere_xl', None)])
+check('232. and Send\'s plan stops as missing, naming it',
+      send_plan(db, stored(missing)['generation']).get('checkpoint_missing'), 'nowhere_xl')
+got = stored(flux)
+check('232. a Flux graph whose T5 Forge lacks: kept by name in its data, beside the two matched',
+      ([got['meta'].get('Module %d' % n) for n in (1, 2, 3)],
+       sorted(r[2] for r in resources(flux) if r[0] in ('module', 'vae'))),
+      (['sdxl_vae.safetensors', 't5xxl_fp16.safetensors', 'clip_l.safetensors'], sorted([VAE, CLIP_L])))
+BIG = os.path.join(WORK, 'comfy-big-seed')
+big_seed = save_comfy(BIG, 'ComfyUI_00006_.png', run_graph(seed=2 ** 64 - 1))
+beside = save_comfy(BIG, 'ComfyUI_00007_.png', run_graph(seed=12), at=1)
+strong = save_comfy(BIG, 'ComfyUI_00008_.png', run_graph(seed=14, loras=[(LORA_NAME + '.safetensors', 10 ** 19)]), at=2)
+try:
+    run([BIG], level=PG)
+    outcome = (seed_of(big_seed), seed_of(beside))
+except Exception as e:                    # noqa: BLE001 - a failed write is the fault
+    outcome = type(e).__name__
+check('232. a seed of 2^64 - 1: no seed for it, and the chunk written with the rest', outcome, (None, 12))
+check('232. a LoRA strength written as a whole number past 64 bits: kept as a number, the chunk written',
+      [r[3] for r in resources(strong) if r[0] == 'lora'] if outcome != 'OverflowError' else outcome, [1e19])
+# A text a saver wrote with such a seed failed its chunk's write, and every
+# sync after it at the same file: no seed for it, its infotext kept whole.
+FORGE_BIG = os.path.join(WORK, 'forge-big-seed')
+# At the edge: 2^63 is past it, 2^63 - 1 is kept.
+forge_big_text = infotext('a big seed', 2 ** 63, extra=', Variation seed: %d' % (2 ** 64 - 2))
+forge_edge_text = infotext('an edge seed', 2 ** 63 - 1)
+forge_big = save(FORGE_BIG, '03900-f.png', forge_big_text)
+forge_edge = save(FORGE_BIG, '03901-f.png', forge_edge_text, at=600)
+# A press of such seeds, read whole, still joins by seed + 1.
+pressed = [save(FORGE_BIG, '%05d-f.png' % (3910 + n), infotext('a pressed seed', 2 ** 64 - 2 + n), at=1200 + n * 0.2)
+           for n in range(2)]
+try:
+    run([FORGE_BIG], level=PG)
+    outcome = rows("SELECT gi.seed, gi.subseed, d.infotext FROM generation_images gi JOIN generation_image_details d "
+                   "ON d.image_id = gi.id WHERE gi.path IN (?, ?) ORDER BY gi.path", (forge_big, forge_edge))
+except Exception as e:                    # noqa: BLE001 - a failed write is the fault
+    outcome = type(e).__name__
+check('232. a Forge text\'s seed of 2^63 and a variation seed past it: none stored, its infotext whole; 2^63 - 1 '
+      'kept; the chunk written', outcome, [(None, None, forge_big_text), (2 ** 63 - 1, None, forge_edge_text)])
+check('232. two images of one press whose seeds are past 2^63: one generation, as they join by seed + 1',
+      len({stored(p)['generation'] for p in pressed}) if outcome != 'OverflowError' else outcome, 1)
+got = stored(no_prompt)
+check('232. a graph whose prompt cannot be reached: its settings and LoRAs, no prompt in its data - Send\'s '
+      'refusal reads that - and the dialog\'s level',
+      (got['prompt'], 'prompt' in got['meta'], got['meta'].get('Sampler'), got['meta'].get('Made with'), got['level'],
+       [(r[2], r[3]) for r in resources(no_prompt) if r[0] == 'lora']),
+      (None, False, 'dpmpp_2m', 'ComfyUI', R, [(LORA_PATH, 0.4)]))
+got = stored(blank)
+check('232. a graph whose prompt is spaces alone: no prompt, as #408 trims one, and the dialog\'s level',
+      (got['prompt'], 'prompt' in got['meta'], got['level']), (None, False, R))
+got = stored(editor_webp)
+check('232. a ComfyUI WebP holding only the editor version, in the EXIF\'s Make: read from it',
+      (got['prompt'], got['meta'].get('Sampler'), seed_of(editor_webp)), ('an editor prompt', 'euler', 777))
+check('232. each ComfyUI file its own generation',
+      len({stored(p)['generation'] for p in (png, webp, unet, missing, flux, no_prompt, blank, editor_webp)}), 8)
+
+PATTERN = os.path.join(WORK, 'comfy-pattern')
+pair = [save_comfy(PATTERN, '%05d-modelx-20.png' % (3500 + n), run_graph(seed=55), at=n * 0.2) for n in range(2)]
+# Names the library's pattern reads, as #408's joining images do; two files
+# with nothing of the graph's and those names would join.
+pattern_was = getattr(opts, 'samples_filename_pattern', None)
+opts.samples_filename_pattern = '[model_name]-[steps]'
+run([PATTERN], level=PG)
+opts.samples_filename_pattern = pattern_was
+check('232. two ComfyUI files whose names fit the library\'s pattern, the same graph and seed: two generations',
+      len({stored(p)['generation'] for p in pair}), 2)
+check('232. the graph\'s steps over the file name\'s, in its data and its settings row',
+      (stored(pair[0])['meta']['Steps'], settings_row(pair[0])[0][2]), (25, 25))
+# A name giving a model hash the library has and a schedule type: the graph's
+# checkpoint, one the library lacks, and its schedule type win.
+HASHED = os.path.join(WORK, 'comfy-hashed')
+# The file the matching section gave the hash 0123456789, filed as a
+# checkpoint as the suite's top files its own: the name's hash finds it,
+# unless the graph's checkpoint goes first.
+raw.execute("UPDATE files SET file_type = 'Checkpoint' WHERE file_path = ?", (downloaded,))
+raw.commit()
+check('232. (the library holds a checkpoint under the name\'s hash, so the next check can tell)',
+      db.hash_index().get('0123456789'), (downloaded, 'Checkpoint'))
+hashed = save_comfy(HASHED, '0123456789-Normal.png', run_graph(seed=56, checkpoint='nowhere_xl.safetensors'))
+opts.samples_filename_pattern = '[model_hash]-[scheduler]'
+run([HASHED], level=PG)
+opts.samples_filename_pattern = pattern_was
+got = stored(hashed)
+check('232. the graph\'s checkpoint over a file name\'s model hash, its schedule type over the name\'s',
+      ([(r[1], r[2]) for r in resources(hashed) if r[0] == 'checkpoint'], 'Schedule type' in got['meta'],
+       settings_row(hashed)[0][1]),
+      ([('nowhere_xl', None)], False, 'karras'))
+
+SAVER = os.path.join(WORK, 'comfy-saver')
+os.makedirs(SAVER, exist_ok=True)
+saver = os.path.join(SAVER, '03600-s.png')
+info = PngInfo()
+info.add_text('parameters', infotext('an image saver picture', 61))
+info.add_text('prompt', json.dumps(run_graph(seed=62)))
+Image.new('RGB', (64, 64), (1, 2, 3)).save(saver, pnginfo=info)
+run([SAVER], level=PG)
+got = stored(saver)
+check('232. an Image-Saver PNG, Forge\'s text and a graph: Forge\'s text, as today',
+      (got['infotext'], seed_of(saver), 'Made with' in (got['meta'] or {})),
+      (infotext('an image saver picture', 61), 61, False))
+
+ENDLESS = os.path.join(WORK, 'comfy-endless')
+endless = save_comfy(ENDLESS, '03700-e.png', workflow=editor_version(), plain='the plain prompt')
+run([ENDLESS], level=PG)
+got = stored(endless)
+check('232. an Endless PNG: its prompts as #408 reads them, its settings, checkpoint and LoRAs from the editor version',
+      (got['prompt'], got['negative'], got['meta'].get('Made with'), got['meta'].get('Sampler'),
+       got['meta'].get('Steps'), seed_of(endless), sorted((r[0], r[2], r[3]) for r in resources(endless)
+                                                         if r[0] in ('checkpoint', 'lora'))),
+      ('the plain prompt', 'blurry', 'ComfyUI', 'euler', 30, 777,
+       sorted([('checkpoint', CHECKPOINT, None), ('lora', LORA_PATH, 0.8)])))
+
+COMFY_AGAIN = os.path.join(WORK, 'comfy-again')
+later = save(COMFY_AGAIN, '03800-a.png', None)
+run([COMFY_AGAIN], level=PG)
+before = stored(later)
+save_comfy(COMFY_AGAIN, '03800-a.png', run_graph(seed=31, prompt='a %s harbour' % EXPLICIT))
+image_sync.ImageSync([{'path': COMFY_AGAIN}], PG, True, force=True).run()
+got = stored(later)
+check('232. Read every image again on a ComfyUI file synced before with nothing: read in full, judged from its prompt',
+      (before['prompt'], got['prompt'], got['meta'].get('Sampler'), seed_of(later), got['level']),
+      (None, 'a %s harbour' % EXPLICIT, 'dpmpp_2m', 31, generated_level(got['meta'])))
+
 print('image_sync: %d failure(s)' % len(fails))
 for f in fails:
     print('FAIL ' + f)
