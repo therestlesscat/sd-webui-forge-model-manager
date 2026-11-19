@@ -1204,6 +1204,11 @@ check('232. its checkpoint found by stem, its LoRA by stem with its strength, it
       sorted((r[0], r[2], r[3]) for r in resources(png)),
       sorted([('checkpoint', CHECKPOINT, None), ('lora', LORA_PATH, 0.6), (VAE_ROLE, VAE, None)]))
 got = stored(webp)
+check('232. and the page is handed that LoRA with its strength, as a recorded one\'s, and a text\'s LoRA with its weight',
+      ([r.get('weight') for r in image_resources(db.get_generation(stored(png)['generation'])['images'][0])
+        if r.get('type') == 'lora'],
+       [r.get('weight') for r in image_resources(db.get_generation(gid_matched)['images'][0])
+        if r.get('type') == 'lora' and r.get('name') == LORA_NAME]), ([0.6], [0.7]))
 check('232. a ComfyUI WebP, its graph in the EXIF: read as the PNG is',
       (got['prompt'], got['meta'].get('Sampler'), seed_of(webp), [r[2] for r in resources(webp) if r[0] == 'checkpoint']),
       ('a lighthouse at dusk', 'dpmpp_2m', 99, [CHECKPOINT]))

@@ -89,6 +89,23 @@ def modes_aside(answer):
     return answer
 
 
+def weights_aside(new, old):
+    """Today's answer with a LoRA's weight taken out where v36's has none:
+    v36 read only the recorder's `te_multiplier`, and a synced row keeps its
+    weight as `weight`, which the page now reads too (#232). Any other
+    difference in a weight is left in, to fail the comparison."""
+    new = copy.deepcopy(new)
+    for part in ('tiles', 'generations'):
+        for n_holder, o_holder in zip(new.get(part, []), old.get(part, [])):
+            for n_image, o_image in zip(n_holder.get('images', []), o_holder.get('images', [])):
+                o_resources = (o_image.get('meta') or {}).get('resources') or []
+                for n_res, o_res in zip((n_image.get('meta') or {}).get('resources') or [], o_resources):
+                    if (n_res.get('type') == o_res.get('type') == 'lora' and n_res.get('name') == o_res.get('name')
+                            and o_res.get('weight') is None and isinstance(n_res.get('weight'), (int, float))):
+                        n_res['weight'] = None
+    return new
+
+
 def ids_aside(answer):
     """An answer with the groups' and sections' ids taken out: v37 names a
     group by its prompt's number or its value, v36 by a hash of its value -
@@ -140,7 +157,7 @@ generations = [r[0] for r in old_connection.execute('SELECT id FROM generations 
 def compare(label, olds, news):
     check(f'{label}: as many parts', len(news), len(olds))
     for index, (o, n) in enumerate(zip(olds, news)):
-        check(f'{label}: part {index + 1}', ids_aside(n), ids_aside(o))
+        check(f'{label}: part {index + 1}', ids_aside(weights_aside(n, o)), ids_aside(o))
 
 
 # ------------------------------------------------------------ every level, both switch states
@@ -201,7 +218,7 @@ for name in ('a', 'b', 'a2', 'x', 'vae', 'te', 'l', 'm', 'p'):
                 o = v36.generation_page(old, model, hide_nsfw, hide_promptless, page)
                 n = api.generation_page(new, model, hide_nsfw, hide_promptless, page)
                 check(f'Your generations of {name}, page {page}, switches {hide_nsfw}/{hide_promptless}',
-                      modes_aside(thumbs_aside(n)), modes_aside(copy.deepcopy(o)))
+                      modes_aside(thumbs_aside(weights_aside(n, o))), modes_aside(copy.deepcopy(o)))
                 if not o['page']['more']:
                     break
 

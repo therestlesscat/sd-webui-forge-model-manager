@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from ..prompt_rules import MIN_PROMPT_LENGTH
 from ..db import get_models_db
-from ..db.generations_ops import PROMPT_GROUPINGS, Scope, group_id, group_key, tidy
+from ..db.generations_ops import PROMPT_GROUPINGS, Scope, group_id, group_key, lora_weight, tidy
 from ..forge_host import setting
 from ..nsfw import PG, SFW_MAX, user_level
 from ..gallery import ALL, SAFE, gallery_page_size, generations_page_size, nsfw_mode, switch_counts
@@ -97,7 +97,7 @@ def image_resources(row: Dict[str, Any]) -> List[Dict[str, Any]]:
         if not name or name in seen:
             continue
         seen.add(name)
-        resources.append({"type": "lora", "name": name, "weight": lora.get("te_multiplier"),
+        resources.append({"type": "lora", "name": name, "weight": lora_weight(lora),
                           "hash": lora_hashes.get(name, "")})
     for name, hash_ in lora_hashes.items():
         if name not in seen:

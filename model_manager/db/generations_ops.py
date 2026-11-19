@@ -157,6 +157,16 @@ def _as_list(value: Any) -> List[Any]:
     return value if isinstance(value, list) else []
 
 
+def lora_weight(lora: Dict[str, Any]) -> Optional[float]:
+    """A recorded LoRA's weight: the recorder keeps it as `te_multiplier`,
+    Sync images as `weight` (#232: the page read only the first, so a synced
+    image's LoRAs came without one). A number, else None."""
+    weight = lora.get("te_multiplier")
+    if weight is None:
+        weight = lora.get("weight")
+    return weight if isinstance(weight, (int, float)) and not isinstance(weight, bool) else None
+
+
 def _stem(path: Optional[str]) -> str:
     return os.path.splitext(os.path.basename(path or ""))[0]
 
@@ -214,11 +224,7 @@ def resource_rows(generation: Dict[str, Any], image: Dict[str, Any], files: Sequ
     rows = []
     for (role, position, path, lora), found in zip(entries, spelled):
         if role == "lora":
-            weight = lora.get("te_multiplier")
-            if weight is None:
-                weight = lora.get("weight")
-            if not isinstance(weight, (int, float)) or isinstance(weight, bool):
-                weight = None
+            weight = lora_weight(lora)
             name = lora.get("name")
             rows.append(("lora", position, str(name) if name else "", found, weight))
         elif path is None:

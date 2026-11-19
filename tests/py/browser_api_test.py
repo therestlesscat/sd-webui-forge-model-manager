@@ -1435,5 +1435,40 @@ check('and a version with neither is free', paid[2], None)
 check('a model with no versions is left alone',
       annotate_paid_access([{'id': 1}]), None)
 
+# ------------------------------- a ComfyUI graph fills what Civitai left out (#232)
+# Filled after Civitai's prompt lookup and the switches, which judge Civitai's
+# data alone: an image whose prompt is only in its graph is shown with it,
+# and hidden by "hide images with no prompt" as before.
+def run_graph(prompt):
+    node = lambda kind, **inputs: {'class_type': kind, 'inputs': inputs}  # noqa: E731
+    return {'5': node('EmptyLatentImage', width=512, height=768, batch_size=1),
+            '4': node('CheckpointLoaderSimple', ckpt_name='SD\\graph_ck.safetensors'),
+            '6': node('CLIPTextEncode', text=prompt, clip=['4', 1]),
+            '7': node('CLIPTextEncode', text='blurry', clip=['4', 1]),
+            '3': node('KSampler', seed=7, steps=25, cfg=6.5, sampler_name='euler', scheduler='karras', denoise=1.0,
+                      model=['4', 0], positive=['6', 0], negative=['7', 0], latent_image=['5', 0]),
+            '8': node('VAEDecode', samples=['3', 0], vae=['4', 2]),
+            '9': node('SaveImage', images=['8', 0])}
+
+
+GRAPHED = {'prompt': run_graph('a fox at dusk')}
+comfy_gallery = Gallery([{'id': 96000, 'url': 'c0', 'browsingLevel': 1, 'meta': {'comfy': GRAPHED, 'steps': 20}},
+                         {'id': 96001, 'url': 'c1', 'browsingLevel': 1, 'meta': {'comfy': GRAPHED}}])
+Stub.get_model_images = staticmethod(comfy_gallery)
+civitai(generation={96001: {'meta': {'prompt': 'civitai own prompt'}}})
+status, body = get('/model-manager/civitai/versions/90200/images')
+by_id = {i['id']: i for i in body.get('images') or []}
+check('232. a Browser image whose prompt is only in its graph: shown with it, Civitai\'s steps kept, said where from',
+      [{k: (by_id.get(96000) or {}).get('meta', {}).get(k) for k in ('prompt', 'steps', 'sampler', 'Read from')},
+       bool((by_id.get(96000) or {}).get('mm_sampler'))],
+      [{'prompt': 'a fox at dusk', 'steps': 20, 'sampler': 'euler', 'Read from': 'Civitai, workflow'}, True])
+check('232. and one Civitai\'s lookup gives a prompt for: Civitai\'s, asked for as before, not the graph\'s',
+      ((by_id.get(96001) or {}).get('meta', {}).get('prompt'),
+       96001 in [i for c in Stub.calls if c[0] == 'get_generation_data' for i in c[1]]),
+      ('civitai own prompt', True))
+status, body = get('/model-manager/civitai/versions/90200/images', hide_promptless_images='true')
+check('232. with "hide images with no prompt": hidden, as Civitai gives it none',
+      ([i['id'] for i in body.get('images') or []], body['page'].get('hidden_promptless')), ([96001], 1))
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

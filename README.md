@@ -14,6 +14,12 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.81 - ComfyUI's workflow read.** The images ComfyUI makes carry the workflow they were made
+with, and the extension reads it. Sync images adds a ComfyUI image with its prompts, sampler, steps,
+seed, size, checkpoint, LoRAs, VAE and text encoders, and Send sets Forge up with them, saying where
+the data was read from and which LoRAs the workflow applied. A Civitai image whose own fields leave out
+what its workflow holds shows and sends them, Civitai's own fields kept.
+
 **0.80 - Hide paid and Early Access models.** In the Civitai Browser, a new box under
 Post-processing Options, Hide paid and Early Access models, leaves out the models whose card
 shows a version that costs Buzz, and fills the page from the rest. It costs Civitai no request,

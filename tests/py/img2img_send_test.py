@@ -223,7 +223,7 @@ INTO = {'mode': 2, 'width': 96, 'height': 64}
 records = {41: {'id': 41, 'width': 96, 'height': 64, 'meta': {'prompt': 'a stored castle', 'steps': 20, 'Size': '96x64'}}}
 db_before = load.get_models_db
 load.get_models_db = lambda: types.SimpleNamespace(
-    **vars(db_before()), stored_records=lambda ids: [records[i] for i in ids if i in records])
+    **vars(db_before()), filled_records=lambda ids: [records[i] for i in ids if i in records])
 after = []
 real_after = getattr(load, 'after_paste', None)
 if real_after:

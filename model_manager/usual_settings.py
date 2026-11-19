@@ -120,7 +120,7 @@ def _image_own(db, source: Dict[str, Any], samplers: List[Any], schedulers: List
         text = (generation.get("infotext") if source.get("whole") else None) or image.get("infotext")
         row = generation_params_row(text, None if text else meta)
     else:
-        record = next(iter(db.stored_records([int(source.get("image") or 0)])), None) or {}
+        record = next(iter(db.filled_records([int(source.get("image") or 0)])), None) or {}
         meta = record_meta(record) if isinstance(record.get("meta") or {}, dict) else {}
         row = image_params_row(record)
     row = _named(row or {}, samplers, schedulers)

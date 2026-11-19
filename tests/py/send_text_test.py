@@ -170,7 +170,7 @@ check('the page\'s renamed negative prompt holds the line too: it is read out of
       text(INNER, negative_prompt=INNER['negativePrompt'].replace('blurry', '<lora:file:1> blurry')).split('\n')[1:],
       settings(text(INNER)) and ['Negative prompt: <lora:file:1> blurry, lowres', settings(text(INNER))])
 send.forge_lists = lambda: (SAMPLERS, SCHEDULERS)
-plan =send.civitai_settings(type('Db', (), {'stored_records': lambda self, ids: [{'meta': INNER, 'width': 832, 'height': 1216}]})(),
+plan =send.civitai_settings(type('Db', (), {'filled_records': lambda self, ids: [{'meta': INNER, 'width': 832, 'height': 1216}]})(),
                              {'image': 1})
 check('the loader sets the line\'s schedule type and leaves its Hires fix on', [plan['scheduler'], plan['hires']], ['Karras', True])
 # Names Forge has under another spelling (#309): ComfyUI's, by the sampler's
@@ -309,7 +309,7 @@ check('a Wan model: the data\'s size rounded to its steps of 16, and no unrounde
 check('both WebUIs read one size: wherever width or height is written, Size holds their numbers',
       [one_size(t) for t in (kept, other, hires, as_text, as_float, smaller, linked, zeros, beside, fraction, alone, wan)],
       [True] * 12)
-plan = send.civitai_settings(type('Db', (), {'stored_records': lambda self, ids: [
+plan = send.civitai_settings(type('Db', (), {'filled_records': lambda self, ids: [
     {'meta': {**NO_SIZE, 'width': 416, 'height': 608}, 'width': 832, 'height': 1216}]})(), {'image': 1})
 check('the road every Civitai Send takes, to txt2img and img2img: the data\'s size',
       'Size: 416x608' in plan['text'], True)
@@ -407,7 +407,7 @@ switch_read = switch_host.setting
 renaming = {'on': True}
 switch_host.setting = lambda key: renaming['on'] if key == 'model_manager_send_rename_loras' else switch_read(key)
 renamed_source = {'kind': 'generation', 'generation': 7, 'image': 70, 'renames': [{'from': 'alias', 'to': 'file'}]}
-lora_image = type('Db', (), {'stored_records': lambda self, ids: [{'meta': {**IMAGE, 'prompt': 'a <lora:alias:1>'},
+lora_image = type('Db', (), {'filled_records': lambda self, ids: [{'meta': {**IMAGE, 'prompt': 'a <lora:alias:1>'},
                                                                    'width': 832, 'height': 1216}]})()
 civitai_source = {'kind': 'civitai', 'image': 1, 'prompt': 'a <lora:file:1>', 'negative_prompt': 'blurry'}
 try:
@@ -436,7 +436,7 @@ check('Clip slip and clipstopatlayer passed on as they were',
 # What Send sets Forge's Clip Skip to: the image's, a whole 1 to 12; none
 # for Flux, where it changes nothing.
 def clip(meta, base='SD 1.5'):
-    db = type('Db', (), {'stored_records': lambda self, ids: [{'meta': {**IMAGE, **meta}, 'width': 832, 'height': 1216,
+    db = type('Db', (), {'filled_records': lambda self, ids: [{'meta': {**IMAGE, **meta}, 'width': 832, 'height': 1216,
                                                                 'baseModel': base}]})()
     return send.civitai_settings(db, {'image': 1})['clip_skip']
 check('a Civitai image\'s clip skip, SDXL\'s 1 too; none for Flux, for none given, or for one Forge has no setting for',
@@ -591,7 +591,7 @@ check('    ComfyUI\'s lowercase scheduler: none left beside the usual schedule t
       [f for f in settings(comfy if isinstance(comfy, str) else '').split(', ') if f.lower().startswith(('sampler', 'schedule', 'scheduler'))],
       ['Sampler: Euler', 'Schedule type: Karras'])
 record = {'meta': KARRAS, 'width': 832, 'height': 1216}
-one = type('Db', (), {'stored_records': lambda self, ids: [record]})()
+one = type('Db', (), {'filled_records': lambda self, ids: [record]})()
 pasted_with = attempt(lambda: send.civitai_settings(one, {'image': 1}, FOUR))
 check('    the schedule type the paste\'s event sets is the one written, and the answer names what went',
       [pasted_with.get('scheduler'), pasted_with.get('usual')] if isinstance(pasted_with, dict) else pasted_with,

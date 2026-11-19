@@ -12,6 +12,7 @@ from ..model_dirs import held_here, ignored_because
 from .. import newer_versions
 from ..nsfw import stamp_levels
 from ..send import stamp_readings
+from ..comfy_graph import fill_images
 
 
 def annotate_paid_access(models: List[Dict[str, Any]]):
@@ -34,10 +35,11 @@ def annotate_paid_access(models: List[Dict[str, Any]]):
 
 def annotate_image_levels(models: List[Dict[str, Any]]):
     """Stamp every showcase image of these models with its level - see nsfw.stamp_levels() - and its
-    card's sampler and schedule type (send.stamp_readings)."""
+    card's sampler and schedule type (send.stamp_readings), its data filled from its ComfyUI graph
+    between the two (#232): judged by Civitai's, shown with the fill."""
     for model in models:
         for version in model.get("modelVersions", []) or []:
-            stamp_readings(stamp_levels(version.get("images")))
+            stamp_readings(fill_images(stamp_levels(version.get("images"))))
 
 
 def ownership(db, model_ids, version_ids) -> Dict[str, Dict[int, Dict[str, Any]]]:

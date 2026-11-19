@@ -382,7 +382,7 @@ check('    yours: the paths\' rows from their index alone, the role read from it
 
 # --------------------------- 27. no record or text but the source's own
 asked = {'records': [], 'generations': []}
-real_records, real_generation = db.stored_records, db.get_generation
+real_records, real_generation = db.filled_records, db.get_generation
 inside = [False]
 
 
@@ -404,14 +404,14 @@ def get_generation(generation_id):
         inside[0] = False
 
 
-db.stored_records, db.get_generation = records, get_generation
+db.filled_records, db.get_generation = records, get_generation
 outside = []
 raw.set_trace_callback(lambda s: outside.append(s) if not inside[0] and any(
     t in s for t in ('image_records', 'generation_details', 'generation_image_details')) else None)
 us.usual(db, 'ck_h', OTHER_MODEL)
 us.usual(db, 'ck_d', {'kind': 'generation', 'generation': ids_a[1], 'image_model': 999})
 raw.set_trace_callback(None)
-db.stored_records, db.get_generation = real_records, real_generation
+db.filled_records, db.get_generation = real_records, real_generation
 check('27. a pick reads the settings rows, and only the source\'s own record or generation',
       (asked['records'], sorted(set(asked['generations'])), outside), ([[7001]], [ids_a[1]], []))
 

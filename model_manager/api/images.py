@@ -17,6 +17,7 @@ from ..db import get_models_db
 from ..forge_host import setting
 from ..nsfw import SFW_MAX, stamp_levels
 from ..send import stamp_readings
+from ..comfy_graph import fill_images
 from ..civitai import CivitaiClient, enrich_images_with_generation_data
 from ..civitai.images import IMAGE_HOST, is_image_address
 from ..gallery import NSFW, SAFE, filter_images, mm_images_page_size, nsfw_mode
@@ -101,7 +102,8 @@ def gallery_page(db, version_id: int, page: int, nsfw: Any, hide_promptless: boo
     rows = db.get_image_page(version_id, (page - 1) * size, size)
     shown, counts = filter_images(rows, nsfw, hide_promptless)
     return {
-        "images": stamp_readings(stamp_levels(shown)),
+        # Judged by Civitai's data, then filled from its graph to show (#232).
+        "images": stamp_readings(fill_images(stamp_levels(shown))),
         "page": {
             "number": page,
             "size": size,

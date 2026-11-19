@@ -51,7 +51,7 @@ def plan(db, source: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     kind = source.get("kind")
     image_model = int(source.get("image_model") or 0) or None
     if kind == "civitai":
-        record = next(iter(db.stored_records([int(source.get("image") or 0)])), None)
+        record = next(iter(db.filled_records([int(source.get("image") or 0)])), None)
         if record is None:
             return None
         answer = civitai_plan(db, source.get("file_path") or "", source.get("base_model") or "",
@@ -907,7 +907,9 @@ def _unquoted(text: Any) -> Any:
 _HANDLED = ("prompt", "negativePrompt", "steps", "sampler", "Schedule type", "cfgScale", "seed",
             "Size", "Model", "Model hash", "VAE", "Denoising strength", "Clip skip", "clipSkip", "CLIP Skip", "Clip Skip",
             "Hires upscale", "Hires upscaler", "Hires steps", "Hires resize-1", "Hires resize-2",
-            "resources", "civitaiResources", "Lora hashes")
+            "resources", "civitaiResources", "Lora hashes",
+            # Where the data was read from (#232): for the viewer, not the paste.
+            "Read from")
 
 
 # Forge's Clip Skip setting and its range (shared_options.py, both WebUIs).
@@ -1416,7 +1418,7 @@ def civitai_settings(db, source: Dict[str, Any], usual: Optional[Dict[str, Any]]
     `negative_prompt` where the chips renamed a LoRA tag. `usual`: the pick's
     usual settings, ticked (usual_settings.chosen). None for no such image.
     """
-    record = next(iter(db.stored_records([int(source.get("image") or 0)])), None)
+    record = next(iter(db.filled_records([int(source.get("image") or 0)])), None)
     if record is None:
         return None
     samplers, schedulers = forge_lists()

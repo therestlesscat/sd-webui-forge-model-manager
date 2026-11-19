@@ -34,6 +34,7 @@ from .annotations import (annotate_image_levels, annotate_local_ownership, annot
                           has_newer_version, held_model_ids, held_versions, ownership)
 from ..nsfw import stamp_levels
 from ..send import stamp_readings
+from ..comfy_graph import fill_images
 from ..gallery import cb_images_page_size
 from ..gallery import ALL, filter_images
 from .images import PAGE_FETCHES
@@ -645,7 +646,8 @@ def register(app: FastAPI):
             shown, counts = filter_images(images, nsfw_images, hide_promptless_images)
             return JSONResponse({
                 "success": True,
-                "images": stamp_readings(stamp_levels(shown)),
+                # Filtered and judged by Civitai's data, then filled from its graph (#232).
+                "images": stamp_readings(fill_images(stamp_levels(shown))),
                 "page": {
                     "number": page,
                     "size": size,

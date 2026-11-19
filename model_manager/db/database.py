@@ -862,6 +862,10 @@ class ModelsDatabase:
         """The stored records of these images, whatever galleries show them. See db/images_ops.py."""
         return self._images.stored_records(image_ids)
 
+    def filled_records(self, image_ids) -> List[Dict[str, Any]]:
+        """Their records, filled from their ComfyUI graphs for showing and sending (#232). See db/images_ops.py."""
+        return self._images.filled_records(image_ids)
+
     def get_image_ids(self, version_id: int) -> Set[int]:
         """The ids of the images stored for a version."""
         return self._images.get_image_ids(version_id)

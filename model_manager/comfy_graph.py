@@ -695,3 +695,95 @@ def read_either(run: Any, editor: Any) -> Dict[str, Any]:
     if graph:
         return read(graph)
     return read_editor(editor)
+
+
+# ------------------------------------------------- a Civitai image's data, filled
+
+# The reader's fields under the names Civitai's data gives them; the sampler
+# and schedule type, and the checkpoint, go by rules of their own (fill).
+_CIVITAI_NAMES = (("prompt", "prompt"), ("negative", "negativePrompt"), ("steps", "steps"), ("cfg", "cfgScale"),
+                  ("seed", "seed"), ("distilled_cfg", "Distilled CFG Scale"), ("shift", "Shift"))
+
+
+def _graphs(meta: Any) -> tuple:
+    """A Civitai record's `comfy`: its run version and its editor version, as
+    given (text or an object), or (None, None)."""
+    comfy = loads(meta.get("comfy")) if isinstance(meta, dict) else None
+    if not isinstance(comfy, dict):
+        return None, None
+    return comfy.get("prompt"), comfy.get("workflow")
+
+
+def has_graph(meta: Any) -> bool:
+    """Whether a Civitai image's data holds a ComfyUI graph to read: a run or
+    an editor version that is not empty. An empty `comfy` (`{}`) is none."""
+    return any(loads(version) for version in _graphs(meta))
+
+
+def _missing(value: Any) -> bool:
+    # Absent, None, or text that says nothing. A number Civitai gives - 0
+    # included - is never missing: a seed of 0 is a seed (#409).
+    return value is None or (isinstance(value, str) and not value.strip())
+
+
+def _names_checkpoint(meta: Dict[str, Any]) -> bool:
+    """Whether the page finds a checkpoint for the image without the fill -
+    imageCheckpoint (send.mjs): its Model, Model hash, a `model` resource with
+    a hash, or a checkpoint in civitaiResources with a version id - so the
+    fill and the page never disagree on it. The page's rule is in JavaScript
+    and this one here: a change to either is made to both, and
+    comfy_fill_test holds each of the four."""
+    if not _missing(meta.get("Model")) or not _missing(meta.get("Model hash")):
+        return True
+    resources = meta.get("resources") if isinstance(meta.get("resources"), list) else []
+    if any(isinstance(r, dict) and r.get("type") == "model" and r.get("hash") for r in resources):
+        return True
+    listed = meta.get("civitaiResources") if isinstance(meta.get("civitaiResources"), list) else []
+    return any(isinstance(r, dict) and str(r.get("type") or "").lower() == "checkpoint" and r.get("modelVersionId")
+               for r in listed)
+
+
+def fill(meta: Any) -> Any:
+    """
+    A copy of a Civitai image's data with the fields Civitai left out filled
+    from its ComfyUI graph (#232) - where the image is shown and sent, never
+    where it is stored, searched, filtered or judged. A field Civitai gives is
+    never changed; what is missing is a key absent, None, or text empty or
+    only spaces. The sampler and schedule type are filled together, and only
+    where Civitai gives no sampler: one folded into Civitai's sampler name
+    ("DPM++ 2M Karras") is never overridden by a filled `scheduler`. `Model`,
+    the checkpoint's file stem, only where the page finds no checkpoint for
+    the image (_names_checkpoint). LoRAs are not added: Civitai's resources
+    are the image's. Where anything was filled, its Read from says so -
+    "Civitai, workflow". The data as it is where there is no graph, or
+    nothing to fill; never the same object once anything is filled.
+    """
+    if not isinstance(meta, dict) or not has_graph(meta):
+        return meta
+    found = read_either(*_graphs(meta))
+    if not found:
+        return meta
+    filled: Dict[str, Any] = {}
+    for mine, theirs in _CIVITAI_NAMES:
+        if mine in found and _missing(meta.get(theirs)):
+            filled[theirs] = found[mine]
+    if _missing(meta.get("sampler")) and found.get("sampler"):
+        filled["sampler"] = found["sampler"]
+        if found.get("scheduler") and _missing(meta.get("scheduler")):
+            filled["scheduler"] = found["scheduler"]
+    if found.get("checkpoint") and not _names_checkpoint(meta):
+        filled["Model"] = found["checkpoint"]
+    if not filled:
+        return meta
+    return {**meta, **filled, "Read from": "Civitai, workflow"}
+
+
+def fill_images(images: Any) -> Any:
+    """Each image's data filled (fill), in place, as stamp_levels and
+    stamp_readings stamp theirs: called between them, after every filter
+    and level has judged Civitai's data alone, before the card reads its
+    sampler and schedule type. Answers the images."""
+    for image in images or []:
+        if isinstance(image, dict) and isinstance(image.get("meta"), dict):
+            image["meta"] = fill(image["meta"])
+    return images

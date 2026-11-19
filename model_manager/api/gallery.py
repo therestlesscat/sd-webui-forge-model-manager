@@ -25,6 +25,7 @@ from ..gallery import NSFW, SAFE, gallery_page_size, nsfw_mode, nsfw_shown
 from ..model_dirs import held_here
 from ..nsfw import stamp_levels
 from ..send import stamp_readings
+from ..comfy_graph import fill_images
 from . import levels
 from .common import failed, gate
 from .images import gallery_switches
@@ -158,7 +159,8 @@ def image_tiles(db, keys) -> List[Dict[str, Any]]:
     """
     found = db.gallery_images(keys)
     files = _library_entries(db, {entry["version_id"] for entry in found})
-    stamp_readings(stamp_levels([entry["image"] for entry in found]))
+    # Judged by Civitai's data, then filled from its graph to show (#232).
+    stamp_readings(fill_images(stamp_levels([entry["image"] for entry in found])))
     tiles = []
     for entry in found:
         file = files.get(entry["version_id"]) or {}

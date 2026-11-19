@@ -1,5 +1,45 @@
 [
     {
+        "id": "comfyui-workflow-0-81-3",
+        "version": "0.81.3",
+        "kind": "action",
+        "audience": "update",
+        "when": "synced_without_prompt",
+        "tabs": [
+            "generations"
+        ],
+        "title": "ComfyUI's images read from their workflow",
+        "text": "Sync images now reads the workflow ComfyUI saves in its images - the prompts, sampler, steps, seed, size, checkpoint, LoRAs, VAE and text encoders - as it reads the prompts other tools write, and Send sets Forge up with them. To read the images synced before, open Sync images and tick Read every image again; it reads every image again, which takes a while on a large library.",
+        "action": {
+            "id": "sync_images",
+            "label": "Sync images"
+        },
+        "replaces": [
+            "other-tools-prompts-0-77-1"
+        ]
+    },
+    {
+        "id": "shared-database-0-81-3",
+        "version": "0.81.3",
+        "kind": "warning",
+        "audience": "update",
+        "important": true,
+        "when": "custom_database",
+        "tabs": [
+            "queue",
+            "model_manager",
+            "civitai_browser",
+            "generations"
+        ],
+        "title": "Update the extension in your other WebUI too",
+        "text": "If Forge Neo and the original Forge share one database (Database file, in the settings), update the copy of this extension in the other WebUI too. An older copy still opens the database, but its Sync images reads a ComfyUI image without its workflow: Read every image again there would store such images without what this version read from them. If you use this extension in one WebUI only, there is nothing to do.",
+        "action": {
+            "id": "settings",
+            "label": "Open settings",
+            "section": "files"
+        }
+    },
+    {
         "id": "hide-owned-newer-0-80-1",
         "version": "0.80.1",
         "kind": "feature",

@@ -294,6 +294,18 @@ class ImagesOps:
                         found.append(record)
         return found
 
+    def filled_records(self, image_ids: Iterable[int]) -> List[Dict[str, Any]]:
+        """
+        The stored records of these images, each one's data with what Civitai
+        left out filled from its ComfyUI graph (comfy_graph.fill, #232): for
+        what shows or sends an image. Never for what a sync carries over
+        (stored_records), which would store the fill as Civitai's and never
+        ask Civitai for its own.
+        """
+        from ..comfy_graph import fill
+        return [{**record, "meta": fill(record["meta"])} if isinstance(record.get("meta"), dict) else record
+                for record in self.stored_records(image_ids)]
+
     def _gallery(self, version_id: int, page: Optional[int], max_nsfw_level: Optional[int],
                  require_prompt: bool) -> Tuple[str, Tuple]:
         """A version's gallery rows, filtered: the FROM and WHERE, and their values."""
