@@ -222,6 +222,12 @@ showed:
   earlier Neo `ui.js` (128 of the 130 commits that touch it) and the
   original Forge define `selectCheckpoint(name)` alone, and drop the second
   argument in the browser.
+  Passing the image's own modules there instead does not work: with short
+  names on (Neo's default) the server turns each name into its path inside
+  the module folder (`main_entry.module_map`) - `flux\ae.safetensors` for a
+  file in a subfolder - which the short-name box does not offer, and a name
+  Forge does not list raises `KeyError`: the 500 again, and no checkpoint
+  (#430's option B, not taken).
 - **The checkpoint list.** Both WebUIs refresh it at every page load
   (`Context.root_block.load(...)` in `modules_forge/main_entry.py`: Neo line
   65, the original Forge line 96), so a checkpoint Forge does not list is one
