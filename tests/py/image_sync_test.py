@@ -1064,6 +1064,14 @@ finally:
         folder_links.remove(link)
     shutil.rmtree(LINKED, ignore_errors=True)
 
+# A seed of 0 is a seed (#409): `or` once stored none for it. The file's name
+# gives no seed, so the text's is the only one there to store.
+SEED_ZERO = os.path.join(WORK, 'seed_zero')
+zero = save(SEED_ZERO, '00001-a.png', infotext('a lighthouse at dawn', 0))
+run([SEED_ZERO])
+check('409. an image whose text says Seed: 0 is stored with seed 0',
+      rows("SELECT seed FROM generation_images WHERE path = ?", (zero,)), [(0,)])
+
 print('image_sync: %d failure(s)' % len(fails))
 for f in fails:
     print('FAIL ' + f)

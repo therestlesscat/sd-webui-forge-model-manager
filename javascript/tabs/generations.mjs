@@ -1295,6 +1295,29 @@ function onKey(event) {
     }
 }
 
+// The stored fields the panel draws as rows of its own - the infotext's Seed
+// stored as `seed`, Size beside its two halves, a file name's Seed - which it
+// does not list again (#409).
+const OWN_ROWS = new Set(['Size', 'Size-1', 'Size-2', 'Seed', 'seed']);
+// The stored data names these as a Civitai image's does; the panel names them
+// as Forge's infotext does, as an image without infotext stores them.
+const FORGE_NAMES = new Map([['steps', 'Steps'], ['sampler', 'Sampler'], ['cfgScale', 'CFG scale']]);
+
+/**
+ * The file's size, and the stored one beside it when that is another: the
+ * Width and Height set before Generate, which hires, or Forge's rounding to a
+ * multiple of 8, made into the file's. The stored one alone when the file's
+ * is not known.
+ */
+function sizeShown(image, meta) {
+    const stored = meta.Size === undefined || meta.Size === null ? '' : String(meta.Size);
+    const pair = stored.match(/^\s*(\d+)\s*[x×]\s*(\d+)\s*$/i);
+    const asked = pair ? `${pair[1]}×${pair[2]}` : stored;
+    if (!(image.width && image.height)) return stored;
+    const file = `${image.width}×${image.height}`;
+    return asked && asked !== file ? `${file} · asked ${asked}` : file;
+}
+
 /**
  * Everything recorded about an image, for the viewer's panel: each field its
  * title over its value, which has the panel's whole width - beside its title,
@@ -1309,12 +1332,14 @@ function infoHtml(tile, image, url) {
         // To name one image when reporting what it did.
         ['Image ID', image.id ?? ''],
         ['Checkpoint', checkpoint],
-        ['Size', image.width && image.height ? `${image.width}×${image.height}` : ''],
-        ['Seed', image.seed ?? ''],
+        ['Size', sizeShown(image, meta)],
+        // A synced image's own seed can be missing where its stored one is
+        // not: a seed of 0 was lost so before 0.80.9 (#409).
+        ['Seed', image.seed ?? meta.seed ?? meta.Seed ?? ''],
         ...Object.entries(meta)
-            .filter(([key, value]) => !['prompt', 'negativePrompt'].includes(key)
+            .filter(([key, value]) => !['prompt', 'negativePrompt'].includes(key) && !OWN_ROWS.has(key)
                     && value !== null && value !== '' && typeof value !== 'object')
-            .map(([key, value]) => [key, value]),
+            .map(([key, value]) => [FORGE_NAMES.get(key) || key, value]),
     ].filter(([, value]) => value !== '' && value !== undefined && value !== null);
     return `
         ${meta.prompt ? `<div class="gen-info-heading">Prompt</div>

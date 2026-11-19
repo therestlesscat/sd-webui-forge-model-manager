@@ -93,6 +93,15 @@ check('its sampler and scheduler as the server read them apart, not the data\'s 
       [said(managerCard()).includes('Sampler: Euler a'), said(managerCard()).includes('Scheduler: Uniform')], [true, true]);
 check('with its id and every ADetailer setting',
       [said(managerCard()).includes('4242'), said(managerCard()).includes('Inpaint masked: True')], [true, true]);
+// A seed of 0 is a seed (#409): the settings line once left it out.
+const { imageTextHtml } = await sharedModule('image_card.mjs');
+const textOf = (meta) => {
+    const box = document.createElement('div');
+    box.innerHTML = imageTextHtml({ ...IMAGE, meta: { ...IMAGE.meta, ...meta } });
+    return box.textContent;
+};
+check('409. a seed of 0 is said, as any other', textOf({ seed: 0 }).includes('Seed: 0'), true);
+check('    and a seed of 9 as before', textOf({ seed: 9 }).includes('Seed: 9'), true);
 
 // ------------------------------------------------------- Send as… (#377)
 // The Model Manager's cards have Send as… beside Send - which opens the

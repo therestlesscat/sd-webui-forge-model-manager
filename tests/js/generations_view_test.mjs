@@ -30,9 +30,12 @@ function opens(element) {
 // As api/generations.browse_page() answers, which generations_test.py holds
 // it to: filtered first, then cut into parts - two tiles a part here.
 const PART = 2;
-const img = (id, generation, position, level = 1) => ({
-    id, generation_id: generation, position, seed: 1000 + id, width: 832, height: 1216,
-    meta: { prompt: `prompt ${id}`, negativePrompt: 'blurry', steps: 20, sampler: 'Euler',
+// Its stored data as the server sends an infotext's (#409): its seed as `seed`,
+// Size from its own size and the halves Forge's reading keeps, every value text.
+const img = (id, generation, position, level = 1, [width, height] = [832, 1216]) => ({
+    id, generation_id: generation, position, seed: 1000 + id, width, height,
+    meta: { prompt: `prompt ${id}`, negativePrompt: 'blurry', steps: '20', sampler: 'Euler', cfgScale: '7',
+            seed: String(1000 + id), Size: `${width}x${height}`, 'Size-1': String(width), 'Size-2': String(height),
             // Its LoRAs, as api/generations.image_resources lists them: the first image's alone here.
             ...(id === 31 ? { resources: [{ type: 'lora', name: 'sea_spray', weight: 0.8, hash: 'aaaaaaaaaa' }] } : {}) },
     infotext: `prompt ${id}\nSteps: 20, Seed: ${1000 + id}`,
@@ -57,7 +60,7 @@ let generations = [
       images: [{ ...img(31, 3, 0), checkpoint: ANIMA_UNKNOWN }, img(32, 3, 1, 8), img(33, 3, 2), img(34, 3, 3),
                img(35, 3, 4)] },
     { generation: { id: 2, mode: 'img2img', created_at: '2026-09-28T19:00:00', image_count: 1 },
-      images: [{ ...img(21, 2, 0), width: 1216, height: 832 }] },
+      images: [img(21, 2, 0, 1, [1216, 832])] },
     { generation: { id: 1, mode: 'txt2img', created_at: '2026-09-28T18:00:00', image_count: 3 },
       images: [img(11, 1, 0), img(12, 1, 1), img(13, 1, 2)] },
 ];
@@ -858,6 +861,67 @@ check('a viewer Delete leaving one checkpoint\'s runs: the level asked again, th
        tileEls()[0]?.classList.contains('gen-task'), tileEls()[0]?.dataset.generation, shownId()],
       ['/generations/images/501/delete', true, 0, false, '51', String(batchTile.images[0].id)]);
 key('Escape');
+globalThis.fetch = answerBefore;
+
+// ------------------------------------------------- what the viewer lists (#409)
+// Its own rows - Size from the file, Seed from the image - and the stored
+// data's fields as the server sends them: none listed twice, the stored size
+// beside the file's when they differ, Forge's names for the renamed three.
+const headings = () => Array.from(viewer()?.querySelectorAll('.mm-viewer-info .gen-info-field .gen-info-heading') || [])
+    .map((h) => h.textContent);
+const countOf = (...names) => headings().filter((h) => names.includes(h)).length;
+const stored = (id, meta, own = {}) => ({ ...img(id, 900 + id, 0), ...own, meta: { prompt: `prompt ${id}`, ...meta } });
+const FIELDS = [
+    img(61, 961, 0),                                                            // with infotext: seed, Size and its halves
+    stored(62, { seed: '1062', Size: '832x1216', 'Size-1': '832', 'Size-2': '1216' },
+           { width: 1664, height: 2432 }),                                      // hires: the file is the upscale
+    stored(63, { seed: '1063', Size: '900x1200', 'Size-1': '900', 'Size-2': '1200' },
+           { width: 896, height: 1200 }),                                       // Forge rounded it to a multiple of 8
+    stored(64, { Seed: '1003', Size: '832x1216', Model: 'model_x' }, { seed: 1003, infotext: null }),  // a file name's Seed
+    stored(65, { seed: '0', Size: '832x1216', 'Size-1': '832', 'Size-2': '1216' }, { seed: null }),  // Sync images lost its 0
+    stored(66, { Model: 'model_x', 'Variation seed': '5', 'Unprompted Seed': '7', 'Hires checkpoint': 'Use same checkpoint' }),
+    stored(67, { Size: '832x1216' }, { width: null, height: null }),          // no file size known
+];
+globalThis.fetch = async (url, init = {}) => {
+    if (!String(url).includes('/generations/browse')) return answerBefore(url, init);
+    asked.push(new URL(String(url), 'http://webui').searchParams);
+    return answer({ success: true, more: false, state: { ...taskState, total: FIELDS.length, filtered: FIELDS.length },
+                    scope: { count: FIELDS.length },
+                    tiles: FIELDS.map((i) => ({ kind: 'generation', matching_count: 1, images: [i], loras: [],
+                                                generation: { id: i.generation_id, mode: 'txt2img',
+                                                              created_at: '2026-10-01T10:00:00' },
+                                                checkpoint_path: null, checkpoint: null, level: 1, user_level: null })) });
+};
+await act('generations.refresh');
+await waitFor('the field tiles', () => tileEls().length === FIELDS.length);
+const panelOf = async (tile, read) => {
+    await call('generations.view', { tile });
+    await settle();
+    const seen = read();
+    key('Escape');
+    return seen;
+};
+check('an image with infotext: one Seed row and one Size row - its stored seed, Size and halves not listed again',
+      await panelOf(0, () => [countOf('Seed'), field('Seed'), countOf('Size'), field('Size'),
+                              countOf('seed', 'Size-1', 'Size-2')]),
+      [1, '1061', 1, '832×1216', 0]);
+check('and the stored steps, sampler and CFG scale under Forge\'s names',
+      await panelOf(0, () => [field('Steps'), field('Sampler'), field('CFG scale'), countOf('steps', 'sampler', 'cfgScale')]),
+      ['20', 'Euler', '7', 0]);
+check('hires: one Size row, the file\'s, the size asked for beside it',
+      await panelOf(1, () => [countOf('Size'), field('Size'), countOf('Size-1', 'Size-2')]),
+      [1, '1664×2432 · asked 832×1216', 0]);
+check('rounded to a multiple of 8: the size asked for beside the file\'s',
+      await panelOf(2, () => [countOf('Size'), field('Size')]), [1, '896×1200 · asked 900×1200']);
+check('a seed read from the file name: one Seed row',
+      await panelOf(3, () => [countOf('Seed'), field('Seed')]), [1, '1003']);
+check('a seed of 0 only the stored data kept: a Seed row reading 0, no `seed` row',
+      await panelOf(4, () => [countOf('Seed'), field('Seed'), countOf('seed')]), [1, '0', 0]);
+check('fields that only look alike are listed, under their own names',
+      await panelOf(5, () => [field('Model'), field('Variation seed'), field('Unprompted Seed'), field('Hires checkpoint')]),
+      ['model_x', '5', '7', 'Use same checkpoint']);
+check('no file size known: the stored Size, once',
+      await panelOf(6, () => [countOf('Size'), field('Size')]), [1, '832x1216']);
 globalThis.fetch = answerBefore;
 
 done();

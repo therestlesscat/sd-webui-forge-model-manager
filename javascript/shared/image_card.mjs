@@ -56,7 +56,8 @@ export function imageTextHtml(img) {
     if (displaySampler) genParams.push(`Sampler: ${displaySampler}`);
     if (displayScheduler) genParams.push(`Scheduler: ${displayScheduler}`);
     if (meta.cfgScale) genParams.push(`CFG: ${meta.cfgScale}`);
-    if (meta.seed) genParams.push(`Seed: ${meta.seed}`);
+    // A seed of 0 is a seed (#409).
+    if (meta.seed !== undefined && meta.seed !== null && meta.seed !== '') genParams.push(`Seed: ${meta.seed}`);
     if (meta.VAE) genParams.push(`VAE: ${meta.VAE}`);
     if (meta['Clip skip']) genParams.push(`Clip Skip: ${meta['Clip skip']}`);
     if (meta['Denoising strength']) genParams.push(`Denoise: ${meta['Denoising strength']}`);

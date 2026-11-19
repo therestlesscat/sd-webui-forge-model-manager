@@ -759,8 +759,10 @@ class ImageSync(object):
                 level = self.level
                 loras = []
                 row = {"meta": meta or None}
-            row.update({"position": position, "path": image.path, "seed": image.seed or _seed(
-                (image.name or {}).get("fields", {}).get("Seed")), "width": image.width,
+            # A seed of 0 is a seed: `or` once stored none for it (#409).
+            seed = image.seed if image.seed is not None else _seed(
+                (image.name or {}).get("fields", {}).get("Seed"))
+            row.update({"position": position, "path": image.path, "seed": seed, "width": image.width,
                 "height": image.height, "prompt_nsfw_level": level})
             rows.append(row)
             used.append([f for f in [checkpoint_path, *modules, *(lora["path"] for lora in loras)] if f])
