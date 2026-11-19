@@ -17,7 +17,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from model_manager import comfy_graph            # noqa: E402
-from model_manager.comfy_graph import read      # noqa: E402
+from model_manager.comfy_graph import read, read_editor, read_either      # noqa: E402
 
 sys.stdout.reconfigure(errors='backslashreplace')
 
@@ -396,6 +396,205 @@ vaes["8"]["inputs"]["vae"] = ["160", 0]
 check('Two decoders naming two VAEs: no VAE', "vae" in read(vaes), False)
 vaes["162"]["inputs"]["vae"] = ["160", 0]
 check('Two decoders naming one VAE: that VAE', read(vaes).get("vae"), "a.safetensors")
+
+
+# ------------------------------------------------------------ the editor version
+
+def ui_node(nid, kind, widgets=None, inputs=None, outputs=(), mode=0):
+    """An editor-version node: `inputs` maps a name to (link id, type)."""
+    return {"id": nid, "type": kind, "mode": mode, "widgets_values": widgets if widgets is not None else [],
+            "inputs": [{"name": k, "type": t, "link": l} for k, (l, t) in (inputs or {}).items()],
+            "outputs": [{"type": t} for t in outputs]}
+
+
+def ui_sd15(link_objects=False):
+    """SD 1.5's graph in the editor version: settings by place, wires as links."""
+    nodes = [
+        ui_node(4, "CheckpointLoaderSimple", ["SD15\\dreamy_v2.safetensors"], outputs=("MODEL", "CLIP", "VAE")),
+        ui_node(5, "EmptyLatentImage", [512, 768, 1], outputs=("LATENT",)),
+        ui_node(6, "CLIPTextEncode", ["a red fox in snow"], {"clip": (3, "CLIP")}, ("CONDITIONING",)),
+        ui_node(7, "CLIPTextEncode", ["blurry"], {"clip": (4, "CLIP")}, ("CONDITIONING",)),
+        ui_node(3, "KSampler", [123456789, "randomize", 25, 7.5, "dpmpp_2m", "karras", 1.0],
+                {"model": (1, "MODEL"), "positive": (5, "CONDITIONING"), "negative": (6, "CONDITIONING"),
+                 "latent_image": (2, "LATENT")}, ("LATENT",)),
+        ui_node(8, "VAEDecode", [], {"samples": (7, "LATENT"), "vae": (8, "VAE")}, ("IMAGE",)),
+        ui_node(9, "SaveImage", ["ComfyUI"], {"images": (9, "IMAGE")}),
+    ]
+    links = [[1, 4, 0, 3, 0, "MODEL"], [2, 5, 0, 3, 3, "LATENT"], [3, 4, 1, 6, 0, "CLIP"], [4, 4, 1, 7, 0, "CLIP"],
+             [5, 6, 0, 3, 1, "CONDITIONING"], [6, 7, 0, 3, 2, "CONDITIONING"], [7, 3, 0, 8, 0, "LATENT"],
+             [8, 4, 2, 8, 1, "VAE"], [9, 8, 0, 9, 0, "IMAGE"]]
+    if link_objects:
+        links = [{"id": l[0], "origin_id": l[1], "origin_slot": l[2], "target_id": l[3], "target_slot": l[4],
+                  "type": l[5]} for l in links]
+    return {"nodes": nodes, "links": links}
+
+
+def ui(graph, node_id):
+    return next(n for n in graph["nodes"] if n["id"] == node_id)
+
+
+EDITOR_FIELDS = dict(SD15_FIELDS, source="editor")
+
+check('An Endless-shaped graph, editor version only: every field, the same as its run version',
+      (read_editor(ui_sd15()), without(read_editor(ui_sd15()), "source")), (EDITOR_FIELDS, without(read(sd15()), "source")))
+check('The same written once wrapped, as Endless writes it, and as text', read_editor(json.dumps({"workflow": ui_sd15()})),
+      EDITOR_FIELDS)
+check('The same with its links as objects, ComfyUI\'s newer schema', read_editor(ui_sd15(link_objects=True)), EDITOR_FIELDS)
+
+longer = ui_sd15()
+ui(longer, 3)["widgets_values"].append("extra")
+check('A KSampler list one longer than its table: no setting from that node, the others read',
+      read_editor(longer), without(EDITOR_FIELDS, "seed", "steps", "cfg", "sampler", "scheduler"))
+as_object = ui_sd15()
+ui(as_object, 5)["widgets_values"] = {"width": 512, "height": 768}
+check('A widgets_values that is an object: no setting from that node', read_editor(as_object),
+      without(EDITOR_FIELDS, "width", "height"))
+
+primitive = ui_sd15()
+primitive["nodes"].append(ui_node(20, "PrimitiveNode", [4242, "fixed"], outputs=("INT",)))
+ui(primitive, 3)["inputs"].append({"name": "seed", "type": "INT", "link": 20, "widget": {"name": "seed"}})
+primitive["links"].append([20, 20, 0, 3, 4, "INT"])
+primitive["nodes"].append(ui_node(21, "Reroute", [], {"": (21, "*")}, ("MODEL",)))
+primitive["links"].append([21, 4, 0, 21, 0, "MODEL"])
+ui(primitive, 3)["inputs"][0]["link"] = 22
+primitive["links"].append([22, 21, 0, 3, 0, "MODEL"])
+check('A seed wired from a PrimitiveNode; a Reroute on the model\'s way: the primitive\'s value; followed',
+      read_editor(primitive), dict(EDITOR_FIELDS, seed=4242))
+
+
+def with_lora(mode):
+    graph = ui_sd15()
+    graph["nodes"].append(ui_node(30, "LoraLoader", ["ink_wash.safetensors", 0.8, 0.6],
+                                  {"model": (30, "MODEL"), "clip": (31, "CLIP")}, ("MODEL", "CLIP"), mode=mode))
+    graph["links"] += [[30, 4, 0, 30, 0, "MODEL"], [31, 4, 1, 30, 1, "CLIP"], [32, 30, 0, 3, 0, "MODEL"]]
+    ui(graph, 3)["inputs"][0]["link"] = 32
+    return graph
+
+
+check('A LoraLoader on the model\'s way: its LoRA', read_editor(with_lora(0)).get("loras"),
+      [{"name": "ink_wash", "strength_model": 0.8, "strength_clip": 0.6}])
+check('A bypassed LoraLoader: passed through to the checkpoint, the LoRA left out', read_editor(with_lora(4)), EDITOR_FIELDS)
+check('A muted LoraLoader: left out, and the walk ends there', read_editor(with_lora(2)),
+      without(EDITOR_FIELDS, "checkpoint"))
+
+named = ui_sd15()
+named["nodes"] += [ui_node(40, "SetNode", ["MODEL_A"], {"MODEL": (40, "MODEL")}, ("*",)),
+                   ui_node(41, "GetNode", ["MODEL_A"], {}, ("MODEL",))]
+named["links"] += [[40, 4, 0, 40, 0, "MODEL"], [41, 41, 0, 3, 0, "MODEL"]]
+ui(named, 3)["inputs"][0]["link"] = 41
+check('KJNodes\' SetNode and GetNode on the model\'s way: followed', read_editor(named), EDITOR_FIELDS)
+ui(named, 40)["widgets_values"] = ["OTHER"]
+check('A GetNode with no SetNode of its name: the walk ends there', read_editor(named),
+      without(EDITOR_FIELDS, "checkpoint"))
+
+subgraph = ui_sd15()
+subgraph["nodes"].append(ui_node(50, "1b7c3d20-0000-4000-8000-000000000000", [], {"clip": (50, "CLIP")},
+                                 ("CONDITIONING",)))
+subgraph["links"] += [[50, 4, 1, 50, 0, "CLIP"], [51, 50, 0, 3, 1, "CONDITIONING"]]
+ui(subgraph, 3)["inputs"][1]["link"] = 51
+check('A subgraph on the prompt\'s way: no prompt, the other fields read', read_editor(subgraph),
+      without(EDITOR_FIELDS, "prompt"))
+
+choice = ui_sd15()
+ui(choice, 6)["widgets_values"] = ["a {red|blue} fox"]
+check('A prompt holding a {red|blue} choice: no prompt from it', read_editor(choice), without(EDITOR_FIELDS, "prompt"))
+
+seeded = ui_sd15()
+seeded["nodes"].append(ui_node(60, "Seed (rgthree)", [5150, "", "", ""], {}, ("INT",)))
+ui(seeded, 3)["inputs"].append({"name": "seed", "type": "INT", "link": 60, "widget": {"name": "seed"}})
+seeded["links"].append([60, 60, 0, 3, 4, "INT"])
+check('rgthree\'s Seed, a node holding one value: its seed', read_editor(seeded).get("seed"), 5150)
+
+power = ui_sd15()
+power["nodes"].append(ui_node(70, "Power Lora Loader (rgthree)",
+                              [{}, {"type": "PowerLoraLoaderHeaderWidget"},
+                               {"on": True, "lora": "chars\\heroine.safetensors", "strength": 0.9, "strengthTwo": None},
+                               {"on": False, "lora": "off.safetensors", "strength": 1.0, "strengthTwo": None}, {}, ""],
+                              {"model": (70, "MODEL"), "clip": (71, "CLIP")}, ("MODEL", "CLIP")))
+power["links"] += [[70, 4, 0, 70, 0, "MODEL"], [71, 4, 1, 70, 1, "CLIP"], [72, 70, 0, 3, 0, "MODEL"]]
+ui(power, 3)["inputs"][0]["link"] = 72
+check('A Power Lora Loader in the editor version, strengthTwo null: the model\'s strength for CLIP too',
+      read_editor(power).get("loras"), [{"name": "heroine", "strength_model": 0.9, "strength_clip": 0.9}])
+
+disagree = ui_sd15()
+ui(disagree, 3)["widgets_values"][0] = 1
+check('A file with both versions that disagree: the run version\'s', read_either(sd15(), disagree), SD15_FIELDS)
+check('A file with only the editor version: the editor version\'s', read_either(None, ui_sd15()), EDITOR_FIELDS)
+check('Not an editor version: nothing', (read_editor("x"), read_editor({"nodes": "x"}), read_either(None, None)),
+      ({}, {}, {}))
+
+
+def nested(graph):
+    """The run version as some of Civitai's copies write it: each wire
+    replaced by the node it leads to."""
+    def inline(value, depth=0):
+        if isinstance(value, list) and len(value) == 2 and isinstance(value[1], int) and str(value[0]) in graph:
+            target = graph[str(value[0])]
+            return {"class_type": target["class_type"],
+                    "inputs": {k: inline(v, depth + 1) for k, v in target["inputs"].items()}}
+        return value
+    return {k: {"class_type": n["class_type"], "inputs": {i: inline(v) for i, v in n["inputs"].items()}}
+            for k, n in graph.items()}
+
+
+check('The run version with each wire written as the node it leads to: every field', read(nested(sd15())), SD15_FIELDS)
+check('The same through a hires chain: the first pass\'s fields', read(nested(hires)), SD15_FIELDS)
+
+
+bad_shapes = []
+for change in (lambda g: g.update(nodes=5), lambda g: g.update(links=5), lambda g: ui(g, 3).update(inputs=5),
+               lambda g: ui(g, 3)["inputs"][0].update(link=[1, 2]), lambda g: g["links"][0].__setitem__(0, [1]),
+               lambda g: g["links"].append({"id": {"a": 1}, "origin_id": 4})):
+    shaped = ui_sd15()
+    change(shaped)
+    try:
+        bad_shapes.append(type(read_editor(shaped)).__name__)
+    except Exception as e:                     # noqa: BLE001 - any error is the fault
+        bad_shapes.append(type(e).__name__)
+check('An editor version with nodes, links or inputs of the wrong type: an answer, never an error',
+      bad_shapes, ["dict"] * 6)
+bypassed_int = with_lora(4)
+ui(bypassed_int, 30)["inputs"] = 5
+check('A bypassed node whose inputs are not a list: an answer, never an error',
+      type(read_editor(bypassed_int)).__name__, "dict")
+
+cn = ui_sd15()
+cn["nodes"].append(ui_node(80, "ControlNetApplyAdvanced", [1.0, 0.0, 1.0],
+                           {"positive": (80, "CONDITIONING"), "negative": (81, "CONDITIONING")},
+                           ("CONDITIONING", "CONDITIONING"), mode=4))
+cn["links"] += [[80, 6, 0, 80, 0, "CONDITIONING"], [81, 7, 0, 80, 1, "CONDITIONING"],
+                [82, 80, 0, 3, 1, "CONDITIONING"], [83, 80, 1, 3, 2, "CONDITIONING"]]
+ui(cn, 3)["inputs"][1]["link"] = 82
+ui(cn, 3)["inputs"][2]["link"] = 83
+check('A bypassed ControlNet apply: each side passes on its own input', read_editor(cn), EDITOR_FIELDS)
+
+broken = ui_sd15()
+ui(broken, 3)["inputs"].append({"name": "seed", "type": "INT", "link": 999, "widget": {"name": "seed"}})
+check('A setting turned into a wire whose link leads nowhere: no value, not the widget\'s stale one',
+      read_editor(broken), without(EDITOR_FIELDS, "seed"))
+
+text_node = ui_sd15()
+text_node["nodes"].append(ui_node(90, "Text Multiline", ["a quiet harbour"], {}, ("STRING",)))
+ui(text_node, 6)["inputs"].append({"name": "text", "type": "STRING", "link": 90, "widget": {"name": "text"}})
+text_node["links"].append([90, 90, 0, 6, 1, "STRING"])
+check('A prompt from Text Multiline, a node holding one text', read_editor(text_node).get("prompt"), "a quiet harbour")
+
+two_saves = sd15(**{"93": node("SaveImage", filename_prefix="again", images=["8", 0])})
+check('The nested run version with two save nodes leading to one first pass: every field',
+      read(nested(two_saves)), SD15_FIELDS)
+
+null_two = sd15(**{"156": node("Power Lora Loader (rgthree)", model=["4", 0], clip=["4", 1],
+                               lora_1={"on": True, "lora": "split.safetensors", "strength": 0.7, "strengthTwo": None})})
+null_two["3"]["inputs"]["model"] = ["156", 0]
+check('A Power Lora Loader in the run version, strengthTwo null: the model\'s strength for CLIP too',
+      read(null_two).get("loras"), [{"name": "split", "strength_model": 0.7, "strength_clip": 0.7}])
+
+many = sd15(**{"157": node("Power Lora Loader (rgthree)", model=["4", 0], clip=["4", 1],
+                           **{"lora_%d" % i: {"on": True, "lora": "l%02d.safetensors" % i, "strength": 1.0}
+                              for i in range(1, 12)})})
+many["3"]["inputs"]["model"] = ["157", 0]
+check('A Power Lora Loader of eleven LoRAs: in their own order', [x["name"] for x in read(many)["loras"]],
+      ["l%02d" % i for i in range(1, 12)])
 
 
 for line in fails:

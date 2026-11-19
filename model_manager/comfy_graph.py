@@ -5,8 +5,11 @@ and for Civitai's stored images alike.
 ComfyUI saves a workflow in two versions. The run version - the graph it
 actually runs, a PNG's `prompt` chunk, Civitai's `comfy` -> `prompt` - names
 each node's class (`class_type`) and its inputs by name, a wire written as
-`[node, output]`. That is what `read` reads. (The editor version, the canvas
-as drawn, is turned into this shape before it is read: a later part of #232.)
+`[node, output]`. That is what `read` reads. The editor version - the canvas
+as drawn, a PNG's `workflow` chunk - holds each node's settings as an unnamed
+list in the node's own order; `turn` gives it the run version's shape, and
+`read_editor` reads it so (see `turn`). `read_either` reads the run version
+where there is one, the editor version only where there is not.
 
 A read finds the node that saved the picture (`SaveImage`, else
 `PreviewImage`) and follows the picture back to a sampler: through the nodes
@@ -34,8 +37,10 @@ The answer is one dict under the reader's own names - `prompt`, `negative`,
 `source` - each present only where read. Sampler and schedule type are kept
 as ComfyUI names them (`dpmpp_2m`, `karras`): Send matches them to Forge's.
 """
+import hashlib
 import json
 import math
+import re
 from typing import Any, Dict, List, Optional, Set
 
 # The largest graph among one library's 4,826 is 243 nodes; a graph many times
@@ -94,6 +99,63 @@ _CONCAT = {"StringConcatenate": ("string_a", "string_b", "delimiter")}
 
 _TOO_LONG = object()
 
+# The editor version's settings, by place, for the core nodes the reader
+# follows: each list a length the class is written with - an extension adds a
+# widget, an older frontend leaves `device` out - read from one library's 4,240
+# records holding both versions. `_` is a place nothing is read from. A list of
+# any other length gives its node no settings.
+_WIDGETS = {
+    "KSampler": [["seed", "_", "steps", "cfg", "sampler_name", "scheduler", "denoise"]],
+    "KSamplerAdvanced": [["add_noise", "noise_seed", "_", "steps", "cfg", "sampler_name", "scheduler",
+                          "start_at_step", "end_at_step", "return_with_leftover_noise"]],
+    "SamplerCustom": [["add_noise", "noise_seed", "_", "cfg"]],
+    "KSamplerSelect": [["sampler_name"]],
+    "BasicScheduler": [["scheduler", "steps", "denoise"]],
+    "RandomNoise": [["noise_seed", "_"]],
+    "CFGGuider": [["cfg"]],
+    "FluxGuidance": [["guidance"]],
+    "CheckpointLoaderSimple": [["ckpt_name"], ["ckpt_name", "_"]],
+    "UNETLoader": [["unet_name", "weight_dtype"]],
+    "UnetLoaderGGUF": [["unet_name"]],
+    "VAELoader": [["vae_name"], ["vae_name", "_"]],
+    "CLIPLoader": [["clip_name", "type"], ["clip_name", "type", "device"]],
+    "DualCLIPLoader": [["clip_name1", "clip_name2", "type"], ["clip_name1", "clip_name2", "type", "device"]],
+    "TripleCLIPLoader": [["clip_name1", "clip_name2", "clip_name3"]],
+    "CLIPSetLastLayer": [["stop_at_clip_layer"]],
+    "LoraLoader": [["lora_name", "strength_model", "strength_clip"]],
+    "LoraLoaderModelOnly": [["lora_name", "strength_model"]],
+    "CLIPTextEncode": [["text"], ["text", "_"]],
+    "CLIPTextEncodeSDXL": [["width", "height", "crop_w", "crop_h", "target_width", "target_height",
+                            "text_g", "text_l"]],
+    "CLIPTextEncodeFlux": [["clip_l", "t5xxl", "guidance"], ["clip_l", "t5xxl", "guidance", "_", "_"]],
+    "EmptyLatentImage": [["width", "height", "batch_size"]],
+    "EmptySD3LatentImage": [["width", "height", "batch_size"]],
+    "ModelSamplingSD3": [["shift"]],
+    "ModelSamplingAuraFlow": [["shift"], ["shift", "_"]],
+    "ModelSamplingFlux": [["max_shift", "base_shift", "width", "height"]],
+    "StringConcatenate": [["string_a", "string_b", "delimiter"]],
+    "PrimitiveStringMultiline": [["value"], ["value", "_"]],
+    "PrimitiveInt": [["value", "_"]],
+    "PrimitiveFloat": [["value"]],
+    # Nodes holding one value, as the graphs measured hold them.
+    "Seed (rgthree)": [["seed", "_", "_", "_"], ["seed", "_", "_", "_", "_"]],
+    "Seed String": [["seed", "_"]], "SeedNode": [["seed", "_"]], "Seed Generator": [["seed", "_"]],
+    "Seed Everywhere": [["seed", "_"]], "easy seed": [["seed", "_", "_"]],
+    "Int": [["value"]], "ImpactInt": [["value"]],
+    "Text Multiline": [["text"], ["text", "_"]], "CR Prompt Text": [["prompt"], ["prompt", "_"]],
+    "CR Text": [["text"], ["text", "_"]], "String Literal": [["string"]], "ttN text": [["text"]],
+}
+# The editor's own nodes, which ComfyUI resolves before it runs a graph; and
+# KJNodes' named wires, a SetNode taking a wire and each GetNode of its name
+# giving it on, which its page resolves the same way.
+_REROUTE = "Reroute"
+_SET, _GET = "SetNode", "GetNode"
+_PRIMITIVE = "PrimitiveNode"
+_MUTED, _BYPASSED = 2, 4
+# A choice ComfyUI's page resolves before it runs a prompt, `{red|blue}`: the
+# editor version keeps the choice, the run version the pick.
+_CHOICE = re.compile(r"\{[^{}]*\|[^{}]*\}")
+
 
 def loads(text: Any) -> Optional[Dict[str, Any]]:
     """A graph handed as text, parsed: a whole number past 20 digits kept as no
@@ -133,17 +195,34 @@ class _Graph:
 
     def __init__(self, nodes: Dict[str, Any]):
         self.nodes = {str(k): v for k, v in nodes.items() if isinstance(v, dict)}
+        self._nested: Dict[int, str] = {}
 
     def node(self, wire: Any) -> Optional[Dict[str, Any]]:
-        """The node a wire leads to, or None for a value or a broken wire."""
+        """The node a wire leads to, or None for a value or a broken wire. Some
+        of Civitai's copies write a wire as the node itself, nested in place
+        (`{"class_type": ..., "inputs": {...}}`): that node is the one."""
         if isinstance(wire, list) and len(wire) == 2 and isinstance(wire[1], int):
             return self.nodes.get(str(wire[0]))
+        if isinstance(wire, dict) and "class_type" in wire:
+            return wire
         return None
 
     def at(self, wire: Any) -> Optional[tuple]:
-        """The node a wire leads to with its id, or None."""
+        """The node a wire leads to with its id, or None. A nested node is known
+        by its content: JSON shares no object, so each way to one node holds a
+        copy of it, and two copies of one sampler are one first pass."""
         node = self.node(wire)
-        return (str(wire[0]), node) if node is not None else None
+        if node is None:
+            return None
+        if isinstance(wire, list):
+            return str(wire[0]), node
+        key = self._nested.get(id(node))
+        if key is None:
+            text = json.dumps(node, sort_keys=True, default=str)
+            key = "nested:" + hashlib.sha1(text.encode("utf-8", "replace")).hexdigest()
+            self._nested[id(node)] = key
+            self.nodes.setdefault(key, node)
+        return key, node
 
     @staticmethod
     def kind(node: Optional[Dict[str, Any]]) -> Optional[str]:
@@ -411,11 +490,13 @@ def _model(g: _Graph, wire: Any, found: Dict[str, Any]) -> None:
                               "strength_clip": g.value(inputs.get("strength_clip"), "number")})
             return "next", inputs.get("model")
         if kind in _POWER_LORA:
-            for key in sorted(k for k in inputs if k.lower().startswith("lora_")):
+            for key in sorted((k for k in inputs if re.fullmatch(r"(?i)lora_\d+", k)), key=lambda k: int(k[5:])):
                 entry = inputs[key]
                 if isinstance(entry, dict) and entry.get("on") is True and stem(entry.get("lora")):
                     strength = g.value(entry.get("strength"), "number")
-                    two = g.value(entry.get("strengthTwo", entry.get("strength")), "number")
+                    # No strengthTwo, or a null one, is the model's strength for CLIP too.
+                    second = entry.get("strengthTwo")
+                    two = g.value(entry.get("strength") if second is None else second, "number")
                     loras.append({"name": stem(entry.get("lora")), "strength_model": strength,
                                   "strength_clip": two})
             return "next", inputs.get("model")
@@ -450,3 +531,167 @@ def _vae(g: _Graph, wire: Any) -> Optional[str]:
     if g.kind(node) == "VAELoader":
         return file_name(g.value(g.inputs(node).get("vae_name"), "text"))
     return None
+
+
+# ------------------------------------------------------------ the editor version
+
+def turn(workflow: Any) -> Optional[Dict[str, Any]]:
+    """
+    The editor version given the run version's shape, as text or as a dict;
+    None where it is no editor version. A node's wired inputs come from the
+    graph's links - written as lists, `[link, from node, from slot, to node,
+    to slot, type]`, or as objects in ComfyUI's newer schema - and its settings
+    from `widgets_values`, named by `_WIDGETS`; a setting turned into a wire is
+    the wire. What only the editor draws is resolved as ComfyUI resolves it
+    before running: a Reroute passes its wire on, a PrimitiveNode gives its
+    value to what it feeds, KJNodes' GetNode gives on what the SetNode of its
+    name was wired, a muted node is not there, and a bypassed one passes on
+    its input of the type wanted. A subgraph or a group node is a
+    class the reader does not know, and ends any walk through it.
+    """
+    graph = loads(workflow)
+    if isinstance(graph, dict) and "nodes" not in graph and isinstance(graph.get("workflow"), dict):
+        graph = graph["workflow"]       # Endless writes it wrapped once, then bare
+    if not isinstance(graph, dict):
+        return None
+    nodes = [n for n in _list(graph.get("nodes")) if isinstance(n, dict) and _key(n.get("id")) is not None]
+    if not nodes or len(nodes) > NODE_LIMIT:
+        return None
+    by_id = {str(n["id"]): n for n in nodes}
+    named = {}
+    for n in nodes:
+        values = n.get("widgets_values")
+        if n.get("type") == _SET and n.get("mode") not in (_MUTED, _BYPASSED) and isinstance(values, list) \
+                and values and isinstance(values[0], str):
+            named.setdefault(values[0], n)
+    links: Dict[Any, tuple] = {}
+    for link in _list(graph.get("links")):
+        if isinstance(link, list) and len(link) >= 5 and _key(link[0]) is not None:
+            links[link[0]] = (str(link[1]), link[2])
+        elif isinstance(link, dict) and _key(link.get("id")) is not None:
+            links[link["id"]] = (str(link.get("origin_id")), link.get("origin_slot"))
+    turned = {}
+    for n in nodes:
+        kind = n.get("type") if isinstance(n.get("type"), str) else None
+        if kind in (_REROUTE, _PRIMITIVE, _SET, _GET) or n.get("mode") in (_MUTED, _BYPASSED):
+            continue
+        inputs: Dict[str, Any] = dict(_widgets(kind, n.get("widgets_values")))
+        for entry in _list(n.get("inputs")):
+            if not isinstance(entry, dict) or not isinstance(entry.get("name"), str):
+                continue
+            if _key(entry.get("link")) is None:
+                continue
+            # A link that resolves to nothing - a node the editor cannot see
+            # through - gives no value: the widget's own is stale, and reading
+            # it read 43 more prompts unlike the run's over one library.
+            found = _origin(entry.get("link"), entry.get("type"), links, by_id, named)
+            if found is None:
+                inputs.pop(entry["name"], None)
+            else:
+                inputs[entry["name"]] = found
+        turned[str(n["id"])] = {"class_type": kind, "inputs": inputs}
+    return turned
+
+
+def _list(value: Any) -> List[Any]:
+    """A part of an editor version that must be a list; an empty one where
+    it is anything else."""
+    return value if isinstance(value, list) else []
+
+
+def _key(value: Any) -> Any:
+    """A node's or a link's id, where it is one: a whole number or a text."""
+    return value if isinstance(value, (int, str)) and not isinstance(value, bool) else None
+
+
+def _widgets(kind: Optional[str], values: Any) -> Dict[str, Any]:
+    """A node's settings by name, where its list has a length its class is
+    written with; none for any other. rgthree's Power Lora Loader keeps one
+    object per LoRA among its widgets, each named as the run version names it."""
+    if not isinstance(values, list):
+        return {}
+    if kind in _POWER_LORA:
+        entries = [v for v in values if isinstance(v, dict) and "lora" in v]
+        return {"lora_%d" % i: entry for i, entry in enumerate(entries, 1)}
+    for names in _WIDGETS.get(kind or "", []):
+        if len(names) == len(values):
+            return {name: value for name, value in zip(names, values) if name != "_"}
+    return {}
+
+
+def _origin(link: Any, wanted: Any, links: Dict[Any, tuple], by_id: Dict[str, Any],
+            named: Dict[str, Any]) -> Any:
+    """What a link brings once the editor's own nodes are resolved: a wire
+    `[node, output]` - to a muted node too, which `turn` leaves out, so a walk
+    ends there - a PrimitiveNode's value, or None: a broken link, a GetNode
+    with no SetNode of its name, a loop."""
+    seen: Set[Any] = set()
+    while True:
+        if link in seen or link not in links:
+            return None
+        seen.add(link)
+        node_id, slot = links[link]
+        origin = by_id.get(node_id)
+        if origin is None:
+            return None
+        kind = origin.get("type")
+        if kind == _PRIMITIVE:
+            values = origin.get("widgets_values")
+            return values[0] if isinstance(values, list) and values else None
+        if kind == _GET:
+            values = origin.get("widgets_values")
+            setter = named.get(values[0]) if isinstance(values, list) and values and isinstance(values[0], str) \
+                else None
+            entries = [e for e in _list((setter or {}).get("inputs")) if isinstance(e, dict)
+                       and _key(e.get("link")) is not None]
+            if not entries:
+                return None
+            link = entries[0].get("link")
+            continue
+        if kind == _REROUTE or origin.get("mode") == _BYPASSED:
+            # A reroute's one input. A bypassed node's input as ComfyUI's page
+            # picks it: the one at the place of the output the wire leaves,
+            # where its type is the one wanted, else the first of that type.
+            entries = [e if isinstance(e, dict) else {} for e in _list(origin.get("inputs"))]
+            if kind == _REROUTE:
+                chosen = next((e for e in entries if _key(e.get("link")) is not None), None)
+            else:
+                outputs = _list(origin.get("outputs"))
+                out_type = outputs[slot].get("type") if isinstance(slot, int) and 0 <= slot < len(outputs) \
+                    and isinstance(outputs[slot], dict) else None
+                want = wanted if isinstance(wanted, str) and wanted != "*" else out_type
+                order = ([slot] if isinstance(slot, int) and 0 <= slot < len(entries) else []) + \
+                    list(range(len(entries)))
+                chosen = next((entries[i] for i in order if entries[i].get("type") == want
+                               and _key(entries[i].get("link")) is not None), None)
+            if chosen is None:
+                return None
+            link = chosen.get("link")
+            continue
+        return [node_id, slot] if isinstance(slot, int) else None
+
+
+def read_editor(workflow: Any) -> Dict[str, Any]:
+    """The fields an editor version gives (`turn`, then `read`). A prompt
+    holding a `{a|b}` choice is none: the run resolved it, the editor kept the
+    choice."""
+    turned = turn(workflow)
+    if not turned:
+        return {}
+    found = read(turned)
+    if not found:
+        return {}
+    found["source"] = "editor"
+    for name in ("prompt", "negative"):
+        if isinstance(found.get(name), str) and _CHOICE.search(found[name]):
+            del found[name]
+    return found
+
+
+def read_either(run: Any, editor: Any) -> Dict[str, Any]:
+    """A file's or a record's fields: from its run version where it has one,
+    from its editor version only where it has not."""
+    graph = loads(run)
+    if graph:
+        return read(graph)
+    return read_editor(editor)
