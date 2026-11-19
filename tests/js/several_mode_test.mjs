@@ -79,7 +79,12 @@ globalThis.fetch = async (url) => {
 
 // Forge's checkpoint box, as Load to UI sets it.
 const selected = [];
-globalThis.selectCheckpoint = (name) => selected.push(name);
+// Forge Neo's from 30 October takes a list of modules second, and refuses the change without one (#430).
+const selectedModules = [];
+globalThis.selectCheckpoint = (name, modules) => {
+    selected.push(name);
+    selectedModules.push(modules);
+};
 // The WebUI's onAfterUiUpdate keeps each callback; the suite runs several mode's.
 const updates = [];
 globalThis.onAfterUiUpdate = (callback) => updates.push(callback);
@@ -126,6 +131,7 @@ const clearNotices = () => document.querySelectorAll('.mm-notice').forEach((n) =
 const words = () => [byId('txt2img_generate_several').textContent, byId('txt2img_queue_several').textContent];
 check('before: no mode, no strip, the buttons as made', [inMode(), strip(), words()],
       [false, null, ['Generate for checkpoints', 'Queue for checkpoints']]);
+const modulesFrom = selectedModules.length;
 await loadTask(30);
 check('Load to UI of a task of three, the setting on: several mode, with its list and the task it came from',
       [inMode(), severalList()], [true, { names: NAMES, source: { task: 30 } }]);
@@ -138,6 +144,8 @@ check('a strip right under Generate\'s box names each, short; in full on hover',
        strip()?.querySelector('.mm-several-names')?.title],
       ['txt2img_generate_box', 'Queues with anime_v12, photo_v5 and flux_dev', NAMES.join('\n')]);
 check('nothing said; the first checkpoint set up in Forge', [notices(), selected], [[], [NAMES[0]]]);
+check('with an empty list of modules, which Neo needs to change the checkpoint (#430)',
+      selectedModules.slice(modulesFrom).map((m) => [Array.isArray(m), m?.length]), [[true, 0]]);
 check('Generate\'s click and Ctrl+Enter are heard on the way down, before Forge\'s listeners and the Queue tab\'s',
       ['click', 'keydown'].map((type) => listening.filter((l) => l.type === type
                                                              && ['onGenerate', 'onKeys'].includes(l.name))

@@ -146,7 +146,11 @@ export async function sendInfotext({ infotext, mode, meta = {}, generationId = n
     if (plan.preset) await switchForgePreset(plan.preset);
     if (plan.checkpoint && typeof selectCheckpoint === 'function') {
         console.log('[ModelManager] Setting checkpoint:', plan.checkpoint);
-        selectCheckpoint(plan.checkpoint);
+        // Neo from its 30 October update takes a list of VAE / text encoders
+        // second, and changes no checkpoint without one (#430): an empty list
+        // leaves its VAE / Text Encoder box as it is, and Send sets the
+        // modules after. The original Forge and older Neo take the name alone.
+        selectCheckpoint(plan.checkpoint, []);
     }
     const tab = sending ? 'img2img' : sendTab({ mode });
     // An earlier send's chips would stay; this one's come from its own record.
@@ -978,7 +982,8 @@ export async function loadTask(taskId) {
     }
     const tab = plan.mode === 'img2img' ? 'img2img' : 'txt2img';
     if (plan.preset) await switchForgePreset(plan.preset);
-    if (plan.checkpoint && typeof selectCheckpoint === 'function') selectCheckpoint(plan.checkpoint);
+    // With an empty list of modules, as sendInfotext says why (#430).
+    if (plan.checkpoint && typeof selectCheckpoint === 'function') selectCheckpoint(plan.checkpoint, []);
     // An earlier send's chips would stay; a task has none.
     showResourceChips(tab, []);
     const answer = await pressLoader(tab, { source: { kind: 'task', task: Number(taskId) } });
@@ -1790,7 +1795,8 @@ async function sendGalleryImageTo({ img, model, version, into = null, pick = nul
         // gallery's or the image's, by the name Forge lists it under.
         if (plan.checkpoint && typeof selectCheckpoint === 'function') {
             console.log('[ModelManager] Setting checkpoint:', plan.checkpoint);
-            selectCheckpoint(plan.checkpoint);
+            // With an empty list of modules, as sendInfotext says why (#430).
+            selectCheckpoint(plan.checkpoint, []);
         }
 
         // A video model makes a still unless it is told how many frames:

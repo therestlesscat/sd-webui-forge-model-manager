@@ -118,7 +118,14 @@ const loaderAsked = sendLoaders(document, { sourceText, answer: (tab, request) =
     // A Civitai image's Send hands the loader its source, which the server pastes (#302).
     if (request.paste !== undefined || request.source !== undefined) events.push(tab === 'txt2img' ? 'paste' : 'paste:img2img');
 } });
-window.selectCheckpoint = globalThis.selectCheckpoint = (name) => events.push(`checkpoint:${name}`);
+// Forge Neo's from 30 October takes a list of modules second, and refuses the change without one (#430).
+const checkpointModules = [];
+window.selectCheckpoint = globalThis.selectCheckpoint = (name, modules) => {
+    events.push(`checkpoint:${name}`);
+    checkpointModules.push(modules);
+};
+// Each call's list since `from`: an earlier Send's cannot stand in for this one's.
+const modulesSince = (from) => checkpointModules.slice(from).map((m) => [Array.isArray(m), m?.length]);
 Object.defineProperty(window, 'scrollY', { value: 0, configurable: true });   // the send saves it
 Object.defineProperty(document.documentElement, 'scrollTop', { value: 0, configurable: true });
 
@@ -410,10 +417,13 @@ check('its hashes - the model resource\'s and the infotext\'s - and its name',
 // after the preset - a preset change brings back the preset's own.
 plan = { success: true, preset: 'qwen', manage_modules: true, select: [], target: [], missing: [],
          checkpoint: 'anima-preview2.safetensors [635cf338]', checkpoint_problem: null };
+let modulesFrom = checkpointModules.length;
 await send();
 check('a LoRA\'s gallery selects the image\'s checkpoint, after the preset and before the paste',
       events.filter((e) => /^(preset|checkpoint|paste)/.test(e)),
       ['preset:qwen', 'checkpoint:anima-preview2.safetensors [635cf338]', 'paste']);
+check('and hands Forge an empty list of modules with it, which Neo needs to change the checkpoint (#430)',
+      modulesSince(modulesFrom), [[true, 0]]);
 plan.preset = 'flux';
 
 // One the library lacks is the one thing a send cannot go without: nothing
@@ -1391,10 +1401,13 @@ check('a generation is sent with the modules it loaded, exactly', selected().sor
 check('a generation\'s schedule type is the loader\'s: the page chooses none', commits.txt2img_scheduler, 'Beta');
 generationPlan = { success: true, preset: 'sd', checkpoint: '_SD_1.5/cyberrealistic.safetensors [bdfc5bafd3]',
                    checkpoint_missing: null, target: [], modules_missing: [] };
+modulesFrom = checkpointModules.length;
 await sendGeneration(263);
 check('one made with another model switches the preset, then the checkpoint, before the paste',
       events.filter((e) => /^(preset|checkpoint|paste)/.test(e)),
       ['preset:sd', 'checkpoint:_SD_1.5/cyberrealistic.safetensors [bdfc5bafd3]', 'paste']);
+check('and hands Forge an empty list of modules with it, which Neo needs to change the checkpoint (#430)',
+      modulesSince(modulesFrom), [[true, 0]]);
 check('and one that loaded no modules takes out the ones left from before', [selected(), moduleChanges().length],
       [[], 2]);
 check('Forge holding what was sent, nothing is said', document.querySelector('.mm-notice'), null);
