@@ -161,6 +161,15 @@ the code (2026-10-16).
   both WebUIs. #214's on-site-only plan recommended remembering Civitai's
   answer for five minutes with neither, and the owner had to ask how
   complex it was (2026-10-10).
+- **A recommendation that drops something the owner asked for is asked as
+  a removal.** The question names it, says the owner asked for it, and asks
+  keep or drop; a yes to the larger choice is not that answer. Size is shown
+  as cost, never as the reason. #232's round 3 recommended filling Civitai
+  images "only where shown and sent", which dropped the notice's Fill button
+  the owner had chosen in round 2; the removal was said only in the round
+  line and in a note on question 2. It was built, and the owner found it
+  while testing: "at any point, i knowingly remove the notice" ... "number
+  lines is guideline, not deciding factor for features" (2026-11-19).
 - **A plan doc is edited in place; each round of changes is one write.**
   The doc always holds the plan as it stands. What a round changes is
   changed where it stands - not struck, boxed or put in a tab - and the
