@@ -1436,9 +1436,10 @@ check('a model with no versions is left alone',
       annotate_paid_access([{'id': 1}]), None)
 
 # ------------------------------- a ComfyUI graph fills what Civitai left out (#232)
-# Filled after Civitai's prompt lookup and the switches, which judge Civitai's
-# data alone: an image whose prompt is only in its graph is shown with it,
-# and hidden by "hide images with no prompt" as before.
+# Filled after Civitai's prompt lookup, and judged filled: Civitai's live
+# images are never stored, so nothing about them waits for the Fill notice -
+# an image whose prompt is only in its graph is shown with it, and kept by
+# "hide images with no prompt".
 def run_graph(prompt):
     node = lambda kind, **inputs: {'class_type': kind, 'inputs': inputs}  # noqa: E731
     return {'5': node('EmptyLatentImage', width=512, height=768, batch_size=1),
@@ -1452,6 +1453,10 @@ def run_graph(prompt):
 
 
 GRAPHED = {'prompt': run_graph('a fox at dusk')}
+# As on a library from before, the switch off: live images are judged filled
+# all the same.
+from model_manager import comfy_graph   # noqa: E402
+comfy_graph.set_switch_reader(None)
 comfy_gallery = Gallery([{'id': 96000, 'url': 'c0', 'browsingLevel': 1, 'meta': {'comfy': GRAPHED, 'steps': 20}},
                          {'id': 96001, 'url': 'c1', 'browsingLevel': 1, 'meta': {'comfy': GRAPHED}}])
 Stub.get_model_images = staticmethod(comfy_gallery)
@@ -1467,8 +1472,8 @@ check('232. and one Civitai\'s lookup gives a prompt for: Civitai\'s, asked for 
        96001 in [i for c in Stub.calls if c[0] == 'get_generation_data' for i in c[1]]),
       ('civitai own prompt', True))
 status, body = get('/model-manager/civitai/versions/90200/images', hide_promptless_images='true')
-check('232. with "hide images with no prompt": hidden, as Civitai gives it none',
-      ([i['id'] for i in body.get('images') or []], body['page'].get('hidden_promptless')), ([96001], 1))
+check('232. with "hide images with no prompt": kept, judged by its graph\'s prompt',
+      (sorted(i['id'] for i in body.get('images') or []), body['page'].get('hidden_promptless')), ([96000, 96001], 0))
 
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

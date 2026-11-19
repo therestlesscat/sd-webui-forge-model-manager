@@ -33,7 +33,7 @@ have files of their own; read them too before working there.
 | `image_sync.py` | Sync images (#233): the images already in Forge's result folders added as generations - the walk and what it skips, the presses rebuilt from the text, the images with no text grouped by their names and a gap learnt from the library, and the job |
 | `thumbnails.py` | thumbnails of your generations (#5): where each goes - a folder, or `.thumbnails` beside its image - making one, 450 px tall, as WebP; which images need one; forgetting them when their image's row goes. Made by Sync images when asked, and by the recorder with the setting on; recorded in `generation_thumbnails` by the image's path |
 | `image_text.py` | what an image file says: its generation text, read with PIL - or where it has none, another tool's prompts (`image_formats`) - the text's last line by Forge's own pattern, and its name read back by Forge's naming settings (`NamePattern`) |
-| `comfy_graph.py` | ComfyUI's graph read into plain fields (#232), one reader for Sync images and Civitai's stored images: the run version walked from the save node back to the first pass's sampler, and each field followed from that sampler through the nodes its lists name; the editor version (`workflow`) turned into the run version's shape first, its unnamed settings named by a table measured from Civitai's records holding both - an unknown node ends that field's walk, nothing is guessed, and a graph is read as untrusted data; a Civitai image's data filled from its graph where Civitai left a field out (`fill`, `fill_images`) - where it is shown and sent, never stored |
+| `comfy_graph.py` | ComfyUI's graph read into plain fields (#232), one reader for Sync images and Civitai's stored images: the run version walked from the save node back to the first pass's sampler, and each field followed from that sampler through the nodes its lists name; the editor version (`workflow`) turned into the run version's shape first, its unnamed settings named by a table measured from Civitai's records holding both - an unknown node ends that field's walk, nothing is guessed, and a graph is read as untrusted data; a Civitai image's data filled from its graph where Civitai left a field out (`fill`, `fill_images`) - where it is shown and sent always, and where it is judged and stored by the switch (`judged`), the record itself never; the switch's copy in memory, which the rules read |
 | `image_formats.py` | the prompts other tools write into their images, read where Forge's infotext is not there (#408): one reader per format - JSON where Forge writes its text, a PNG's own chunks - the first whose mark the file has deciding; ComfyUI's graph is #232's |
 | `file_identity.py` | what a file is (Checkpoint, LORA, LoCon, Controlnet, VAE, Text Encoder, ...) and which model it is for, from its own tensors; a text encoder's or VAE's kind, which `forge_modules` picks by |
 | `identity_store.py` | what `file_identity` found, kept on the file's row, and when a file has to be read again |
@@ -70,8 +70,18 @@ two implementations to keep in step. A new endpoint that hands images to the
 page stamps them too; an image without a stamp reads as Unknown, and is hidden
 wherever NSFW is. A Civitai image is also filled from its ComfyUI graph where
 Civitai left a field out (#232), between the stamp and the card's reading
-(`comfy_graph.fill_images`), so every filter and level judges Civitai's data
-alone: a new endpoint calls that too.
+(`comfy_graph.fill_images`): a new endpoint calls that too. What judges it -
+`image_level`, `image_readable`, `usable` - reads the switch
+(`comfy_graph.judged`): Civitai's data alone on a library from before, the
+filled data in a new one. They read a copy in memory, read again on a
+connection of its own, never through `_cursor`, whose exit commits: a rule
+runs inside storing's transaction. Storing reads it on its own transaction
+(`model_manager/db/AGENTS.md`); the Civitai Browser's live images, never
+stored, pass `filled=True`. Your generations are judged by
+`generated_level`, which never reads it. The switch is no part of the
+restamp's fingerprint: two WebUIs sharing a database keep one, and an older
+copy would judge every image again at each start, undoing the newer one's
+levels.
 
 **Two rules for one thing drift, so each lives once, its SQL beside it.**
 `nsfw.py` (a level, with `model_level_sql`), `prompt_rules.py` (a prompt

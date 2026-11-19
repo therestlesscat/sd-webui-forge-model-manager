@@ -46,6 +46,7 @@ from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Tuple
 
 from .forge_host import DEFAULTS, setting
 from .console import say
+from .comfy_graph import judged_image
 
 # ---------------------------------------------------------------- vocabulary
 
@@ -364,6 +365,10 @@ def prompt_words_fingerprint() -> str:
         "model:" + (model["digest"] if model else "none"),
         "threshold:" + repr(prompt_model_threshold()),
     ]
+    # Not whether stored images are judged by their ComfyUI graphs (#232):
+    # two WebUIs sharing a database keep one fingerprint, and an older copy,
+    # which knows nothing of that switch, would judge every image again at
+    # each start, undoing the newer one's levels.
     return hashlib.sha1("\n".join(parts).encode()).hexdigest()
 
 
@@ -386,17 +391,22 @@ def prompt_is_explicit(image: Dict[str, Any]) -> bool:
     return threshold is not None and prompt_score(meta) > threshold
 
 
-def image_level(image: Dict[str, Any]) -> int:
+def image_level(image: Dict[str, Any], filled: Optional[bool] = None) -> int:
     """
     How explicit one image is: Civitai's rating, raised to X when an image
     rated PG or PG-13 has an explicit prompt. Every view judges by this.
+    The prompt is read from the image's data as judged (comfy_graph.judged):
+    filled from its ComfyUI graph while the switch is on, or as `filled`
+    says. Your own generations are judged by generated_level, never so.
 
     Args:
         image: An image payload from Civitai.
+        filled: None to follow the switch; True or False to decide.
 
     Returns:
         A level from the scale above.
     """
+    image = judged_image(image, filled)
     level = rated_level(image)
     if level <= SFW_MAX and prompt_is_explicit(image):
         return PROMPT_LEVEL
@@ -418,7 +428,8 @@ def generated_level(meta: Optional[Dict[str, Any]]) -> int:
     return PROMPT_LEVEL if prompt_is_explicit({"meta": meta or {}}) else PG
 
 
-def stamp_levels(images: Optional[List[Dict[str, Any]]]) -> Optional[List[Dict[str, Any]]]:
+def stamp_levels(images: Optional[List[Dict[str, Any]]],
+                 filled: Optional[bool] = None) -> Optional[List[Dict[str, Any]]]:
     """
     Write each image's level on it, for the browser, in place.
 
@@ -427,11 +438,11 @@ def stamp_levels(images: Optional[List[Dict[str, Any]]]) -> Optional[List[Dict[s
     images it was sent itself, with a copy of this rule in common.mjs and the
     words fetched to feed it - two implementations that had to agree. Every
     image it shows passes through this server, so it is judged here, once,
-    and the browser reads the answer.
+    and the browser reads the answer. `filled` as image_level's.
     """
     for image in images or []:
         if isinstance(image, dict):
-            level = image_level(image)
+            level = image_level(image, filled)
             image["mm_level"] = level
             image["mm_level_from_prompt"] = level != rated_level(image)
     return images

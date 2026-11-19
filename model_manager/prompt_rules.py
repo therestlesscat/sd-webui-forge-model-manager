@@ -9,7 +9,9 @@ times - in Python with strip(), which takes any whitespace, and in SQL with
 TRIM, which takes spaces only, so " \\t\\tab\\n" was a prompt to one and not to
 the other. Both trim the same characters now, from the one list below.
 """
-from typing import Any, Dict
+from typing import Any, Dict, Optional
+
+from .comfy_graph import judged
 
 # The shortest prompt worth showing, in characters after trimming. Measured
 # against a library of 101,369 images: 10,476 carry no prompt at all, and
@@ -29,21 +31,24 @@ def readable(prompt: Any) -> bool:
     return isinstance(prompt, str) and len(prompt.strip(TRIMMED)) >= MIN_PROMPT_LENGTH
 
 
-def image_readable(image: Dict[str, Any]) -> bool:
-    """Whether an image's prompt is worth reading."""
-    return readable((image.get("meta") or {}).get("prompt"))
+def image_readable(image: Dict[str, Any], filled: Optional[bool] = None) -> bool:
+    """Whether an image's prompt is worth reading: read from its data as
+    judged (comfy_graph.judged) - filled from its ComfyUI graph while the
+    switch is on, or as `filled` says."""
+    return readable((judged(image.get("meta") or {}, filled) or {}).get("prompt"))
 
 
-def usable(image: Dict[str, Any]) -> bool:
+def usable(image: Dict[str, Any], filled: Optional[bool] = None) -> bool:
     """
     Whether an image carries a prompt *and* what is needed to make it again.
 
     A bare prompt is not much use without steps, sampler and CFG - "Send to
     txt2img" would make something unrelated - and the prompt must be one
     worth reading: this once accepted "1" as long as the settings were there.
+    All four read from the data as judged, as image_readable's prompt is.
     """
-    meta = image.get("meta") or {}
-    return (image_readable(image) and bool(meta.get("steps"))
+    meta = judged(image.get("meta") or {}, filled) or {}
+    return (readable(meta.get("prompt")) and bool(meta.get("steps"))
             and bool(meta.get("sampler") or meta.get("Sampler"))
             and bool(meta.get("cfgScale") or meta.get("CFG scale")))
 

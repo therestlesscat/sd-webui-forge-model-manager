@@ -33,6 +33,7 @@ from .generations_ops import GenerationsOps
 from .tasks_ops import TasksOps
 from .downloads_ops import DownloadsOps
 from .gallery_ops import GalleryOps
+from ..comfy_graph import FILLED_KEY, JUDGED_KEY, READER, set_switch_reader, switch_from
 from ..forge_host import setting
 from ..model_dirs import file_modified
 from ..console import say
@@ -84,6 +85,28 @@ class ModelsDatabase:
         self._tasks = TasksOps(self._cursor)
         self._downloads = DownloadsOps(self._cursor)
         self._gallery = GalleryOps(self._cursor)
+
+    def _read_comfy_switch(self) -> Tuple[bool, Optional[int]]:
+        """
+        Whether stored images are judged by their ComfyUI graphs, and the
+        reader Fill last finished with (#232) - for comfy_graph's copy in
+        memory, which the rules read; handed to it by get_models_db, for
+        the one database the WebUI uses. On a short-lived connection of its
+        own, read-only, never through _cursor, whose exit commits. By the
+        path as given: a `file:` address of a path on another computer (a share)
+        is refused by SQLite. Raises when it cannot read: the copy then keeps
+        what it held.
+        """
+        if not os.path.isfile(self.db_path):
+            raise FileNotFoundError(self.db_path)   # connect() would make one
+        connection = sqlite3.connect(self.db_path, timeout=2)
+        try:
+            connection.execute("PRAGMA query_only = ON")
+            found = dict(connection.execute("SELECT key, value FROM schema_info WHERE key IN (?, ?)",
+                                            (JUDGED_KEY, FILLED_KEY)).fetchall())
+        finally:
+            connection.close()
+        return switch_from(found)
 
     def _get_connection(self) -> sqlite3.Connection:
         """Get thread-local database connection."""
@@ -161,6 +184,11 @@ class ModelsDatabase:
                 from ..version import VERSION
                 cursor.execute("INSERT OR IGNORE INTO schema_info (key, value) VALUES ('created_by', ?)",
                                (VERSION,))
+                # Nothing stored yet is judged without its ComfyUI graph: a
+                # new library is judged filled from the start, and never
+                # offered Fill (#232).
+                cursor.executemany("INSERT OR IGNORE INTO schema_info (key, value) VALUES (?, ?)",
+                                   ((JUDGED_KEY, "1"), (FILLED_KEY, str(READER))))
             if current_version < SCHEMA_VERSION:
                 # Said to the page while it runs (#285), the tabs held until it
                 # ends - a library's, not a new file's, which takes no time.
@@ -1072,5 +1100,9 @@ def get_models_db() -> ModelsDatabase:
                     say(f"Using custom database path: {custom_db_path}")
 
                 _db_instance = ModelsDatabase(_EXTENSION_DIR, custom_db_path)
+                # The rules judge by this database's switch (#232): handed
+                # here, not by every instance - a second one made in the same
+                # process would take its place.
+                set_switch_reader(_db_instance._read_comfy_switch)
 
     return _db_instance

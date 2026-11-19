@@ -643,11 +643,12 @@ def register(app: FastAPI):
             finally:
                 client.close()
 
-            shown, counts = filter_images(images, nsfw_images, hide_promptless_images)
+            # Filtered, judged and shown filled from their ComfyUI graphs (#232):
+            # live images are never stored, so nothing about them waits for Fill.
+            shown, counts = filter_images(images, nsfw_images, hide_promptless_images, filled=True)
             return JSONResponse({
                 "success": True,
-                # Filtered and judged by Civitai's data, then filled from its graph (#232).
-                "images": stamp_readings(fill_images(stamp_levels(shown))),
+                "images": stamp_readings(fill_images(stamp_levels(shown, filled=True))),
                 "page": {
                     "number": page,
                     "size": size,

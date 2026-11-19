@@ -219,11 +219,13 @@ def switch_counts_sql(nsfw: Any, hide_promptless: bool,
     ])
 
 
-def filter_images(images: List[Dict[str, Any]], nsfw: Any,
-                  hide_promptless: bool) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
-    """Civitai images through the switches: judged by nsfw.py, read by prompt_rules."""
+def filter_images(images: List[Dict[str, Any]], nsfw: Any, hide_promptless: bool,
+                  filled: Optional[bool] = None) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
+    """Civitai images through the switches: judged by nsfw.py, read by
+    prompt_rules - filled from their ComfyUI graphs as the switch, or
+    `filled`, says (comfy_graph.judged)."""
     return switch_counts(
         images,
-        [image_level(img) <= SFW_MAX for img in images],
-        [image_readable(img) for img in images],
+        [image_level(img, filled) <= SFW_MAX for img in images],
+        [image_readable(img, filled) for img in images],
         nsfw, hide_promptless)

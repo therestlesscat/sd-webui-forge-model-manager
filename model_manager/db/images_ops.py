@@ -10,6 +10,7 @@ Used by ModelsDatabase facade - do not import directly.
 import json
 from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple
 
+from ..comfy_graph import FILLED_KEY, JUDGED_KEY, judged_image, judging_filled, switch_from
 from ..nsfw import SFW_MAX, image_level
 from ..prompt_rules import MIN_PROMPT_LENGTH
 from .params_table import IMAGE_COLUMNS, image_params_row, settings_group
@@ -57,6 +58,22 @@ def _text(record: Dict[str, Any], key: str) -> Optional[str]:
     meta = record.get("meta")
     text = meta.get(key) if isinstance(meta, dict) else None
     return text if isinstance(text, str) else None
+
+
+def derived_rows(record: Dict[str, Any], filled: bool) -> Dict[str, Any]:
+    """
+    What the database makes from an image's record, for search and filters:
+    its prompt and negative prompt, its settings row (#378) and its level -
+    worked out, never written. From its data filled from its ComfyUI graph
+    when `filled` (#232), Civitai's alone when not; the record itself stays
+    Civitai's either way. Storing writes them (insert_images), and so does
+    the Fill notice's job, each its own way.
+    """
+    judged = judged_image(record, filled)
+    return {"prompt": _text(judged, "prompt"), "negative": _text(judged, "negativePrompt"),
+            "settings": image_params_row(judged),
+            # Already judged: filled again, its graph would be read twice.
+            "level": image_level(judged, False)}  # the rule lives in model_manager.nsfw
 
 
 def carry_generation_data(fresh: Dict[str, Any], stored: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -142,8 +159,16 @@ class ImagesOps:
         stored once whatever galleries show it: the newest fetch is its record
         for all of them - its generation data kept where the fetch has none
         (carry_generation_data) - and its level is written to each of its
-        gallery rows.
+        gallery rows. Its rows are made from its data filled from its ComfyUI
+        graph while the switch is on (derived_rows, #232) - read here, on the
+        transaction's own cursor, once it holds the write lock: nothing can
+        turn the switch between this read and the rows' write, as it could
+        while a store read first waited for the lock and Fill passed it by.
         """
+        if not cursor.connection.in_transaction:
+            cursor.execute("BEGIN IMMEDIATE")
+        cursor.execute("SELECT key, value FROM schema_info WHERE key IN (?, ?)", (JUDGED_KEY, FILLED_KEY))
+        filled, _ = switch_from(dict(cursor.fetchall()))
         touched = set()
         for position, fresh in enumerate(images):
             image_id = fresh.get("id")
@@ -156,14 +181,15 @@ class ImagesOps:
             except (TypeError, ValueError):
                 stored = None
             record = carry_generation_data(fresh, stored)
-            level = image_level(record)  # the rule lives in model_manager.nsfw
+            rows = derived_rows(record, filled)
+            level = rows["level"]
             cursor.execute("SELECT prompt_id, negative_id FROM images WHERE id = ?", (image_id,))
             touched.update(cursor.fetchone() or ())
             cursor.execute(
                 "INSERT OR REPLACE INTO images (id, prompt_id, negative_id, width, height, media_type, created_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (image_id, IMAGE_PROMPTS.id_for(cursor, _text(record, "prompt")),
-                 IMAGE_PROMPTS.id_for(cursor, _text(record, "negativePrompt")),
+                (image_id, IMAGE_PROMPTS.id_for(cursor, rows["prompt"]),
+                 IMAGE_PROMPTS.id_for(cursor, rows["negative"]),
                  record.get("width"), record.get("height"),
                  record.get("type") if isinstance(record.get("type"), str) else "image",
                  record.get("createdAt")))
@@ -180,7 +206,7 @@ class ImagesOps:
                            "AND effective_nsfw_level IS NOT ?", (level, image_id, level))
             # Its settings (#378), from the record as written: a fresh record
             # giving none takes the stored row with it.
-            settings = image_params_row(record)
+            settings = rows["settings"]
             if settings:
                 cursor.execute(_PARAMS_UPSERT, (image_id, *(settings[c] for c in IMAGE_COLUMNS)))
             else:
@@ -216,6 +242,9 @@ class ImagesOps:
             rows = cursor.fetchall()
         report = progress or (lambda judged, total: None)
         report(0, len(rows))
+        # One way for the whole pass (#232): the switch read once, not again
+        # every few seconds while it judges.
+        filled = judging_filled()
         changed = []
         for done, (image_id, data, stored) in enumerate(rows, 1):
             if done % self.RESTAMP_REPORT_EVERY == 0:
@@ -223,7 +252,7 @@ class ImagesOps:
             if not data:
                 continue
             try:
-                level = image_level(json.loads(data))
+                level = image_level(json.loads(data), filled)
             except (ValueError, TypeError):
                 continue
             if level != stored:

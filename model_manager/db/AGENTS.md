@@ -162,6 +162,19 @@ cleared takes only the images no other gallery shows (`forget_unshown`). The
 Civitai Images tab reads a level once, into a temporary table in memory, as
 the Generations tab does (`GalleryOps.level`).
 
+**The rows made from a record follow the ComfyUI switch; the record does not**
+(#232). Its prompt rows, settings row and level are worked out by
+`images_ops.derived_rows`, from the record's data filled from its ComfyUI
+graph once `comfy_judged` is set in `schema_info` - in a new database at once,
+in a library from before only once it is turned - and from Civitai's alone
+before. The record stays Civitai's: a fill stored in it
+would be carried over by a sync as Civitai's, and the image never looked up
+for Civitai's own prompt. `insert_images` reads the switch on its own
+transaction's cursor once it holds the write lock (`BEGIN IMMEDIATE`, where
+its caller has not taken it): read before, a store that waited for the lock
+while Fill turned the switch wrote its rows unfilled after Fill had passed
+them. The restamp reads it once a pass.
+
 ### Your generations
 
 **Your images are narrow rows; their details are kept apart** (#231, v37).

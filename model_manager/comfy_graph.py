@@ -36,12 +36,19 @@ The answer is one dict under the reader's own names - `prompt`, `negative`,
 `width`, `height`, `checkpoint`, `vae`, `text_encoders`, `loras` and
 `source` - each present only where read. Sampler and schedule type are kept
 as ComfyUI names them (`dpmpp_2m`, `karras`): Send matches them to Forge's.
+
+A Civitai image's data is filled from its graph where Civitai left a field
+out (`fill`): where it is shown and sent always, and where it is judged,
+stored and searched once the switch is on (`judged`).
 """
 import hashlib
 import json
 import math
 import re
-from typing import Any, Dict, List, Optional, Set
+import threading
+import time
+from collections import OrderedDict
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 # The largest graph among one library's 4,826 is 243 nodes; a graph many times
 # that is not a workflow worth walking.
@@ -743,23 +750,57 @@ def _names_checkpoint(meta: Dict[str, Any]) -> bool:
                for r in listed)
 
 
+# One request judges an image up to three times and fills it to show once
+# (filter_images, stamp_levels, fill_images): each would read its graph
+# again. So fill keeps its last answers, by the data object itself - held,
+# so its id is never another's - and only for data holding a graph, which is
+# what costs: records holding one ran 39 KB on average and up to 961 KB on
+# one library, so a page's worth (200) is kept, not more.
+_ANSWERS_KEPT = 200
+_answers: "OrderedDict[int, Tuple[Any, Any]]" = OrderedDict()
+_answers_lock = threading.Lock()
+# How many times a graph was read to fill: for the suites, which count it.
+reads = 0
+
+
 def fill(meta: Any) -> Any:
     """
     A copy of a Civitai image's data with the fields Civitai left out filled
-    from its ComfyUI graph (#232) - where the image is shown and sent, never
-    where it is stored, searched, filtered or judged. A field Civitai gives is
-    never changed; what is missing is a key absent, None, or text empty or
-    only spaces. The sampler and schedule type are filled together, and only
-    where Civitai gives no sampler: one folded into Civitai's sampler name
-    ("DPM++ 2M Karras") is never overridden by a filled `scheduler`. `Model`,
-    the checkpoint's file stem, only where the page finds no checkpoint for
-    the image (_names_checkpoint). LoRAs are not added: Civitai's resources
-    are the image's. Where anything was filled, its Read from says so -
-    "Civitai, workflow". The data as it is where there is no graph, or
-    nothing to fill; never the same object once anything is filled.
+    from its ComfyUI graph (#232): where the image is shown and sent always,
+    and where it is judged, stored and searched while the switch is on
+    (judged). A field Civitai gives is never changed; what is missing is a
+    key absent, None, or text empty or only spaces. The sampler and schedule
+    type are filled together, and only where Civitai gives no sampler: one
+    folded into Civitai's sampler name ("DPM++ 2M Karras") is never
+    overridden by a filled `scheduler`. `Model`, the checkpoint's file stem,
+    only where the page finds no checkpoint for the image
+    (_names_checkpoint). LoRAs are not added: Civitai's resources are the
+    image's. Where anything was filled, its Read from says so - "Civitai,
+    workflow". The data as it is where there is no graph, or nothing to
+    fill; never the same object once anything is filled. The same answer
+    for the same object, which is never to be changed in place after.
     """
-    if not isinstance(meta, dict) or not has_graph(meta):
+    if not isinstance(meta, dict):
         return meta
+    with _answers_lock:
+        kept = _answers.get(id(meta))
+        if kept is not None and kept[0] is meta:
+            _answers.move_to_end(id(meta))
+            return kept[1]
+    if not has_graph(meta):
+        return meta
+    answer = _fill_now(meta)
+    with _answers_lock:
+        _answers[id(meta)] = (meta, answer)
+        while len(_answers) > _ANSWERS_KEPT:
+            _answers.popitem(last=False)
+    return answer
+
+
+def _fill_now(meta: Dict[str, Any]) -> Any:
+    """fill(), read from the graph."""
+    global reads
+    reads += 1
     found = read_either(*_graphs(meta))
     if not found:
         return meta
@@ -781,9 +822,103 @@ def fill(meta: Any) -> Any:
 def fill_images(images: Any) -> Any:
     """Each image's data filled (fill), in place, as stamp_levels and
     stamp_readings stamp theirs: called between them, after every filter
-    and level has judged Civitai's data alone, before the card reads its
-    sampler and schedule type. Answers the images."""
+    and level has judged it (judged), before the card reads its sampler and
+    schedule type. Answers the images."""
     for image in images or []:
         if isinstance(image, dict) and isinstance(image.get("meta"), dict):
             image["meta"] = fill(image["meta"])
     return images
+
+
+# ------------------------------------------------- the switch: judged filled
+
+# The reader's version (#232): raised by a reader that reads more, and the
+# Fill notice offers Fill again to libraries filled with an older one.
+READER = 1
+
+# The switch, as two values in schema_info, kept by every WebUI sharing the
+# database: JUDGED is "1" once stored images are judged by their filled
+# data, written when Fill starts and when a database is made; FILLED is the
+# READER Fill last finished with.
+JUDGED_KEY = "comfy_judged"
+FILLED_KEY = "comfy_fill"
+
+# How often the copy in memory is read again: the other WebUI sharing the
+# database turns the switch, and Fill waits this long before its scan.
+SWITCH_SECONDS = 5.0
+
+# The copy in memory. A rule runs inside storing's transaction, where a read
+# through the database's own connection would commit it half-done; so the
+# rules read this copy alone, and the database hands in a reader of its own
+# connection (set_switch_reader). With none - the rule suites - it is off.
+_switch: Dict[str, Any] = {"judged": False, "filled": None, "read_at": None, "reader": None}
+_switch_lock = threading.Lock()
+
+
+def switch_from(values: Dict[str, Any]) -> Tuple[bool, Optional[int]]:
+    """(judged, filled) from schema_info's values by key, as stored."""
+    filled = values.get(FILLED_KEY)
+    return values.get(JUDGED_KEY) == "1", int(filled) if str(filled or "").isdigit() else None
+
+
+def set_switch_reader(reader: Optional[Callable[[], Tuple[bool, Optional[int]]]]) -> None:
+    """Hand in what reads the switch - (judged, the READER Fill last finished
+    with) - and read it now. None forgets it: the switch reads off."""
+    with _switch_lock:
+        _switch.update(reader=reader, read_at=None, judged=False, filled=None)
+    judging_filled()
+
+
+def set_switch(judged: bool, filled: Optional[int] = None) -> None:
+    """This process's copy, set at once - by whatever has just written the
+    switch to the database, so nothing here waits for the next read."""
+    with _switch_lock:
+        _switch.update(judged=bool(judged), filled=filled, read_at=time.monotonic())
+
+
+def switch() -> Tuple[bool, Optional[int]]:
+    """(judged, filled), as this process holds them now."""
+    judging_filled()
+    with _switch_lock:
+        return _switch["judged"], _switch["filled"]
+
+
+def judging_filled() -> bool:
+    """Whether stored images are judged by their filled data: the copy in
+    memory, read again through the database's reader at most every
+    SWITCH_SECONDS. A read that fails keeps what was held, and never raises."""
+    with _switch_lock:
+        reader, read_at = _switch["reader"], _switch["read_at"]
+        due = reader is not None and (read_at is None or time.monotonic() - read_at >= SWITCH_SECONDS)
+        if due:
+            _switch["read_at"] = time.monotonic()
+    if due:
+        try:
+            judged, filled = reader()
+        except Exception:
+            pass
+        else:
+            with _switch_lock:
+                _switch.update(judged=bool(judged), filled=filled)
+    with _switch_lock:
+        return _switch["judged"]
+
+
+def judged(meta: Any, filled: Optional[bool] = None) -> Any:
+    """A Civitai image's data as it is judged - its level, whether its prompt
+    is worth reading, its stored rows: filled from its graph while the switch
+    is on, Civitai's alone while off. `filled` decides instead of the switch:
+    storing reads the switch before its transaction, Fill judges filled, and
+    the Civitai Browser's live images, never stored, are judged filled."""
+    if filled is None:
+        filled = judging_filled()
+    return fill(meta) if filled else meta
+
+
+def judged_image(image: Any, filled: Optional[bool] = None) -> Any:
+    """An image (a record) with its data as judged (judged); the image itself
+    where nothing changes."""
+    if not isinstance(image, dict) or not isinstance(image.get("meta"), dict):
+        return image
+    meta = judged(image["meta"], filled)
+    return image if meta is image["meta"] else {**image, "meta": meta}
