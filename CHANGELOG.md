@@ -6,6 +6,16 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.81 - ComfyUI's workflow read
+
+*18 November 2026*
+
+The images ComfyUI makes carry the workflow they were made with, and the extension learns to read it (#232): 0.81.0
+brings the reader, and 0.81.1 puts it to use in Sync images, in Send, and for Civitai images whose own fields leave out
+what their workflow holds.
+
+- **0.81.0** (build 735) - A reader of ComfyUI's workflow (#232), the part both places will use. It follows the graph ComfyUI ran back from the node that saved the picture to the sampler that made the first pass, and reads from there the prompts, sampler, schedule type, steps, CFG, seed, size, checkpoint, LoRAs, VAE, text encoders, shift and Flux's distilled CFG, each only where a wire leads to a value through nodes it knows how to read. A graph it cannot follow - a custom sampler, several outputs, a picture blended from two - gives nothing rather than a guess. Over one library's 4,826 workflows that Civitai keeps beside its images, it agrees with Civitai's own fields on 97 to 99% of the values both hold. Nothing uses it yet; 0.81.1 puts it to use.
+
 ## 0.80 - Hide paid and Early Access models
 
 *17 November 2026*
