@@ -1764,7 +1764,12 @@ def generation_plan(db, generation_id: int, use_checkpoint: Optional[str] = None
             return plan
         kind = generation_pick_kind(db, generation, picked, image_model)
         plan = plan_for(db, picked, modules if kind != "model" else [])
-        if kind == "model" or prompts_only(generation):
+        # A pick of another model takes none of the image's modules, as a
+        # Civitai image's (civitai_plan).
+        names = workflow_modules(generation) if kind != "model" else []
+        if names:
+            plan = with_named(db, picked, plan, names)
+        elif kind == "model" or prompts_only(generation):
             # A prompts-only image recorded no modules (#408): an empty list
             # would clear every VAE and text encoder Forge has selected.
             plan.update(family_plan(db, picked))
@@ -1825,22 +1830,105 @@ def generation_plan(db, generation_id: int, use_checkpoint: Optional[str] = None
 def with_family(db, generation: Dict[str, Any], path: str, plan: Dict[str, Any]) -> Dict[str, Any]:
     """A plan for a prompts-only generation (#408) sets up its checkpoint's
     family's VAE and text encoders, as a pick of another model does: it
-    recorded none. Any other plan as it is."""
+    recorded none - or, where its workflow named them (#232), those, as a
+    Civitai image's are planned (with_named). Any other plan as it is."""
+    names = workflow_modules(generation)
+    if names:
+        return with_named(db, path, plan, names)
     if prompts_only(generation):
         plan.update(family_plan(db, path))
         plan["modules_missing"] = []
     return plan
 
 
+def workflow_modules(generation: Dict[str, Any]) -> List[str]:
+    """
+    The VAE and text encoders a prompts-only generation's first image names
+    in its data (#232): Sync images keeps each `Module N` ComfyUI's graph
+    gave, by file name, whether Forge lists it or not, where its recorded
+    modules hold only those it did. Only a graph gives a prompts-only image
+    one; none for any other generation - a Forge one plans its recorded
+    modules, as made.
+    """
+    if not prompts_only(generation):
+        return []
+    images = generation.get("images") or []
+    return named_modules((images[0] if images else {}).get("meta") or {})
+
+
+def with_named(db, path: str, plan: Dict[str, Any], names: List[str]) -> Dict[str, Any]:
+    """
+    A plan's modules for a checkpoint and the modules an image names by file
+    name (#232), as a Civitai image's are planned (plan_modules): each named
+    file Forge lists takes its kind's place, the family's pick fills a kind
+    none fills - a stand-in, in `modules_instead`, where a named file is not
+    listed - and one Forge does not list is said, in `modules_not_found`.
+    Nothing is missing "any more": Forge never listed them.
+    """
+    from .forge_host import installed_modules
+    from .send_plan import picked_model
+    found = picked_model(db, path)
+    answer: Dict[str, Any] = {"manage_modules": found.preset not in (None, "sd", "xl"), "modules_unfit": [],
+                              "named_unused": [], "select": [], "missing": [], "not_found": [], "bundled": [],
+                              "target": [], "modules_not_found": []}
+    matched = plan_modules(db, found, names, answer, installed_modules())
+    plan.update({key: answer[key] for key in ("target", "missing", "not_found", "bundled", "modules_not_found",
+                                              "modules_unfit")})
+    plan["modules_missing"] = []
+    instead = [label for label in answer["target"] if label not in matched] if answer["modules_not_found"] else []
+    if instead:
+        plan["modules_instead"] = instead
+    return plan
+
+
 def generation_pick_kind(db, generation: Dict[str, Any], picked: str, image_model: Optional[int] = None) -> str:
-    """pick_kind() for a generation: its checkpoint's file, version and hash, as recorded."""
+    """
+    pick_kind() for a generation: its checkpoint's file, version and hash, as
+    recorded. A generation whose workflow named its checkpoint by a file the
+    library lacked at the sync (#232) has none of them, so any pick read as
+    another model's - the very file it names, added since, too: a pick of
+    that file (workflow_checkpoint) is its own.
+    """
     from .image_text import line_params
     path = generation.get("checkpoint_path") or ""
     row = (db.get_version(path) or {}) if path else {}
     hashes = [h for h in (generation.get("checkpoint_hash"),
                           line_params(generation.get("infotext")).get("Model hash")) if h]
-    return pick_kind(db, picked, [row["id"]] if row.get("id") else [], hashes,
+    kind = pick_kind(db, picked, [row["id"]] if row.get("id") else [], hashes,
                      image_model or row.get("model_id"), path)
+    if kind == "model" and _same_stem(picked, workflow_checkpoint(db, generation)):
+        return "own"
+    return kind
+
+
+def workflow_checkpoint(db, generation: Dict[str, Any]) -> Optional[str]:
+    """
+    The name a generation read from ComfyUI's workflow (#232) gives its
+    checkpoint, where the library lacked that file at the sync: kept by
+    name, with no path, hash or version to know it by once added. None for
+    any other generation. A file of that name, its extension dropped, is
+    the image's own - for Send's pick (generation_pick_kind) and the
+    Resources dialog's suggestion (your_checkpoints) alike.
+    """
+    if generation.get("checkpoint_path") or generation.get("id") is None or not _workflow_named(generation):
+        return None
+    return db.unheld_checkpoint(generation["id"])
+
+
+def _same_stem(path: Optional[str], name: Optional[str]) -> bool:
+    """Whether a file is the one a workflow names: the name is kept as the
+    reader's stem (comfy_graph.stem), its extension dropped already - a
+    second drop would cut `sd_xl_base_1.0` to `sd_xl_base_1`."""
+    return bool(path and name) and \
+        os.path.splitext(os.path.basename(path))[0].strip().lower() == str(name).strip().lower()
+
+
+def _workflow_named(generation: Dict[str, Any]) -> bool:
+    """Whether a generation's first image was read from ComfyUI's workflow
+    (#232): its Read from names it."""
+    images = generation.get("images") or []
+    meta = (images[0] if images else {}).get("meta") or {}
+    return "workflow" in str(meta.get("Read from") or "").split(", ")
 
 
 def plan_for(db, path: str, modules: List[str]) -> Dict[str, Any]:
@@ -1988,6 +2076,16 @@ def your_checkpoints(db, version_ids: str = "", hashes: str = "", model_id: int 
                                  line_params(record.get("infotext")).get("Model hash")) if h]
         row = (db.get_version(own_path) or {}) if own_path else {}
         versions = [row["id"]] if row.get("id") else []
+        # A workflow's checkpoint the library lacked at the sync (#232): the
+        # file of its name Forge lists now is the image's own, as Send's pick
+        # of it is (generation_pick_kind).
+        named = workflow_checkpoint(db, record)
+        if named:
+            # Of two files of that name, one chosen by name and folder, not
+            # by Forge's order, which Neo changes at every start: Send takes
+            # either as the image's own.
+            own_path = min((path for _, path in listed_checkpoints() if _same_stem(path, named)),
+                           key=lambda path: (os.path.basename(path).lower(), path.lower()), default="")
     if not versions and hash_list:
         # Named by a hash alone - A1111's Model hash, a generation kept by
         # name: its version and model as Civitai answered for the hash.

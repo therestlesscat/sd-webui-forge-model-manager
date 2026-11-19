@@ -671,6 +671,85 @@ check('408. into img2img, naming no checkpoint: the picture and its source go, n
 check('408. saying no checkpoint was known',
       notices().includes('This image names no checkpoint. The picture is sent with the checkpoint loaded.'), true);
 document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+
+// --------------------------------- an image read from ComfyUI's workflow (#232)
+// Its notice says where Sync images read it from - its Read from - and one
+// apart names the LoRAs its workflow applied that the prompt sent does not
+// tag. Sent with another checkpoint, the another-model notice comes first.
+const COMFY = { ...told, id: 61, generation_id: 16, url: '/model-manager/generations/images/61/file',
+                meta: { prompt: 'a lighthouse <lora:sea_spray:0.8>', 'Made with': 'ComfyUI', 'Read from': 'workflow',
+                        Size: '512x768', resources: [{ type: 'lora', name: 'river_lora', weight: null, hash: '' },
+                                                     { type: 'lora', name: 'sea_spray', weight: null, hash: '' }] } };
+const ENDLESS = { ...COMFY, id: 62, generation_id: 17, url: '/model-manager/generations/images/62/file',
+                  meta: { prompt: 'a plain prompt', 'Made with': 'ComfyUI', 'Read from': 'text in the file, workflow',
+                          Size: '512x768' } };
+const NAMED = { ...COMFY, id: 63, generation_id: 18, url: '/model-manager/generations/images/63/file',
+                meta: { ...ENDLESS.meta, 'Read from': 'text in the file, workflow, file name' } };
+const RUN_NAMED = { ...COMFY, id: 64, generation_id: 19, url: '/model-manager/generations/images/64/file',
+                    meta: { ...ENDLESS.meta, prompt: 'a run prompt', 'Read from': 'workflow, file name' } };
+const TEXT = { ...told, id: 65, generation_id: 20, url: '/model-manager/generations/images/65/file',
+               meta: { prompt: 'a text prompt', 'Made with': 'Endless', 'Read from': 'text in the file', Size: '64x64' } };
+const TEXT_NAMED = { ...TEXT, id: 66, generation_id: 21, url: '/model-manager/generations/images/66/file',
+                     meta: { ...TEXT.meta, 'Read from': 'text in the file, file name' } };
+// #408's image, synced before Read from, given a LoRA its prompt does not
+// tag: no LoRA notice, as it was not read from a workflow.
+const untoldLora = { ...untold, meta: { ...untold.meta, resources: [{ type: 'lora', name: 'river_lora', weight: null, hash: '' }] } };
+const all232 = [COMFY, ENDLESS, NAMED, RUN_NAMED, TEXT, TEXT_NAMED, untoldLora];
+tiles = all232.map((img) => ({ kind: 'generation', generation: { ...generation, id: img.generation_id },
+                               matching_count: 1, images: [img], loras: [], level: 1, user_level: null }));
+await act('generations.refresh');
+await waitFor('the ComfyUI tiles', () => document.querySelectorAll('#gen_grid .gen-tile').length === all232.length);
+const sendTile = async (index) => {
+    document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+    const before = loaderAsked.length;
+    await act('generations.send', { tile: index });
+    await waitFor('the send of tile ' + index, () => loaderAsked.length > before);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    return notices();
+};
+const LORA_NOTE = 'This image\'s workflow applied the LoRA river_lora. The prompt sent does not name it, so Forge does '
+                  + 'not apply it.';
+planAnswer = NO_PLAN;
+let said = await sendTile(0);
+check('232. a ComfyUI image: where its data came from, and the LoRA its workflow applied that its prompt does not tag',
+      [said.includes('Made with ComfyUI: Sync images read its prompts and settings from the workflow saved in it.'),
+       said.includes(LORA_NOTE)], [true, true]);
+check('232. an Endless image: its prompts from the text, its settings from the workflow, and no LoRA notice',
+      [(said = await sendTile(1)).includes('Made with ComfyUI: Sync images read its prompts from the text saved in '
+                                            + 'it, and its settings from the workflow.'),
+       said.some((t) => t.includes('workflow applied'))], [true, false]);
+check('232. and with its file name too',
+      (await sendTile(2)).includes('Made with ComfyUI: Sync images read its prompts from the text saved in it, and its '
+                                   + 'settings from the workflow, and what the workflow does not give from its file name.'),
+      true);
+check('232. a run version with its file name',
+      (await sendTile(3)).includes('Made with ComfyUI: Sync images read its prompts and settings from the workflow '
+                                   + 'saved in it, and what the workflow does not give from its file name.'), true);
+check('232. another tool\'s prompts (#408), read from: its prompts and size',
+      (await sendTile(4)).includes('Made with Endless: Sync images read its prompts from the text saved in it, and its '
+                                   + 'size from the picture.'), true);
+check('232. and with its file name',
+      (await sendTile(5)).includes('Made with Endless: Sync images read its prompts from the text saved in it, its size '
+                                   + 'from the picture, and the settings its file name gives from that.'), true);
+check('232. one synced before Read from, a LoRA its prompt does not tag: #408\'s notice as before, no LoRA notice',
+      [(said = await sendTile(6)).includes(UNTOLD), said.some((t) => t.includes('workflow applied'))], [true, false]);
+planAnswer = { ...NO_PLAN, checkpoint: MINE.name, instead: 'mine.safetensors', pick: 'model', other_model: true };
+said = await sendTile(0);
+check('232. a ComfyUI image sent with another model\'s checkpoint: that notice, the LoRA notice, not where it was read',
+      [said.some((t) => t.includes('another model')), said.includes(LORA_NOTE), said.some((t) => t.includes('Sync images read'))],
+      [true, true, false]);
+// Its own checkpoint picked - the server answers no `instead` (#232: the
+// very file a workflow named by name): where it was read from, not another model.
+planAnswer = { ...NO_PLAN, checkpoint: MINE.name, other_model: false };
+said = await sendTile(0);
+check('232. a ComfyUI image sent with its own checkpoint picked: where it was read from, not another model',
+      [said.includes('Made with ComfyUI: Sync images read its prompts and settings from the workflow saved in it.'),
+       said.some((t) => t.includes('another model'))], [true, false]);
+planAnswer = { ...NO_PLAN, checkpoint: MINE.name, instead: 'mine.safetensors', pick: 'model', other_model: true };
+said = await sendTile(4);
+check('232. #408\'s image with the same pick: its own notice, as before',
+      [said.some((t) => t.includes('Sync images read')), said.some((t) => t.includes('another model'))], [true, false]);
+document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
 planAnswer = NO_PLAN;
 tiles = tilesBefore408;
 await act('generations.refresh');

@@ -1450,6 +1450,41 @@ const missingNote = document.querySelector('.mm-notice')?.textContent || '';
 check('a module that is gone is said, by name, and the rest still sent',
       [missingNote.includes('qwen_image_vae.safetensors'), events.includes('paste')], [true, true]);
 document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+// The box is made to hold the plan's list, so what was selected for the
+// missing kind goes, and the notice says so: it once said it was kept (#232).
+async function selectFirst(labels) {
+    Array.from(modules.querySelectorAll('.token .token-remove')).forEach((b) => b.click());
+    for (const label of labels) {
+        modules.querySelector('input').dispatchEvent(new window.Event('input', { bubbles: true }));
+        modules.querySelector(`[aria-label="${label}"]`).dispatchEvent(new window.Event('mousedown', { bubbles: true }));
+    }
+}
+await selectFirst(['ae.safetensors', 'clip_l.safetensors']);
+const boxBefore = selected();
+await sendGeneration(300);
+check('232. a module that is gone: said not selected, as the box keeps nothing of what it held',
+      [boxBefore, selected(), document.querySelector('.mm-notice')?.textContent],
+      [['ae.safetensors', 'clip_l.safetensors'], [],
+       'This generation was made with qwen_image_vae.safetensors, which Forge does not list any more, '
+       + 'so it is not selected; the rest is sent.']);
+document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+// A ComfyUI image whose workflow named a file Forge does not list: the
+// family's pick in its place, named (#232); a Civitai image's, as before.
+const insteadNotes = () => Array.from(document.querySelectorAll('.mm-notice')).map((n) => n.textContent);
+generationPlan = { success: true, preset: null, checkpoint: null, checkpoint_missing: null,
+                   target: ['clip_l.safetensors', 't5xxl_fp8.safetensors'], modules_missing: [],
+                   modules_not_found: ['t5xxl_fp16.safetensors'], modules_instead: ['t5xxl_fp8.safetensors'] };
+await sendGeneration(300);
+check('232. a named file not listed: said, with the file Send selected in its kind\'s place',
+      insteadNotes().includes('This image was made with t5xxl_fp16.safetensors, which Forge does not list, so it is '
+                              + 'not selected. Send selected t5xxl_fp8.safetensors for what this model needs.'), true);
+document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+generationPlan = { ...generationPlan, modules_instead: undefined };
+await sendGeneration(300);
+check('232. and with no stand-in: the sentence as a Civitai image\'s',
+      insteadNotes().includes('This image was made with t5xxl_fp16.safetensors, which Forge does not list, so it is '
+                              + 'not selected.'), true);
+document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
 
 // Its LoRAs and embeddings as chips, as a Civitai image's Send shows them:
 // the server lists your images' resources as a Civitai image's, from the

@@ -26,7 +26,7 @@ const { TIMING, apiCall, escapeHtml, settingLink } = await shared('core.mjs');
 const { goToTab, showTab, IMG2IMG_MODES } = await shared('tabs.mjs');
 const { originalMediaUrl, isVideoUrl, videoCopyUrl } = await shared('media.mjs');
 const {
-    collectResourceChips, renameLoraTags, resourceChipSources, fetchImageFiles, arrangeChips,
+    collectResourceChips, renameLoraTags, resourceChipSources, fetchImageFiles, arrangeChips, promptLoras,
     showResourceChips, lookUpMissingChips, updateResourceChipStates,
 } = await shared('chips.mjs');
 const { videoFrames } = await shared('wan.mjs');
@@ -135,8 +135,14 @@ export async function sendInfotext({ infotext, mode, meta = {}, generationId = n
         if (!await showImageResources({ meta }, null, { note, send, recheck: listing })) showNotice(note);
         return false;
     }
-    if (promptsOnly({ infotext, meta })) showNotice(promptsOnlyNotice(meta), { info: true });
+    // An image read from ComfyUI's workflow sent with another checkpoint is
+    // told so first (#232): its data is its own, the checkpoint is not.
+    const workflow = readFrom(meta).includes('workflow');
+    if (workflow && plan.instead) showNotice(insteadNotice(plan.instead, plan.pick, plan), { info: true });
+    else if (promptsOnly({ infotext, meta })) showNotice(readFromNotice(meta), { info: true });
     else if (plan.instead) showNotice(insteadNotice(plan.instead, plan.pick, plan), { info: true });
+    const loras = workflow ? workflowLoraNotice(meta) : '';
+    if (loras) showNotice(loras, { info: true });
     if (plan.preset) await switchForgePreset(plan.preset);
     if (plan.checkpoint && typeof selectCheckpoint === 'function') {
         console.log('[ModelManager] Setting checkpoint:', plan.checkpoint);
@@ -604,6 +610,54 @@ export function promptsOnly(image) {
     return !image?.infotext && Boolean(String(image?.meta?.prompt ?? '').trim());
 }
 
+/** The places a synced image's data was read from (#232), as its Read from lists them. */
+function readFrom(meta) {
+    return String(meta?.['Read from'] || '').split(', ').filter(Boolean);
+}
+
+/**
+ * Where a Send of an image without infotext took its prompts and settings
+ * from (#232): its Read from - the text saved in the file, the workflow
+ * ComfyUI saved in it, its file name. One synced before the row was kept
+ * says what #408's notice said.
+ */
+function readFromNotice(meta) {
+    const from = readFrom(meta);
+    if (!from.length) return promptsOnlyNotice(meta);
+    const text = from.includes('text in the file');
+    const name = from.includes('file name');
+    let read;
+    if (from.includes('workflow')) {
+        read = text
+            ? 'Sync images read its prompts from the text saved in it, and its settings from the workflow'
+            : 'Sync images read its prompts and settings from the workflow saved in it';
+        if (name) read += ', and what the workflow does not give from its file name';
+    } else {
+        read = name
+            ? 'Sync images read its prompts from the text saved in it, its size from the picture, and the settings '
+              + 'its file name gives from that'
+            : 'Sync images read its prompts from the text saved in it, and its size from the picture';
+    }
+    return `${meta?.['Made with'] ? `Made with ${meta['Made with']}: ` : ''}${read}.`;
+}
+
+/**
+ * The LoRAs an image's workflow applied (#232), which the prompt sent does
+ * not name: the prompt is sent as read, and Forge applies only the LoRAs a
+ * tag in it names. Its stored LoRAs reach the page as its resources.
+ */
+function workflowLoraNotice(meta) {
+    const tagged = new Set(promptLoras(meta).map((lora) => lora.name.toLowerCase()));
+    const names = [...new Set((meta?.resources || [])
+        .filter((r) => r?.type === 'lora' && r.name && !tagged.has(String(r.name).toLowerCase()))
+        .map((r) => r.name))];
+    if (!names.length) return '';
+    return names.length === 1
+        ? `This image's workflow applied the LoRA ${names[0]}. The prompt sent does not name it, so Forge does not apply it.`
+        : `This image's workflow applied the LoRAs ${listNames(names)}. The prompt sent does not name them, `
+          + 'so Forge does not apply them.';
+}
+
 /**
  * What a Send of a prompts-only image took from it (#408), said in place of
  * the notice for a checkpoint of another model: the image names none of its
@@ -827,9 +881,10 @@ const FORGE_PRESET_MAX_MS = TIMING.presetMax;
  * Every model goes this way, SD and SDXL too - theirs is the image's own
  * VAE, or none. `vaeName`: a Civitai image's VAE, selected by name where
  * Forge has no VAE / Text Encoder control; `what`: how a generation's or a
- * task's missing modules are introduced.
+ * task's missing modules are introduced; `sends`: whether the rest is sent -
+ * a task's Load to UI sends nothing.
  */
-async function applyModules(plan, { vaeName, what = 'This generation was made with' } = {}) {
+async function applyModules(plan, { vaeName, what = 'This generation was made with', sends = true } = {}) {
     const target = plan.target || plan.select || [];
     if (await patchForgeModules(target)) {
         await checkForgeModules(target);
@@ -839,8 +894,11 @@ async function applyModules(plan, { vaeName, what = 'This generation was made wi
     // A generation's or a task's: what was loaded that Forge does not list now.
     // A missing checkpoint stopped a generation's send before it came here (sendInfotext).
     if (plan.modules_missing?.length) {
-        showNotice(`${what} ${plan.modules_missing.join(', ')}, which Forge does not list any more: `
-                   + 'the rest is sent, and the current choice is kept for what is missing.');
+        // Not kept: the box is made to hold the plan's list (patchForgeModules),
+        // so what was selected for that kind is taken out (#232).
+        showNotice(`${what} ${plan.modules_missing.join(', ')}, which Forge does not list any more, `
+                   + `so ${plan.modules_missing.length === 1 ? 'it is' : 'they are'} not selected`
+                   + `${sends ? '; the rest is sent' : ''}.`);
     }
     const problems = [];
     if (plan.missing && plan.missing.length) {
@@ -865,7 +923,10 @@ async function applyModules(plan, { vaeName, what = 'This generation was made wi
     if (plan.modules_not_found?.length) {
         const missing = plan.modules_not_found;
         problems.push(`This image was made with ${listNames(missing)}, which Forge does not list, `
-                      + `so ${missing.length === 1 ? 'it is' : 'they are'} not selected.`);
+                      + `so ${missing.length === 1 ? 'it is' : 'they are'} not selected.`
+                      // What the family's pick selected for what the model needs (#232).
+                      + (plan.modules_instead?.length
+                          ? ` Send selected ${listNames(plan.modules_instead)} for what this model needs.` : ''));
     }
     // A VAE of another family, left out by the plan (#303): each with its
     // kind, which already carries a comma - so the last joins with ", and".
@@ -925,7 +986,7 @@ export async function loadTask(taskId) {
         showNotice(`Could not load task #${Number(taskId)}: ${answer.error}`);
         return answer;
     }
-    await applyModules(plan, { what: `Task #${Number(taskId)} was queued with` });
+    await applyModules(plan, { what: `Task #${Number(taskId)} was queued with`, sends: false });
     if (plan.checkpoint_missing) {
         showNotice(`Task #${Number(taskId)} was queued with ${plan.checkpoint_missing}, which this WebUI does not `
                    + 'list: it is loaded with the checkpoint loaded now.', { info: true });

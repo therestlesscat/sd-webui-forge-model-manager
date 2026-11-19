@@ -50,6 +50,7 @@ const tile = (id, inputs) => ({ kind: 'generation', generation: { id, mode: 'img
                                 matching_count: 1, images: [image(id, inputs)], loras: [], level: 1, user_level: null });
 const tiles = [tile(1, kept), tile(2, null)];
 let planAnswer = { success: true, inputs: true, preset: null, checkpoint: null, target: [], modules_missing: [] };
+let taskPlan = {};                       // what a task's plan adds (#232)
 globalThis.fetch = async (url) => {
     const href = String(url);
     const reply = (body) => ({ ok: true, json: async () => body });
@@ -65,7 +66,8 @@ globalThis.fetch = async (url) => {
     }
     // Send's one plan route (#302): a task's, else a generation's.
     if (href.includes('/send/plan') && href.includes('kind=task')) {
-        return reply({ success: true, mode: 'img2img', preset: null, checkpoint: null, target: [], modules_missing: [] });
+        return reply({ success: true, mode: 'img2img', preset: null, checkpoint: null, target: [], modules_missing: [],
+                       ...taskPlan });
     }
     if (href.includes('/send/plan')) return reply(planAnswer);
     return reply({ success: true });
@@ -109,6 +111,15 @@ before = loaderAsked.length;
 await loadTask(5);
 check('Load to UI opens the task\'s mode too: Inpaint sketch', shown[shown.length - 1], 'img2img_inpaint_sketch_tab-button');
 check('and asks Inpaint sketch\'s canvas button for the task\'s canvases', canvasAsks(before), [[3, null, 5]]);
+// A task's module gone: not selected, and nothing is sent - Load to UI loads (#232).
+clearNotices();
+taskPlan = { modules_missing: ['gone_te.safetensors'] };
+await loadTask(6);
+await waitFor('the notice', () => notice());
+check('232. Load to UI of a task whose module is gone: said not selected, no "the rest is sent"', notice(),
+      'Task #6 was queued with gone_te.safetensors, which Forge does not list any more, so it is not selected.');
+taskPlan = {};
+clearNotices();
 
 // ========================================================= the viewer
 const viewer = () => document.querySelector('.mm-viewer');

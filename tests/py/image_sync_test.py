@@ -1370,6 +1370,175 @@ check('232. Read from: an image with no text whose name gives fields: the file n
 check('232. no Read from on an image that gave nothing, nor on one with Forge\'s text',
       (read_from(nothing), 'Read from' in (stored(saver)['meta'] or {})), (None, False))
 
+# Send's plan for a ComfyUI image (#232): the VAE and text encoders its
+# workflow named, planned as a Civitai image's are (plan_modules) - each
+# named file Forge lists in its kind's place, the family's pick for the rest,
+# a stand-in named where a named file is not listed. Forge's list, each
+# file's kind and the checkpoint's family are stood in for, as
+# forge_modules_test does; Forge's saved choice for Flux prefers fp8.
+import model_manager.file_identity as file_identity   # noqa: E402
+import model_manager.send_plan as send_plan_module    # noqa: E402
+from model_manager.send_plan import SendModel         # noqa: E402
+KINDS = {'clip_l.safetensors': ('clip_l', 2), 't5xxl_fp8.safetensors': ('t5xxl', 1),
+         't5xxl_fp16.safetensors': ('t5xxl', 2), 'ae.safetensors': ('vae_ae', 2), 'sdxl_vae.safetensors': ('vae_sd', 2)}
+MODELS = {'flux': SendModel(preset='flux', model_class='Flux'), 'xl': SendModel(preset='xl', model_class='SDXL'),
+          'unknown': SendModel()}
+stood = {'model': 'flux', 'listed': list(KINDS)}
+was = (forge_host.installed_modules, file_identity.classify_file, send_plan_module.picked_model,
+       forge_host.saved_modules, send_module.pick_kind)
+forge_host.installed_modules = lambda: {label: label for label in stood['listed']}
+file_identity.classify_file = lambda path: KINDS.get(os.path.basename(path), (None, 0))
+send_plan_module.picked_model = lambda db_, path, *a, **k: MODELS[stood['model']]
+forge_host.saved_modules = lambda preset: ['t5xxl_fp8.safetensors'] if preset == 'flux' else []
+SENT = os.path.join(WORK, 'comfy-send')
+sent = {
+    'all': save_comfy(SENT, 'ComfyUI_01000_.png', run_graph(seed=101, vae='ae.safetensors',
+                                                           clips=('t5xxl_fp16.safetensors', 'clip_l.safetensors'))),
+    'xl': save_comfy(SENT, 'ComfyUI_01001_.png', run_graph(seed=102), at=1),
+    'flux_sdxl_vae': save_comfy(SENT, 'ComfyUI_01002_.png', run_graph(seed=103, clips=('t5xxl_fp16.safetensors',
+                                                                                      'clip_l.safetensors')), at=2),
+    'none_listed': save_comfy(SENT, 'ComfyUI_01003_.png', run_graph(seed=104, vae='gone_vae.safetensors',
+                                                                   clips=('gone_t5.safetensors', 'gone_clip.safetensors')), at=3),
+    'unread': save_comfy(SENT, 'ComfyUI_01004_.png', run_graph(seed=105, vae='ae.safetensors',
+                                                              clips=('sdxl_vae.safetensors', 'clip_l.safetensors')), at=4),
+    'lacked': save_comfy(SENT, 'ComfyUI_01005_.png', run_graph(seed=106, checkpoint='lacked_ck.safetensors',
+                                                              vae='ae.safetensors'), at=5),
+    # Its checkpoint's own VAE, as SD 1.5 and SDXL workflows run: no module named.
+    'lacked_plain': save_comfy(SENT, 'ComfyUI_01006_.png', run_graph(seed=107, checkpoint='lacked_ck.safetensors',
+                                                                    vae=None), at=6),
+    # A name with a dot of its own, as `sd_xl_base_1.0`.
+    'dotted': save_comfy(SENT, 'ComfyUI_01007_.png', run_graph(seed=108, checkpoint='SDXL\\dotted_ck_1.0.safetensors',
+                                                              vae=None), at=7),
+}
+run([SENT], level=PG)
+sent_gen = {k: stored(v)['generation'] for k, v in sent.items()}
+CK_TITLE = '%s.safetensors [abcd]' % CK_STEM
+LACKED = os.path.join(WORK, 'lacked-ck', 'lacked_ck.safetensors')
+os.makedirs(os.path.dirname(LACKED), exist_ok=True)
+open(LACKED, 'wb').write(b'\0' * 1024)
+OTHER = os.path.join(WORK, 'lacked-ck', 'another_ck.safetensors')
+open(OTHER, 'wb').write(b'\0' * 1024)
+DOTTED = os.path.join(WORK, 'lacked-ck', 'dotted_ck_1.0.safetensors')
+open(DOTTED, 'wb').write(b'\0' * 1024)
+# A second file of lacked_ck's name, in a folder that sorts after: Forge
+# lists it first, and the dialog still names the first by folder.
+LACKED_TOO = os.path.join(WORK, 'lacked-ck', 'z-copy', 'lacked_ck.safetensors')
+os.makedirs(os.path.dirname(LACKED_TOO), exist_ok=True)
+open(LACKED_TOO, 'wb').write(b'\0' * 1024)
+# #408's image naming its checkpoint by its file name alone: a file of that name.
+UNKNOWN_CK = os.path.join(WORK, 'lacked-ck', 'nomodel_here.safetensors')
+open(UNKNOWN_CK, 'wb').write(b'\0' * 1024)
+sd_models = types.ModuleType('modules.sd_models')
+# Keyed by title, as Forge keys its list.
+sd_models.checkpoints_list = {ck.title: ck for ck in (
+    types.SimpleNamespace(filename=LACKED_TOO, title='z-copy\\lacked_ck.safetensors [ef09]'),
+    types.SimpleNamespace(filename=DOTTED, title='dotted_ck_1.0.safetensors [ef03]'),
+    types.SimpleNamespace(filename=UNKNOWN_CK, title='nomodel_here.safetensors [ef04]'),
+    types.SimpleNamespace(filename=CHECKPOINT, title=CK_TITLE),
+    types.SimpleNamespace(filename=LACKED, title='lacked_ck.safetensors [ef01]'),
+    types.SimpleNamespace(filename=OTHER, title='another_ck.safetensors [ef02]'))}
+sd_models.checkpoint_aliases = {v.title: v for v in sd_models.checkpoints_list.values()}
+sys.modules['modules.sd_models'] = sd_models
+
+
+def modules_of(plan):
+    return {k: plan.get(k) for k in ('target', 'modules_not_found', 'modules_instead', 'missing')}
+
+
+try:
+    stood.update(model='flux', listed=list(KINDS))
+    check('232. Send\'s plan, a Flux workflow whose named files Forge lists: those, not the family\'s pick',
+          modules_of(send_plan(db, sent_gen['all'])),
+          {'target': ['clip_l.safetensors', 't5xxl_fp16.safetensors', 'ae.safetensors'], 'modules_not_found': [],
+           'modules_instead': None, 'missing': []})
+    stood.update(listed=['clip_l.safetensors', 't5xxl_fp8.safetensors', 'ae.safetensors'])
+    check('232. its T5 not listed: the family\'s in its place, the named one said, the stand-in named',
+          modules_of(send_plan(db, sent_gen['all'])),
+          {'target': ['clip_l.safetensors', 't5xxl_fp8.safetensors', 'ae.safetensors'],
+           'modules_not_found': ['t5xxl_fp16.safetensors'], 'modules_instead': ['t5xxl_fp8.safetensors'],
+           'missing': []})
+    stood.update(listed=['clip_l.safetensors', 'ae.safetensors'])
+    check('232. its T5 not listed and none installed: the kind said missing, no stand-in',
+          modules_of(send_plan(db, sent_gen['all'])),
+          {'target': ['clip_l.safetensors', 'ae.safetensors'], 'modules_not_found': ['t5xxl_fp16.safetensors'],
+           'modules_instead': None, 'missing': ['t5xxl']})
+    stood.update(listed=list(KINDS))
+    check('232. none of its files listed: the family\'s pick, each named file said, the stand-ins named',
+          modules_of(send_plan(db, sent_gen['none_listed'])),
+          {'target': ['clip_l.safetensors', 't5xxl_fp8.safetensors', 'ae.safetensors'],
+           'modules_not_found': ['gone_vae.safetensors', 'gone_t5.safetensors', 'gone_clip.safetensors'],
+           'modules_instead': ['clip_l.safetensors', 't5xxl_fp8.safetensors', 'ae.safetensors'], 'missing': []})
+    stood.update(model='xl')
+    check('232. an SDXL workflow naming its VAE: that VAE, where the family\'s plan selected none',
+          send_plan(db, sent_gen['xl'])['target'], ['sdxl_vae.safetensors'])
+    stood.update(model='flux')
+    got = send_plan(db, sent_gen['flux_sdxl_vae'])
+    check('232. a Flux workflow naming an SDXL VAE: left out, its listed text encoders kept over the family\'s',
+          got['target'], ['clip_l.safetensors', 't5xxl_fp16.safetensors', 'ae.safetensors'])
+    stood.update(model='unknown')
+    got = send_plan(db, sent_gen['unread'])
+    check('232. a family not read: its names selected as SD and SDXL\'s are, a VAE of another family left out',
+          (got['target'], [u['name'] for u in got.get('modules_unfit') or []]),
+          (['sdxl_vae.safetensors', 'clip_l.safetensors'], ['ae.safetensors']))
+    stood.update(model='flux')
+    for kind in ('own', 'same', 'file', 'version'):
+        send_module.pick_kind = lambda *a, k=kind, **kw: k
+        check('232. its own checkpoint picked, as kind %s: the workflow\'s files kept' % kind,
+              send_plan(db, sent_gen['all'], use_checkpoint=CK_TITLE)['target'],
+              ['clip_l.safetensors', 't5xxl_fp16.safetensors', 'ae.safetensors'])
+    send_module.pick_kind = was[4]
+    got = send_plan(db, sent_gen['all'], use_checkpoint='another_ck.safetensors [ef02]')
+    check('232. another model\'s checkpoint picked: the family\'s pick, none of its names',
+          (got['target'], got.get('modules_not_found'), got.get('pick')),
+          (['clip_l.safetensors', 't5xxl_fp8.safetensors', 'ae.safetensors'], None, 'model'))
+    got = send_plan(db, sent_gen['lacked'], use_checkpoint='lacked_ck.safetensors [ef01]')
+    check('232. a workflow\'s checkpoint the library lacked at the sync, its very file picked since: its own, '
+          'no another-model pick',
+          (got.get('pick'), got.get('instead'), got['target']), (None, None, ['clip_l.safetensors', 't5xxl_fp8.safetensors', 'ae.safetensors']))
+    check('232. one whose workflow names no VAE or text encoder - its checkpoint\'s own: the same, its own',
+          send_plan(db, sent_gen['lacked_plain'], use_checkpoint='lacked_ck.safetensors [ef01]').get('pick'), None)
+    # The Resources dialog a stop opens agrees: that file is the image's own.
+    listed_was = forge_host.selected_models
+    forge_host.selected_models = lambda: {}
+    try:
+        got = send_module.your_checkpoints(db, generation=sent_gen['lacked_plain'])
+        other = send_module.your_checkpoints(db, generation=sent_gen['all'])
+    finally:
+        forge_host.selected_models = listed_was
+    check('232. the Resources dialog for it: the file of that name suggested as the image\'s own, and picked first',
+          ([s_['why'] for s_ in got['suggested'] if s_['name'] == 'lacked_ck.safetensors [ef01]'], got['picked']),
+          ([["the image's own"]], 'lacked_ck.safetensors [ef01]'))
+    check('232. and for one whose checkpoint the library held: its own file, no other of a like name',
+          [s_['name'] for s_ in other['suggested'] if "the image's own" in s_['why']], [CK_TITLE])
+    check('232. a name with a dot of its own (sd_xl_base_1.0\'s kind), its very file picked: its own',
+          send_plan(db, sent_gen['dotted'], use_checkpoint='dotted_ck_1.0.safetensors [ef03]').get('pick'), None)
+    check('232. #408\'s image naming its checkpoint by its file name, a file of that name picked: another model\'s, '
+          'as the rule is the workflow\'s alone',
+          send_plan(db, gen[po_unknown], use_checkpoint='nomodel_here.safetensors [ef04]').get('pick'), 'model')
+    check('232. and a file of another name picked: another model\'s',
+          send_plan(db, sent_gen['lacked'], use_checkpoint='another_ck.safetensors [ef02]').get('pick'), 'model')
+    # A Forge generation's text names its modules too (`Module N`): planned
+    # from what it recorded, as made, not as a workflow's names are. Its
+    # data made to name another file than its record, so the two differ.
+    matched_image = rows("SELECT id FROM generation_images WHERE path = ?", (matched,))[0][0]
+    matched_meta = rows("SELECT meta FROM generation_image_details WHERE image_id = ?", (matched_image,))[0][0]
+    raw.execute("UPDATE generation_image_details SET meta = ? WHERE image_id = ?",
+                (json.dumps({**json.loads(matched_meta), 'Module 1': 'clip_l'}), matched_image))
+    raw.commit()
+    stood.update(model='xl')
+    try:
+        got = send_plan(db, gid_matched)
+    finally:
+        raw.execute("UPDATE generation_image_details SET meta = ? WHERE image_id = ?", (matched_meta, matched_image))
+        raw.commit()
+    check('232. a Forge generation whose text names another module than it recorded: planned from its record',
+          (got['checkpoint'], got['target']), (CK_TITLE, ['sdxl_vae.safetensors']))
+    stood.update(model='flux')
+finally:
+    (forge_host.installed_modules, file_identity.classify_file, send_plan_module.picked_model,
+     forge_host.saved_modules, send_module.pick_kind) = was
+    del sys.modules['modules.sd_models']
+
 print('image_sync: %d failure(s)' % len(fails))
 for f in fails:
     print('FAIL ' + f)

@@ -398,7 +398,12 @@ image without infotext, and without a prompt another tool wrote into the
 file, has nothing for Send to paste: its Send is disabled, saying why - it
 was enabled, and did nothing. One with another tool's prompts (#408) is
 sent: the server builds its text from its data, and where it names no
-checkpoint - any generation that names none - Send stops for a pick.
+checkpoint - any generation that names none - Send stops for a pick. One read
+from ComfyUI's workflow (#232) names its VAE and text encoders in its data
+(`Module N`), each kept whether Forge listed it or not, while its recorded
+`modules` hold only those Forge listed at the sync: Send plans the names,
+as a Civitai image's are (`send.with_named`, `plan_modules`), not the
+record - a Forge generation plans its record.
 
 **A thumbnail belongs to its image's path, never its id** (#5, v39). Force
 sync and the recorder write an image's row anew, with a new id; the path

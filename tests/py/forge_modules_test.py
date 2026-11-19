@@ -309,6 +309,7 @@ body = plan(base_model='Anima', module=['gone_vae', 'qwen_image_vae'])
 check('one Forge does not list is said, and its kind is picked as ever',
       (body.get('target'), body.get('modules_not_found')),
       (['qwen_3_06b_base.safetensors', 'qwen_image_vae.safetensors'], ['gone_vae']))
+check('232. and its stand-in is not named: a Civitai image\'s notice stays as it was', 'modules_instead' in body, False)
 host.installed_modules = lambda: {label: label for label in MODULES}
 fi.classify_file = lambda path: MODULES[path]
 
