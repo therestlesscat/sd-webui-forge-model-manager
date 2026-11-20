@@ -154,6 +154,11 @@ that the WebUI does not - and ask a real browser ("Probes").
 
 ## Traps suites fell into
 
+- **`stopTab` on a tab never started does nothing**, so a check that a
+  repair outlives one of its two tabs needs both running: mount the second
+  tab's markup beside the first
+  (`document.body.insertAdjacentHTML('beforeend', tabMarkup(...))`). Until
+  #232's page suite did, its "stopped with any tab" break failed nothing.
 - **A tab's notes are a pile, one drawn at a time:** a second note's button
   is in the page only once the pile is stepped to it (`[data-note-step="1"]`,
   `notes.mjs`'s `drawNotes`). #392's suite waited for the second repair's

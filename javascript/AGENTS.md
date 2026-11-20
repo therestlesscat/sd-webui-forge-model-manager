@@ -67,6 +67,14 @@ more (#383). The owner: "idea of settings is to set default value for the
 checkbox". A tick now lasts until the page reloads (0.75.8). A box with no
 setting may still be kept.
 
+**A window that asks the server at opening and on a press gets the answers
+in any order.** #232's Fill window: its question at opening, answered
+after the press, put "idle" back over "running" - the page suite's first
+run showed it; its rework found a lost press's follow-up question skipped
+while the opening one was still out. An answer to a question asked before
+the latest press is dropped and asked again (`presses` in
+`javascript/repairs/comfy_fill.mjs`).
+
 ## The WebUI's rules, which are not obvious
 
 - **Both WebUIs tell their page to send no Referer**

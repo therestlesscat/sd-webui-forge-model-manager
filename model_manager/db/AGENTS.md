@@ -311,3 +311,18 @@ the lookup and the write leaves a row naming nothing.
   the table again for each part row: 3.8 s at the top level. `sk >= (SELECT
   sk ... ORDER BY sk DESC LIMIT 1 OFFSET 3)`, on an index on (u, sk): 1 ms
   (`_TableLevel.previews`).
+- **A facade call inside another's transaction commits it.** Each
+  `ModelsDatabase` method opens a `_cursor` on the thread's one connection,
+  and `_cursor` commits when it exits (`database.py`, `_cursor`). #232's
+  first plan read a setting through `get_info` from inside `image_level`,
+  which runs inside `replace_first_page`'s one transaction: the half-done
+  gallery replace would have been committed. A build reviewer found it. A
+  read in there goes through the caller's own cursor, or a connection of
+  its own.
+- **A database on a share is refused as a `file:` address.**
+  `Path(p).resolve().as_uri()` of `\\server\share\models.db` gives
+  `file://server/share/models.db`, which SQLite refuses - "unable to open
+  database file" in 3.50.4, "invalid uri authority" in 3.37.2 (probed
+  through `\\localhost\F$`). The plain path, opened with `PRAGMA
+  query_only = ON`, works: `_read_comfy_switch` does so; `_stored_schema`
+  still does not (#431).

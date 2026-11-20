@@ -644,6 +644,13 @@ LoRAs from); anything that shows one says whose it is (a whole path).
 - To run Neo's detector outside the WebUI, put Neo's root and its
   `modules_forge/packages` on `sys.path`: with the packages alone, every
   checkpoint came out without a class.
+- **A script judging NSFW levels outside the WebUI judges by the
+  defaults:** `forge_host.setting` answers `DEFAULTS` when Forge's
+  `modules.shared` cannot be imported. #232's measure said "0 level
+  changes" without saying so, and a side agent asked. Read the owner's
+  values from the WebUI's `config.json` (the same keys), and check the
+  restamp's stored fingerprint (`nsfw_prompt_words`) matches before trusting
+  a count: they matched there, the owner's settings being the defaults.
 - **A share whose server does not answer costs its first question, not
   every one.** Windows took 42 s for `os.path.isfile` on the first file of an
   unreachable server, and answered every later one, and every `isdir`, at

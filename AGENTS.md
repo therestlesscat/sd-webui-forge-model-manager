@@ -609,6 +609,11 @@ Where they differ, and what the extension does about it - on the server in
   A JSON number of 5,001 digits raised `ValueError` in Neo and parsed in the
   original Forge, so one file read two ways (#408). Text from a file is
   parsed with `parse_int` left unconverted where the number is not wanted.
+- **Python's limit on nesting.** JSON nested 1,000 deep raises
+  `RecursionError` in the original Forge's 3.10.6 and loads in Neo's
+  3.13.15 (1,500 too; 3,000 fails in both, measured 2026-11-19): a record
+  Neo stored that deep fails its reader there. #232's Fill passes such a
+  record over (`fill_stored`); the restamp's `json.loads` does not.
 - The other differences sit beside their code: `model_manager/AGENTS.md`, "Two
   WebUIs: everything has to work in both" - no `blake3`, the detector's helpers
   moved, the other WebUI's files; and `javascript/shared/AGENTS.md`, "Two

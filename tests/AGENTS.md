@@ -67,6 +67,9 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   suite that prints no result line as a failure. A tree for breaks is built from `git
   ls-files` (modified and untracked), never `cp -r tests`: a copy of `tests`
   into `tests/work/...` copied itself, 3.6 GB, before it was stopped (#299).
+  Nor does it hold `tests/node_modules`, git-ignored (5.3 MB): a page suite
+  in such a tree cannot import linkedom until the folder is copied in
+  (#232's page breaks).
   A break runner puts each file back in a `finally`: #321's, stopped at its
   time limit, left a break in the copy's `forge.mjs` - `cmp` showed it - and
   the next run would have taken the break for the fix. From WSL, `timeout`
