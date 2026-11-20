@@ -1334,6 +1334,8 @@ check('232. an Endless PNG: its prompts as #408 reads them, its settings, checkp
                                                          if r[0] in ('checkpoint', 'lora'))),
       ('the plain prompt', 'blurry', 'ComfyUI', 'euler', 30, 777,
        sorted([('checkpoint', CHECKPOINT, None), ('lora', LORA_PATH, 0.8)])))
+check('232. the images this code synced - that Endless PNG, #408\'s Endless and untold files - give the Generations '
+      'tab\'s note no reason to ask for Read every image again', db.has_read_before_workflow(), False)
 
 COMFY_AGAIN = os.path.join(WORK, 'comfy-again')
 later = save(COMFY_AGAIN, '03800-a.png', None)

@@ -252,6 +252,102 @@ twin_db.record_generation({'created_at': '2026-11-09T00:00:02', 'mode': 'txt2img
 check('408. a synced image with no prompt: the note is for this library',
       release_notes._holds('synced_without_prompt'), True)
 
+# #232's: the note also asks a library whose images had their prompts read
+# from the file's own text before Sync images read ComfyUI's workflow beside
+# them - Endless-Nodes' saver writes both. Each library holds one image, its
+# row as a sync before 0.81.2 wrote it.
+from model_manager.db.generations_ops import READ_BEFORE_WORKFLOW_SQL  # noqa: E402
+from model_manager.image_sync import ImageSync                         # noqa: E402
+ENDLESS_META = {'prompt': 'a red fox', 'negativePrompt': 'blurry', 'Made with': 'Endless'}
+
+
+def library(name, meta=None, prompt='a red fox', infotext=None, synced=True, forge='by the infotext'):
+    """A library of one image; the note's kept answers forgotten."""
+    lib = ModelsDatabase(WORK, custom_db_path=os.path.join(WORK, name + '.db'))
+    dbmod._db_instance = lib
+    if meta is not None or prompt is not None:
+        source = lib.image_source_id(os.path.join(WORK, 'outputs')) if synced else None
+        lib.record_generation({'created_at': '2026-11-19T00:00:00', 'mode': 'txt2img', 'image_count': 1,
+                               'prompt': prompt, 'source_id': source, 'infotext': infotext,
+                               'forge': ('f2.0.1v1.10.1' if infotext else None) if forge == 'by the infotext' else forge},
+                              [{'position': 0, 'path': os.path.join(WORK, 'outputs', name + '.png'),
+                                'prompt': prompt, 'infotext': infotext, 'meta': meta}], [[]])
+    release_notes.forget_kept()
+    return lib
+
+
+def note_holds(name, **row):
+    library(name, **row)
+    return release_notes._holds('synced_before_workflow')
+
+
+check('232. a synced image with no prompt: the note is for this library',
+      note_holds('n_no_prompt', meta={'Seed': '1'}, prompt=None), True)
+check('232. a synced image whose prompts an Endless file gave, read before its workflow could be: the note is for it',
+      note_holds('n_endless', meta=ENDLESS_META), True)
+check('232. the same with no tool named: the note is for it',
+      note_holds('n_no_tool', meta={'prompt': 'a red fox'}), True)
+check('232. the same read since 0.81.2, with Read from: not for it',
+      note_holds('n_read_from', meta=dict(ENDLESS_META, **{'Read from': 'text in the file'})), False)
+check('232. one SwarmUI\'s JSON gave: not for it - its reading never looks for a workflow',
+      note_holds('n_swarm', meta=dict(ENDLESS_META, **{'Made with': 'SwarmUI'})), False)
+check('232. a synced image with infotext and a prompt: not for it',
+      note_holds('n_infotext', meta=ENDLESS_META, infotext='a red fox\nSteps: 20, Version: f2.0.1v1.10.1'), False)
+check('232. one with infotext that names no Forge version: not for it - its own infotext keeps it out',
+      note_holds('n_infotext_old', meta=ENDLESS_META, infotext='a red fox\nSteps: 20, Sampler: Euler a', forge=None),
+      False)
+check('232. the recorder\'s image, with the same data: not for it',
+      note_holds('n_recorded', meta=ENDLESS_META, synced=False), False)
+check('232. an empty library: not for it', note_holds('n_empty', prompt=None), False)
+
+# The Generations tab's notes on a library from before 0.81.3 whose only such
+# image is an Endless file's: the 0.81.3 note, which retires the 0.77.1 one.
+endless_lib = library('n_notes', meta=ENDLESS_META)
+endless_lib.set_info(release_notes.CREATED_BY, '0.80.6')
+shown = [n['id'] for n in release_notes.notes_for(endless_lib, 'generations')]
+check('232. the Generations tab shows the note asking for Read every image again, not #408\'s',
+      ('comfyui-workflow-0-81-3' in shown, 'other-tools-prompts-0-77-1' in shown), (True, False))
+
+# The query starts from the synced generations: left to SQLite, it read every
+# image's data first (170 ms on one library of 74,000 images, 3 to 4 so).
+plan = sqlite3.connect(os.path.join(WORK, 'n_notes.db'))
+steps = [row[3] for row in plan.execute('EXPLAIN QUERY PLAN ' + READ_BEFORE_WORKFLOW_SQL)]
+plan.close()
+first = next((step for step in steps if step.startswith(('SCAN', 'SEARCH')) and 'CONSTANT ROW' not in step), '')
+check('232. its first step searches the synced generations by their index',
+      ('idx_generations_source' in first, first.startswith('SEARCH')), (True, True))
+
+# The answer is kept for the WebUI's run, and asked again when a Sync images
+# ends, however it ended.
+kept_lib = library('n_kept', meta=dict(ENDLESS_META, **{'Made with': 'SwarmUI'}))
+check('232. kept: first asked, not for this library', release_notes._holds('synced_before_workflow'), False)
+kept_lib.record_generation({'created_at': '2026-11-19T00:00:01', 'mode': 'txt2img', 'image_count': 1,
+                            'prompt': 'a red fox', 'source_id': kept_lib.image_source_id(os.path.join(WORK, 'outputs'))},
+                           [{'position': 0, 'path': os.path.join(WORK, 'outputs', 'n_kept_2.png'),
+                             'prompt': 'a red fox', 'meta': ENDLESS_META}], [[]])
+check('232. kept: an Endless row added after is not seen while the answer is kept',
+      release_notes._holds('synced_before_workflow'), False)
+ImageSync([]).run()
+check('232. kept: once a Sync images ends, it is asked again and seen',
+      release_notes._holds('synced_before_workflow'), True)
+
+# An answer asked while a Sync images ends is not kept: the sync may have
+# written after the query read.
+raced_lib = library('n_raced', meta=dict(ENDLESS_META, **{'Made with': 'SwarmUI'}))
+asked = []
+real_ask = raced_lib.has_read_before_workflow
+def ask_overtaken():
+    asked.append(1)
+    answer = real_ask()
+    if len(asked) == 1:
+        release_notes.forget_kept()
+    return answer
+raced_lib.has_read_before_workflow = ask_overtaken
+release_notes._holds('synced_before_workflow')
+release_notes._holds('synced_before_workflow')
+check('232. kept: an answer a sync\'s end overtook is asked again, not kept', len(asked), 2)
+dbmod._db_instance = twin_db
+
 
 # Civitai's answer for many models at once - the metadata sync's - can name a
 # file otherwise than its answer for one version, and the lookup by hash,

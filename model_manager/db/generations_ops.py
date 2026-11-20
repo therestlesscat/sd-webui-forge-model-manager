@@ -51,6 +51,19 @@ _GENERATION_DETAILS = ("checkpoint_path", "modules", "hr_checkpoint_path", "hr_m
 _IMAGE_COLUMNS = ("position", "iteration", "path", "seed", "subseed", "width", "height",
                   "prompt_nsfw_level", "user_nsfw_level")
 _IMAGE_DETAILS = ("infotext", "meta", "loras", "hr_prompt", "hr_negative_prompt")
+
+# GenerationsOps.has_read_before_workflow's question, named so a check can
+# read SQLite's plan for it.
+READ_BEFORE_WORKFLOW_SQL = """
+    SELECT EXISTS (SELECT 1 FROM generations g
+        CROSS JOIN generation_images gi ON gi.generation_id = g.id
+        CROSS JOIN generation_image_details x ON x.image_id = gi.id
+        WHERE g.source_id IS NOT NULL AND g.forge IS NULL
+          AND gi.prompt_id IS NOT NULL AND x.infotext IS NULL
+          AND instr(coalesce(x.meta, ''), '"Read from"') = 0
+          AND (instr(coalesce(x.meta, ''), '"Made with"') = 0
+               OR instr(x.meta, '"Made with": "Endless"') > 0))"""
+
 # An image's seeds as SQLite holds them: ComfyUI's run to 2^64 - 1 and Forge
 # takes a typed 2^63, and one past 64 bits failed the write - the recorder
 # lost that generation, Sync images its chunk (#232). Stored as none; the
@@ -1500,6 +1513,24 @@ class GenerationsOps:
             cursor.execute("SELECT EXISTS (SELECT 1 FROM generations g "
                            "JOIN generation_images gi ON gi.generation_id = g.id "
                            "WHERE g.source_id IS NOT NULL AND gi.prompt_id IS NULL)")
+            return bool(cursor.fetchone()[0])
+
+    def has_read_before_workflow(self) -> bool:
+        """
+        Whether a synced image had its prompts read from the file's own text
+        before Sync images read ComfyUI's workflow beside them (#232): a
+        prompt, no infotext, no Read from - which every sync stores since
+        0.81.2 - and Made with Endless, or no tool named: the files that put
+        plain-text prompts where ComfyUI's savers write.
+
+        A press without infotext has no Forge version, the first cut. The
+        join order is fixed: left to SQLite, it read every image's data
+        first - 170 ms on one library of 74,000 images, 3 to 4 ms so. The
+        data is matched as the text json.dumps stores, not with json_extract,
+        which SQLite 3.37 refuses on a stored NaN.
+        """
+        with self._cursor() as cursor:
+            cursor.execute(READ_BEFORE_WORKFLOW_SQL)
             return bool(cursor.fetchone()[0])
 
     def synced_counts(self) -> Dict[str, int]:

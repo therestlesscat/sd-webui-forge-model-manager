@@ -687,6 +687,11 @@ class ModelsDatabase:
         """Whether a synced image has no prompt; see GenerationsOps.has_synced_without_prompt()."""
         return self._generations.has_synced_without_prompt()
 
+    def has_read_before_workflow(self) -> bool:
+        """Whether a synced image's prompts were read before its workflow could be;
+        see GenerationsOps.has_read_before_workflow()."""
+        return self._generations.has_read_before_workflow()
+
     def synced_counts(self) -> Dict[str, int]:
         """How many generations each synced folder brought; see GenerationsOps.synced_counts()."""
         return self._generations.synced_counts()

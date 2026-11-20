@@ -31,7 +31,9 @@ A note is:
               CONDITIONS - "custom_database", the database file set in the
               settings, which two WebUIs sharing one database need;
               "twin_files", a file recorded under its twin's Civitai id;
-              "synced_without_prompt", a synced image with no prompt - or
+              "synced_without_prompt", a synced image with no prompt;
+              "synced_before_workflow", that or a synced image whose prompts
+              were read before ComfyUI's workflow could be - or
               "repair:<name>", while that repair has work here (repairs/)
     important optional true: shown first, headed [Important] - for what
               everyone should read, not only what needs doing
@@ -45,6 +47,8 @@ every browser, and for both WebUIs when they share the database.
 import json
 import os
 import re
+import threading
+import weakref
 from typing import Any, Dict, List, Optional, Set
 
 from .forge_host import setting
@@ -78,9 +82,47 @@ def _synced_without_prompt() -> bool:
     return get_models_db().has_synced_without_prompt()
 
 
+# Answers kept for the WebUI's run, by database, and how many times they were
+# forgotten (forget_kept): an answer asked before a sync's end is not kept.
+_kept: "weakref.WeakKeyDictionary[Any, bool]" = weakref.WeakKeyDictionary()
+_forgotten = 0
+_kept_lock = threading.Lock()
+
+
+def _synced_before_workflow() -> bool:
+    """
+    Whether Read every image again would read more of a synced image
+    (#232): one with no prompt (#408's), or one whose prompts a sync read
+    from the file's text before it read ComfyUI's workflow beside them.
+    Kept once asked: once nothing is left to find, the query reads every
+    such image's data - about 0.43 ms per 1,000, at each of a page load's
+    ten or so asks. Asked again when a Sync images ends, and at the next
+    start: a sync by another WebUI sharing the database is seen then.
+    """
+    from .db import get_models_db
+    db = get_models_db()
+    with _kept_lock:
+        answer, asked_at = _kept.get(db), _forgotten
+    if answer is None:
+        answer = db.has_synced_without_prompt() or db.has_read_before_workflow()
+        with _kept_lock:
+            if _forgotten == asked_at:
+                _kept[db] = answer
+    return answer
+
+
+def forget_kept() -> None:
+    """Forget the answers kept: a Sync images has ended."""
+    global _forgotten
+    with _kept_lock:
+        _forgotten += 1
+        _kept.clear()
+
+
 # Conditions a note can be for, by the name its "when" gives.
 CONDITIONS = {"custom_database": _custom_database, "twin_files": _twin_files,
-              "synced_without_prompt": _synced_without_prompt}
+              "synced_without_prompt": _synced_without_prompt,
+              "synced_before_workflow": _synced_before_workflow}
 
 
 def _holds(when: str) -> bool:

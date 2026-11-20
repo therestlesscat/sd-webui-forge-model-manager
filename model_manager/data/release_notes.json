@@ -22,12 +22,12 @@
         "version": "0.81.3",
         "kind": "action",
         "audience": "update",
-        "when": "synced_without_prompt",
+        "when": "synced_before_workflow",
         "tabs": [
             "generations"
         ],
         "title": "ComfyUI's images read from their workflow",
-        "text": "Sync images now reads the workflow ComfyUI saves in its images - the prompts, sampler, steps, seed, size, checkpoint, LoRAs, VAE and text encoders - as it reads the prompts other tools write, and Send sets Forge up with them. To read the images synced before, open Sync images and tick Read every image again; it reads every image again, which takes a while on a large library.",
+        "text": "Sync images now reads the workflow ComfyUI saves in its images - the prompts, sampler, steps, seed, size, checkpoint, LoRAs, VAE and text encoders - as it reads the prompts other tools write, and Send sets Forge up with them. To read the images synced before, open Sync images and tick Read every image again; it reads every image again, which takes a while on a large library. Images it had already read prompts from, such as those Endless-Nodes' image saver writes, get the rest of their settings this way too.",
         "action": {
             "id": "sync_images",
             "label": "Sync images"

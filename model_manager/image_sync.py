@@ -621,6 +621,15 @@ class ImageSync(object):
         return False
 
     def run(self) -> None:
+        try:
+            self._run()
+        finally:
+            # What it wrote may change a note's kept answer (#232), however
+            # it ended: asked again.
+            from .release_notes import forget_kept
+            forget_kept()
+
+    def _run(self) -> None:
         from .db import get_models_db
         db = get_models_db()
         progress = self.progress
