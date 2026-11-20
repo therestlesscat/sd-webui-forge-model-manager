@@ -611,6 +611,18 @@ LoRAs from); anything that shows one says whose it is (a whole path).
   `p.extra_network_data`, and writes it into `p.all_prompts`, so what a
   batch loaded is read from its first prompt (#392). Read in the code, not
   seen.
+- **A UI preset's slider is not what a run used.** `forge_host.extra_cfg`
+  answers which slider Neo's settings show beside the CFG scale for a preset
+  (`use_distill`, `use_shift`, `modules_forge/presets.py`), and Neo lists
+  Shift for `xl` (-9.0, hidden by default) and Distilled CFG for `flux`. The
+  loaded model decides what a run uses: an SDXL uses Shift only as a
+  rectified-flow model (`backend/diffusion_engine/sdxl.py`), Flux schnell
+  takes no Distilled CFG (`flux.py`), and Neo writes either into the
+  infotext only when it is used (`modules/processing.py`, 720-723). #403's
+  first build read the family, and would have shown a Shift on every SDXL
+  task's Queue row; its suite's stand-in for `extra_cfg` left `xl` out, and a
+  build review caught it. What a run used is in its infotext; `usual_settings`
+  takes a Shift for an SDXL pick only where 5 or more uses recorded one.
 - **"Leave as is" is not nothing in Gradio 4.** For each output an event
   answers with `gr.update()`, Gradio swaps into the session a copy of that
   component, rebuilt from its constructor arguments. In Neo a ForgeCanvas
