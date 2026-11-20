@@ -308,6 +308,32 @@ def with_usual(tab: str, named: Dict[str, Any], usual: Dict[str, Any]) -> Dict[s
     return named
 
 
+def ran_with(tab: str, named: Dict[str, Any], settings: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    What one run of a task of several checkpoints ran with (#403), for its
+    row: the press with the run's usual settings applied as for_run applies
+    them (with_usual) - each setting they leave out the press's - read back:
+    sampler, schedule type, steps and CFG scale. Not Distilled CFG Scale or
+    Shift: whether a run used either is the loaded model's to say, not its
+    family's - Neo lists Shift for SDXL, which only a rectified-flow SDXL
+    uses (#403). Values as kept: a label is still a label (tasks.shown).
+    `settings` is the run's row's, as for_run takes it; what else for_run
+    changes - Hires fix, another family's modules - is none of these.
+    """
+    usual = (settings or {}).get("usual")
+    applied = with_usual(tab, named, usual) if usual else named
+    fixed = applied.get("fixed") or {}
+    keys = {tab + suffix: key for suffix, key in _USUAL_CONTROLS.items()}
+    found: Dict[str, Any] = {}
+    for controls in (applied.get("scripts") or {}).values():
+        for entry in controls:
+            key = keys.get(entry.get("id"))
+            if key and key not in found:
+                found[key] = entry.get("value")
+    found["cfg"] = fixed.get("cfg_scale")
+    return found
+
+
 def respelled(tab: str, named: Dict[str, Any], components: List[Any]) -> Tuple[Dict[str, Any], List[Tuple[Any, str]]]:
     """
     A generation's hires and refiner checkpoints as this WebUI's controls

@@ -11,6 +11,7 @@ import copy
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
+from ..generation_inputs import mode_of
 from .capture import LABEL
 
 # Retry copies a task that has ended, a cancelled one too; one pending or
@@ -107,6 +108,13 @@ def summary(task: Dict[str, Any]) -> Dict[str, Any]:
         "scale_by": fixed.get("scale_by") if fixed.get("selected_scale_tab") == 1 else None,
         "batch_size": fixed.get("batch_size"),
         "n_iter": fixed.get("n_iter"),
+        # #432. Not Distilled CFG Scale or Shift: kept with every task, used
+        # only where the loaded model takes one (load.ran_with).
+        "cfg": fixed.get("cfg_scale"),
+        # img2img's tab, by Forge's number for it, and its denoising strength;
+        # a txt2img task's denoising is Hires fix's.
+        "img2img_tab": mode_of(fixed) if mode == "img2img" else None,
+        "denoising": fixed.get("denoising_strength") if mode == "img2img" else None,
     })
     for name, item in (("sampler", "sampling"), ("scheduler", "scheduler"), ("steps", "steps")):
         entry = _entry(inputs, f"{mode}_{item}")

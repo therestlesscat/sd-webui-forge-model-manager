@@ -79,7 +79,8 @@ def picture(path):
 
 def inputs(prompt, seed=-1, steps=30, hires=None, image=None):
     fixed = {'prompt': prompt, 'negative_prompt': 'blurry', 'n_iter': 2, 'batch_size': 1, 'width': 832,
-             'height': 1216, 'enable_hr': False, 'hr_scale': 2, 'hr_resize_x': 0, 'hr_resize_y': 0}
+             'height': 1216, 'enable_hr': False, 'hr_scale': 2, 'hr_resize_x': 0, 'hr_resize_y': 0,
+             'cfg_scale': 7, 'distilled_cfg_scale': 3.5, 'denoising_strength': 0.7}
     fixed.update(hires or {})
     if image:
         fixed['init_img'] = Keeper(os.path.join(INPUTS, 'task-' + image)).keep(
@@ -176,6 +177,12 @@ check("a row says what its task asks for",
        'n_iter': 2, 'script': 'X/Y/Z plot', 'checkpoint': 'sdxl\\model.safetensors',
        'modules': ['F:\\vae\\sdxl_vae.safetensors'], 'first_seed': 1234})
 check('a failed one, its error', history['tasks'][0]['error'], 'boom')
+# #432: its CFG scale - not its Distilled CFG Scale, kept with every task
+# and used only where the loaded model takes one; txt2img's denoising is
+# Hires fix's, and it has no img2img tab.
+check("a row says its CFG scale; a txt2img one no img2img tab nor denoising, and no Distilled CFG Scale",
+      {k: row.get(k, 'not sent') for k in ('cfg', 'distilled_cfg', 'img2img_tab', 'denoising')},
+      {'cfg': 7, 'distilled_cfg': 'not sent', 'img2img_tab': None, 'denoising': None})
 check("a row says how many images its run made, and sends none", (row.get('image_count'), 'images' in row),
       (6, False))
 
@@ -338,10 +345,12 @@ check('and the count follows', client.get('/model-manager/queue/status').json()[
 # A task of three checkpoints (#400): its copy holds all three, in order, with
 # what each takes, and none of how the original's runs ended.
 three = db.add_task({'install': INSTALL_KEY, 'forge': 'neo', 'mode': 'txt2img', 'inputs': inputs('three'),
-                     'checkpoints': [{'checkpoint': 'a.safetensors', 'modules': []},
+                     'checkpoints': [{'checkpoint': 'a.safetensors', 'modules': [], 'settings': {'another_family': True}},
                                      {'checkpoint': 'b.safetensors', 'modules': ['F:\\vae\\b_vae.safetensors'],
-                                      'settings': {'cfg': 4}},
-                                     {'checkpoint': 'c.safetensors', 'modules': None}]})
+                                      'settings': {'usual': {'steps': 40}, 'another_family': True}},
+                                     {'checkpoint': 'c.safetensors', 'modules': None,
+                                      'settings': {'usual': {'sampler': 'DPM++ 2M', 'schedule_type': 'Beta',
+                                                             'steps': 25, 'cfg': 1, 'distilled_cfg': 3}}}]})
 run(three)
 with db._cursor() as cursor:
     cursor.execute("UPDATE task_checkpoints SET status = 'completed' WHERE task_id = ?", (three,))
@@ -351,14 +360,36 @@ copy_of_three = db.get_task(post('/model-manager/queue/retry', ids=str(three), s
 check('Retry of a task of three checkpoints copies all three, in order, statuses cleared',
       [(r['place'], r['checkpoint'], r['modules'], r['settings'], r['status'], r['error'])
        for r in copy_of_three['checkpoints']],
-      [(0, 'a.safetensors', [], None, None, None),
-       (1, 'b.safetensors', ['F:\\vae\\b_vae.safetensors'], {'cfg': 4}, None, None),
-       (2, 'c.safetensors', None, None, None, None)])
-check("a task's row lists each checkpoint and how its run ended, for the Queue tab",
+      [(0, 'a.safetensors', [], {'another_family': True}, None, None),
+       (1, 'b.safetensors', ['F:\\vae\\b_vae.safetensors'], {'usual': {'steps': 40}, 'another_family': True},
+        None, None),
+       (2, 'c.safetensors', None, {'usual': {'sampler': 'DPM++ 2M', 'schedule_type': 'Beta', 'steps': 25,
+                                             'cfg': 1, 'distilled_cfg': 3}}, None, None)])
+# What each run ran with (#403): the press with the run's usual settings
+# applied, each one they leave out the press's - b's usual steps alone take
+# the press's sampler, schedule type and CFG; a's, none, the press's whole:
+# another family changes Hires fix and the refiner, none of these. c's usual
+# Distilled CFG Scale is not said: whether a run used one is its model's.
+PRESS = {'sampler': 'Euler a', 'schedule_type': 'Karras', 'steps': 30, 'cfg': 7}
+check("a task's row lists each checkpoint, what its run ran with and how it ended, for the Queue tab",
       next(t for t in listed('history')['tasks'] if t['id'] == three).get('checkpoints'),
-      [{'checkpoint': 'a.safetensors', 'modules': [], 'status': 'completed', 'error': None},
-       {'checkpoint': 'b.safetensors', 'modules': ['F:\\vae\\b_vae.safetensors'], 'status': 'failed', 'error': 'gone'},
-       {'checkpoint': 'c.safetensors', 'modules': None, 'status': 'completed', 'error': None}])
+      [{'checkpoint': 'a.safetensors', 'modules': [], 'status': 'completed', 'error': None, 'ran_with': PRESS},
+       {'checkpoint': 'b.safetensors', 'modules': ['F:\\vae\\b_vae.safetensors'], 'status': 'failed', 'error': 'gone',
+        'ran_with': {**PRESS, 'steps': 40}},
+       {'checkpoint': 'c.safetensors', 'modules': None, 'status': 'completed', 'error': None,
+        'ran_with': {'sampler': 'DPM++ 2M', 'schedule_type': 'Beta', 'steps': 25, 'cfg': 1}}])
+
+# An img2img task's row names the tab it was queued from, by Forge's number
+# - kept as a number field gives it, 2.0 - and its denoising strength (#432).
+kept = inputs('inpaint')
+kept['fixed'].update({'mode': 2.0, 'denoising_strength': 0.75})
+inpaint = db.add_task({'install': INSTALL_KEY, 'forge': 'neo', 'mode': 'img2img', 'inputs': kept,
+                       'checkpoints': [{'checkpoint': 'a.safetensors', 'modules': []}]})
+run(inpaint)
+row = next(t for t in listed('history')['tasks'] if t['id'] == inpaint)
+check("an img2img row says its tab and its denoising strength",
+      {k: row.get(k, 'not sent') for k in ('img2img_tab', 'denoising', 'cfg')},
+      {'img2img_tab': 2, 'denoising': 0.75, 'cfg': 7})
 # Load to UI's plan names every checkpoint, in order: the page enters several
 # mode with them where there are more than one; a task of one names its one.
 check("Load to UI's plan names each of a task's checkpoints, in order",

@@ -6,6 +6,14 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.82 - What a queued task ran with
+
+*20 November 2026*
+
+A task's row in the Queue tab says more about its run (#432, #403): when it started and how long it took, its CFG scale, and img2img's tab and denoising strength. A task of several checkpoints stops stating the sampler, schedule type and steps on its row, which its runs did not share, and says what each run ran with beside how it ended. 0.82.0 brings the server's part; 0.82.1 shows it.
+
+- **0.82.0** (build 753) - The server's part of the Queue tab's new row (#432, #403). A task's row in the list now carries its CFG scale, and for an img2img task the tab it was queued from and its denoising strength; a task of several checkpoints, for each run, the sampler, schedule type, steps and CFG scale it ran with - the press's settings with that checkpoint's usual settings applied as the run applies them, each one they leave out the press's. Nothing on the page changes yet; 0.82.1 shows them.
+
 ## 0.81 - ComfyUI's workflow read
 
 *18 November 2026*

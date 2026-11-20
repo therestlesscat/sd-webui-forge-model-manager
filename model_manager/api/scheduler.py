@@ -21,7 +21,7 @@ from .. import generation_inputs, thumbnails
 from ..console import say
 from ..db import get_models_db
 from ..install import INSTALL_KEY
-from ..scheduler import runner, tasks
+from ..scheduler import load, runner, tasks
 from ..scheduler.values import files
 from .common import failed, gate
 from .generations import _delete_files, remember_kept
@@ -44,11 +44,22 @@ def _rows(db, found: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Each task's row, with how many images its run made, and whether Run next
     would move it (`ahead`: it runs before the other waiting tasks already).
+    A task of several checkpoints says what each run ran with (`ran_with`,
+    #403): its row states no settings of its own.
     """
     made = db.task_images([t["id"] for t in found])
     ahead = runner.unmoved()
-    return [{**tasks.summary(task), "image_count": len(made.get(task["id"], [])),
-             "ahead": task["id"] in ahead} for task in found]
+    rows = []
+    for task in found:
+        row = {**tasks.summary(task), "image_count": len(made.get(task["id"], [])),
+               "ahead": task["id"] in ahead}
+        kept = task.get("checkpoints") or []
+        if len(kept) > 1:
+            for entry, checkpoint in zip(row["checkpoints"], kept):
+                entry["ran_with"] = tasks.shown(load.ran_with(task.get("mode"), task.get("inputs") or {},
+                                                              checkpoint.get("settings")))
+        rows.append(row)
+    return rows
 
 
 def task_page(db, which: str, page: int = 1, hidden: bool = False) -> Dict[str, Any]:
