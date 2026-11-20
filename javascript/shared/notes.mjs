@@ -47,6 +47,8 @@ const DRAW_TRIES = 20;
 const noteTabs = {};        // tab -> { containerId, notes }
 const notePiles = {};       // tab -> { index, spread }
 const notesDismissed = new Set();
+// Repairs with nothing left to do in this page: their notes go (#232's Fill).
+const repairsDone = new Set();
 
 /**
  * Show a tab's notes in its container, once the server has said which -
@@ -75,7 +77,8 @@ function drawNotes(tab, attempt = 0) {
     }
     const rank = (note) => (note.kind === 'intro' ? NOTE_ORDER.intro
         : note.important ? -1 : NOTE_ORDER[note.kind] ?? NOTE_ORDER.feature);
-    const shown = state.notes.filter((note) => !notesDismissed.has(note.id))
+    const shown = state.notes.filter((note) => !notesDismissed.has(note.id)
+                                               && !(note.actions || [note.action]).some((a) => repairsDone.has(a?.repair)))
         .map((note, at) => ({ note, at }))
         .sort((a, b) => rank(a.note) - rank(b.note) || a.at - b.at)
         .map(({ note }) => note);
@@ -154,6 +157,12 @@ export function start(scope) {
     const redrawAll = () => Object.keys(noteTabs).forEach((tab) => drawNotes(tab));
     // A repair's script starts after the tabs: its note's button is drawn once it is there.
     scope.listen(window, 'mm-repairs-changed', redrawAll);
+    // A repair that has done its work takes its note away, until the next load asks again.
+    scope.listen(window, 'mm-repair-done', (event) => {
+        if (!event.detail?.repair || repairsDone.has(event.detail.repair)) return;
+        repairsDone.add(event.detail.repair);
+        redrawAll();
+    });
     scope.listen(document, 'click', (event) => {
         const target = event.target;
         const pileTab = target.closest?.('[data-note-pile]')?.dataset.notePile;

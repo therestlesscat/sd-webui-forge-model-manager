@@ -424,15 +424,26 @@ check('Fill pressed on a newer copy\'s database: refused, saying why',
       (newer.status_code, newer.json().get('success'), 'Update this copy' in newer.json().get('error', '')),
       (409, False, True))
 turn(False)
+with db._cursor() as cursor:      # a library made before this version, as the note is for
+    cursor.execute("UPDATE schema_info SET value = '0.81.4' WHERE key = 'created_by'")
+listed = client.get('/model-manager/repairs').json()['repairs'].get('comfy_fill')
+noted = [n['id'] for n in client.get('/model-manager/notes', params={'tab': 'model_manager'}).json()['notes']]
+check('a library from before: the repairs list names Fill with both its tabs, and its note shows',
+      (listed, 'comfy-fill-0-81-6' in noted),
+      ({'count': 1, 'tab': 'comfy_fill', 'tabs': ['model_manager', 'gallery']}, True))
 started = client.post('/model-manager/repairs/comfy-fill/start')
 jobs.join(10)
 before_press = comfy_fill.progress()['started']
 idle = client.post('/model-manager/repairs/comfy-fill/start')
 check('Fill pressed once filled (a stale page): nothing run, the last run answered',
-      (idle.json().get('needed'), idle.json()['fill']['started'] == before_press), (False, True))
+      (idle.json().get('needed'), (idle.json().get('fill') or {}).get('started') == before_press), (False, True))
 check('Fill pressed: started, and done', (started.status_code, started.json().get('success'),
-                                          client.get('/model-manager/repairs/comfy-fill').json()['fill']['state']),
+                                          (client.get('/model-manager/repairs/comfy-fill').json().get('fill') or {}).get('state')),
       (200, True, 'done'))
+noted = [n['id'] for n in client.get('/model-manager/notes', params={'tab': 'gallery'}).json()['notes']]
+check('filled: the repairs list names Fill no more, and its note is gone',
+      ('comfy_fill' in client.get('/model-manager/repairs').json()['repairs'], 'comfy-fill-0-81-6' in noted),
+      (False, False))
 
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

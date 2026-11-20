@@ -63,14 +63,15 @@ def needed(db) -> int:
 @dataclass
 class FillProgress:
     """
-    What the page is told: "running", in a step - "waiting" for a restamp,
+    What the page is told: "running", in a step - "starting", "waiting" for a
+    restamp running in this WebUI,
     "switching" while the other WebUI reads the switch, "finding" the records
     holding a graph, "filling" them with `done` of `total` - then "done" with
     what changed, or "failed" with why. Before any run, progress() says
     "idle".
     """
     state: str = "running"
-    step: str = "waiting"
+    step: str = "starting"
     done: int = 0
     total: Optional[int] = None
     read: int = 0
@@ -122,6 +123,7 @@ def run(fill: Fill, db) -> None:
     # A restamp started before the switch turns judges as it was; waited for,
     # it cannot write its levels over the ones Fill writes.
     while jobs.running(prompt_levels.KIND):
+        progress.step = "waiting"
         time.sleep(RESTAMP_LOOK_SECONDS)
     progress.step = "switching"
     # This process's copy first: a restamp starting here from now on judges
@@ -196,8 +198,9 @@ def register(app, common) -> None:
         try:
             db = get_models_db()
             if newer_copy(db):
-                return JSONResponse({"success": False, "error": "A newer copy of the extension sharing this "
-                                     "database has filled it already. Update this copy."}, status_code=409)
+                return JSONResponse({"success": False, "newer": True, "error": "A newer copy of the extension "
+                                     "sharing this database has filled it already. Update this copy."},
+                                    status_code=409)
             # Filled already (a stale page, a second window): nothing to run.
             if not needed(db):
                 return JSONResponse({"success": True, "fill": progress(), "needed": False})

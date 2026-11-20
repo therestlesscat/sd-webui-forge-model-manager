@@ -16,7 +16,8 @@ from . import comfy_fill, lora_weights, recorded_twice
 
 # Each repair, by the name the page knows it by: its script is
 # javascript/repairs/<name>.mjs.
-REPAIRS: Dict[str, Any] = {"recorded_twice": recorded_twice, "lora_weights": lora_weights}
+REPAIRS: Dict[str, Any] = {"recorded_twice": recorded_twice, "lora_weights": lora_weights,
+                            "comfy_fill": comfy_fill}
 
 
 def tabs_of(area: str) -> list:
@@ -62,7 +63,3 @@ def register(app, common) -> None:
 
     for repair in REPAIRS.values():
         repair.register(app, common)
-    # Fill's routes before its page script lists it in REPAIRS (#232, commit
-    # 3 of its three): listed alone, the page would import a script not there.
-    if "comfy_fill" not in REPAIRS:
-        comfy_fill.register(app, common)

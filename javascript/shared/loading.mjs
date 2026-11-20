@@ -380,7 +380,7 @@ export function stopTab(name) {
 // the tab whose switch it follows. Not in ui-options, which every tab waits
 // for: the server reads the database to answer, and a slow one would hold them.
 
-const repairs = new Map();       // name -> { scope, tab }
+const repairs = new Map();       // name -> { scope, tabs }
 
 /** Start each repair the server names, once its tab runs; tell the page if any did. */
 async function startRepairs() {
@@ -393,10 +393,12 @@ async function startRepairs() {
     }
     let started = false;
     for (const [name, repair] of Object.entries(answer?.repairs || {})) {
-        const tab = Object.keys(TABS).find((key) => TABS[key].server === repair?.tab);
-        if (!/^[a-z_]+$/.test(name) || repairs.has(name) || !tab || !available(tab)) continue;
+        // The tabs it follows: one, or each of a shared area's (#232's Fill, two).
+        const tabs = (Array.isArray(repair?.tabs) ? repair.tabs : [repair?.tab])
+            .map((server) => Object.keys(TABS).find((key) => TABS[key].server === server)).filter(Boolean);
+        if (!/^[a-z_]+$/.test(name) || repairs.has(name) || !tabs.some(available)) continue;
         const scope = createScope(`repair ${name}`);
-        repairs.set(name, { scope, tab });
+        repairs.set(name, { scope, tabs });
         try {
             const module = await import(new URL(`../repairs/${name}.mjs${new URL(import.meta.url).search}`,
                                                 import.meta.url).href);
@@ -409,10 +411,15 @@ async function startRepairs() {
     if (started) window.dispatchEvent(new CustomEvent('mm-repairs-changed'));
 }
 
-/** Stop the repairs that follow this tab's switch. */
+/**
+ * Stop the repairs that follow this tab's switch, and no other tab still
+ * running - or starting: one save can turn a tab on and another off, and the
+ * one turned on is still loading its script as the other stops.
+ */
 function stopRepairs(tab) {
+    const going = (other) => available(other) || Boolean(state[other]?.on !== false && state[other]?.scope?.live);
     for (const [name, repair] of [...repairs]) {
-        if (repair.tab !== tab) continue;
+        if (!repair.tabs.includes(tab) || repair.tabs.some((other) => other !== tab && going(other))) continue;
         repair.scope.stop();
         repairs.delete(name);
     }

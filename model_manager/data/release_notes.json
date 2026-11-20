@@ -1,5 +1,23 @@
 [
     {
+        "id": "comfy-fill-0-81-6",
+        "version": "0.81.6",
+        "kind": "action",
+        "audience": "update",
+        "when": "repair:comfy_fill",
+        "tabs": [
+            "model_manager",
+            "gallery"
+        ],
+        "title": "Civitai images filled from their ComfyUI workflows",
+        "text": "Some Civitai images hold the ComfyUI workflow they were made with, while Civitai's own fields leave out their prompt, seed or other settings. The Model Manager shows and sends those from the workflow. Review fills them into search and filters for the images stored before this version.",
+        "action": {
+            "id": "repair",
+            "label": "Review",
+            "repair": "comfy_fill"
+        }
+    },
+    {
         "id": "comfyui-workflow-0-81-3",
         "version": "0.81.3",
         "kind": "action",
