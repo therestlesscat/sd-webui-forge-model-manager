@@ -173,7 +173,13 @@ for Civitai's own prompt. `insert_images` reads the switch on its own
 transaction's cursor once it holds the write lock (`BEGIN IMMEDIATE`, where
 its caller has not taken it): read before, a store that waited for the lock
 while Fill turned the switch wrote its rows unfilled after Fill had passed
-them. The restamp reads it once a pass.
+them. The restamp reads it once a pass. Fill (`ImagesOps.fill_stored`)
+rewrites a library's rows from before with `UPDATE` and an `INSERT` of a
+missing settings row, never `INSERT OR REPLACE`: an image a gallery removed
+while Fill ran would come back. And the restamp writes a level only where the
+image still holds the one it read: its pass reads every record, then writes,
+and a restamp the other WebUI started before Fill wrote its older levels over
+Fill's, with no notice left to put them right.
 
 ### Your generations
 

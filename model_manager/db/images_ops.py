@@ -10,7 +10,7 @@ Used by ModelsDatabase facade - do not import directly.
 import json
 from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple
 
-from ..comfy_graph import FILLED_KEY, JUDGED_KEY, judged_image, judging_filled, switch_from
+from ..comfy_graph import FILLED_KEY, JUDGED_KEY, has_graph, judged_image, judging_filled, switch_from
 from ..nsfw import SFW_MAX, image_level
 from ..prompt_rules import MIN_PROMPT_LENGTH
 from .params_table import IMAGE_COLUMNS, image_params_row, settings_group
@@ -38,6 +38,18 @@ _CHUNK = 500
 # An image's settings row (#378): every column of image_params, by name.
 _PARAMS_UPSERT = (f"INSERT OR REPLACE INTO image_params (image_id, {', '.join(IMAGE_COLUMNS)}) "
                   f"VALUES (?, {', '.join('?' * len(IMAGE_COLUMNS))})")
+# The Fill notice's write of a settings row (#232): made where an image had
+# none, changed where it differs - never a row taken out and put back.
+_PARAMS_FILL = (f"INSERT INTO image_params (image_id, {', '.join(IMAGE_COLUMNS)}) "
+                f"VALUES (?, {', '.join('?' * len(IMAGE_COLUMNS))}) ON CONFLICT(image_id) DO UPDATE SET "
+                + ", ".join(f"{c} = excluded.{c}" for c in IMAGE_COLUMNS))
+# A version's safe cover that is now an image above PG-13 goes; the grid
+# falls back to the version's first safe image until a sync picks it again.
+# The restamp's rule, written out again in restamp_levels, which the plan
+# keeps as it was (#232); a change to one is made to both.
+_CLEAR_UNSAFE_COVERS = ("UPDATE versions SET safe_cover_url = '' WHERE safe_cover_url IN"
+                        " (SELECT r.url FROM image_records r WHERE EXISTS (SELECT 1 FROM image_galleries g"
+                        " WHERE g.image_id = r.image_id AND g.effective_nsfw_level > ?))")
 
 
 def resource_rows(record: Any) -> List[tuple]:
@@ -224,7 +236,8 @@ class ImagesOps:
         A level is stamped when an image is stored, so a change to how images
         are judged - the prompt words, above all - leaves the rows on the old
         verdict. The record is stored beside it, so nothing is refetched. A
-        changed level is written to each of the image's gallery rows. A
+        changed level is written to each of the image's gallery rows, unless
+        another writer changed it between this pass's read and its write. A
         version's safe cover that is now an unsafe image is cleared, and the
         grid falls back to the version's first image that is still safe until
         a sync picks the cover again.
@@ -256,16 +269,113 @@ class ImagesOps:
             except (ValueError, TypeError):
                 continue
             if level != stored:
-                changed.append((level, image_id))
+                changed.append((level, image_id, image_id, stored))
         report(len(rows), len(rows))
         with self._cursor() as cursor:
-            cursor.executemany("UPDATE image_galleries SET effective_nsfw_level = ? WHERE image_id = ?", changed)
+            # Only where the image still holds the level read above: another
+            # writer judged it since - the Fill notice's job in the other WebUI
+            # sharing the database (#232), a gallery stored again - and its
+            # level is the newer judgement.
+            cursor.executemany("UPDATE image_galleries SET effective_nsfw_level = ? WHERE image_id = ? AND"
+                               " (SELECT MAX(g.effective_nsfw_level) FROM image_galleries g WHERE g.image_id = ?)"
+                               " IS ?", changed)
             cursor.execute(
                 "UPDATE versions SET safe_cover_url = '' WHERE safe_cover_url IN"
                 " (SELECT r.url FROM image_records r WHERE EXISTS (SELECT 1 FROM image_galleries g"
                 " WHERE g.image_id = r.image_id AND g.effective_nsfw_level > ?))", (SFW_MAX,))
             covers = cursor.rowcount
         return len(changed), len(rows), covers
+
+    # ---------------- the Fill notice's job (#232)
+
+    def graph_record_ids(self) -> List[int]:
+        """The images whose records may hold a ComfyUI graph: their text names
+        `comfy`. Every record's text is read to find them - 19.9 s warm for
+        283,110 records, 5,098 found, on one library - so the Fill notice's
+        job does it, never a check a page asks."""
+        with self._cursor() as cursor:
+            cursor.execute("SELECT image_id FROM image_records WHERE instr(data, '\"comfy\"') > 0")
+            return [row[0] for row in cursor.fetchall()]
+
+    def fill_stored(self, image_ids: Iterable[int]) -> Dict[str, int]:
+        """
+        These images' derived rows made from their data filled from their
+        ComfyUI graphs (derived_rows, filled), in one transaction holding the
+        write lock: each record read again inside it, so an image a gallery
+        removed meanwhile is passed over and one stored again is read as it is
+        now. Only what differs is written, and only with UPDATE - an INSERT
+        for a settings row an image did not have - so nothing a gallery took
+        out comes back. The record is never written. Where filling leaves the
+        settings empty, the row is kept as it is.
+
+        Every record holding a graph is compared, not only those the fill
+        adds to: a later reader (comfy_graph.READER raised) may fill less
+        than the one that wrote the rows.
+
+        Returns:
+            read: records holding a graph; gained: of them, those whose rows
+            were written; prompts: those that gained a prompt where Civitai
+            gives none; levels: those whose level changed. What was written,
+            so a run after a run cut short counts only the rest.
+        """
+        counts = {"read": 0, "gained": 0, "prompts": 0, "levels": 0}
+        ids = list(image_ids)
+        if not ids:
+            return counts
+        with self._cursor() as cursor:
+            if not cursor.connection.in_transaction:
+                cursor.execute("BEGIN IMMEDIATE")
+            cursor.execute("SELECT r.image_id, r.data, i.prompt_id, i.negative_id FROM image_records r"
+                           f" JOIN images i ON i.id = r.image_id WHERE r.image_id IN ({', '.join('?' * len(ids))})",
+                           ids)
+            rows = cursor.fetchall()
+            touched = set()
+            for image_id, data, prompt_id, negative_id in rows:
+                try:
+                    record = json.loads(data)
+                except (TypeError, ValueError, RecursionError):
+                    # RecursionError: JSON nested too deep for the original
+                    # Forge's Python, which Neo's reads; one such record
+                    # would fail its whole batch at every press.
+                    continue
+                if not isinstance(record, dict) or not has_graph(record.get("meta")):
+                    continue
+                counts["read"] += 1
+                made = derived_rows(record, True)
+                wrote = False
+                new_prompt = IMAGE_PROMPTS.id_for(cursor, made["prompt"])
+                new_negative = IMAGE_PROMPTS.id_for(cursor, made["negative"])
+                if (new_prompt, new_negative) != (prompt_id, negative_id):
+                    cursor.execute("UPDATE images SET prompt_id = ?, negative_id = ? WHERE id = ?",
+                                   (new_prompt, new_negative, image_id))
+                    touched.update((prompt_id, negative_id))
+                    wrote = True
+                    if new_prompt != prompt_id and not (_text(record, "prompt") or "").strip():
+                        counts["prompts"] += 1
+                settings = made["settings"]
+                if settings:
+                    cursor.execute(f"SELECT {', '.join(IMAGE_COLUMNS)} FROM image_params WHERE image_id = ?",
+                                   (image_id,))
+                    held = cursor.fetchone()
+                    wanted = tuple(settings[c] for c in IMAGE_COLUMNS)
+                    if held is None or tuple(held) != wanted:
+                        cursor.execute(_PARAMS_FILL, (image_id, *wanted))
+                        wrote = True
+                cursor.execute("UPDATE image_galleries SET effective_nsfw_level = ? WHERE image_id = ?"
+                               " AND effective_nsfw_level IS NOT ?", (made["level"], image_id, made["level"]))
+                if cursor.rowcount:
+                    counts["levels"] += 1
+                    wrote = True
+                counts["gained"] += wrote
+            IMAGE_PROMPTS.drop_unused(cursor, touched)
+        return counts
+
+    def clear_unsafe_covers(self) -> int:
+        """Versions' safe covers now above PG-13 cleared, by the restamp's
+        rule: how many."""
+        with self._cursor() as cursor:
+            cursor.execute(_CLEAR_UNSAFE_COVERS, (SFW_MAX,))
+            return cursor.rowcount
 
     def clear_version(self, version_id: int):
         """Clear a version's gallery, and the images no other gallery shows."""

@@ -894,6 +894,18 @@ class ModelsDatabase:
         """Their records, filled from their ComfyUI graphs for showing and sending (#232). See db/images_ops.py."""
         return self._images.filled_records(image_ids)
 
+    def graph_record_ids(self) -> List[int]:
+        """The images whose records may hold a ComfyUI graph (#232). See db/images_ops.py."""
+        return self._images.graph_record_ids()
+
+    def fill_stored(self, image_ids) -> Dict[str, int]:
+        """These images' rows made from their filled data, for the Fill notice (#232). See db/images_ops.py."""
+        return self._images.fill_stored(image_ids)
+
+    def clear_unsafe_covers(self) -> int:
+        """Versions' safe covers now above PG-13 cleared. See db/images_ops.py."""
+        return self._images.clear_unsafe_covers()
+
     def get_image_ids(self, version_id: int) -> Set[int]:
         """The ids of the images stored for a version."""
         return self._images.get_image_ids(version_id)

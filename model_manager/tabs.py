@@ -51,6 +51,9 @@ SERVICES: Dict[str, Tuple[str, ...]] = {
     # Stored image levels judged again (prompt_levels.py): the Model Manager's
     # galleries, your generations, and the Civitai Images tab's images.
     "restamp": ("model_manager", "generations", "gallery"),
+    # Civitai images filled from their ComfyUI workflows (#232's Fill notice,
+    # repairs/comfy_fill.py): the two tabs that show stored Civitai images.
+    "comfy_fill": ("model_manager", "gallery"),
     ANY: tuple(TABS),
 }
 

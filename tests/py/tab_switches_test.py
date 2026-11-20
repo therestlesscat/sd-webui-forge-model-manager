@@ -2,7 +2,7 @@
 Which tabs are on, decided in one place (model_manager/tabs.py, #181): a tab
 switched off has its routes refuse and its startup work left out.
 
-What is checked here: every route naming its area - all 98 held to the table
+What is checked here: every route naming its area - all 100 held to the table
 below, which is the spec; with every tab off, every route but ui-options
 refusing, in the shape every failure answers; an off tab's routes refused
 through the app; the shared areas, on while any of their tabs is; the
@@ -211,8 +211,12 @@ SPEC = {
     ('POST', '/model-manager/repairs/recorded-twice/remove'): 'generations',
     ('GET', '/model-manager/repairs/lora-weights'): 'generations',
     ('POST', '/model-manager/repairs/lora-weights/correct'): 'generations',
+    # Civitai images filled from their ComfyUI workflows (#232): either tab
+    # showing stored Civitai images.
+    ('GET', '/model-manager/repairs/comfy-fill'): 'comfy_fill',
+    ('POST', '/model-manager/repairs/comfy-fill/start'): 'comfy_fill',
 }
-check('the spec holds 98 routes', len(SPEC), 98)
+check('the spec holds 100 routes', len(SPEC), 100)
 
 app = FastAPI()
 api.setup_api(app)
@@ -241,7 +245,8 @@ def areas_on():
 
 only('model_manager', 'civitai_browser', 'generations', 'queue', 'gallery')
 check('all on: every area', areas_on(), sorted(['queue', 'generations', 'gallery', 'model_manager', 'civitai_browser',
-                                                 'downloads', 'saved_search', 'send', 'restamp', 'any', 'always']))
+                                                 'downloads', 'saved_search', 'send', 'restamp', 'comfy_fill', 'any',
+                                                 'always']))
 only('civitai_browser')
 check('the Civitai Browser alone: downloads, saved searches, Send - no restamp',
       areas_on(), ['always', 'any', 'civitai_browser', 'downloads', 'saved_search', 'send'])
@@ -251,8 +256,8 @@ check('Generations alone: Send and the restamp - no downloads, no saved searches
 only('queue')
 check('the Queue alone: Send', areas_on(), ['always', 'any', 'queue', 'send'])
 only('gallery')
-check('the Civitai Images tab alone: Send, for its images, and the restamp, for their levels',
-      areas_on(), ['always', 'any', 'gallery', 'restamp', 'send'])
+check('the Civitai Images tab alone: Send, for its images, the restamp and Fill, for their levels',
+      areas_on(), ['always', 'any', 'comfy_fill', 'gallery', 'restamp', 'send'])
 only()
 check('all off: what the loader asks alone', areas_on(), ['always'])
 delattr(shared.opts, QUEUE)

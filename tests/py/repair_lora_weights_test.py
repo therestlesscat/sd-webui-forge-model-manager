@@ -132,9 +132,9 @@ check('the check counts the generations whose weights differ from their prompts\
       lora_weights.needed(db), len(TO_CORRECT))
 
 # ------------------------------------------------- the page's list, the note
-check('the list of repairs names it, with its count and its tab',
+check('the list of repairs names it, with its count, its tab and the tabs it follows',
       client.get('/model-manager/repairs').json()['repairs'].get('lora_weights'),
-      {'count': len(TO_CORRECT), 'tab': 'generations'})
+      {'count': len(TO_CORRECT), 'tab': 'generations', 'tabs': ['generations']})
 check('the Generations tab\'s note shows while there are any',
       'lora-weights-0-78-10' in [n['id'] for n in rn.notes_for(db, 'generations')], True)
 
