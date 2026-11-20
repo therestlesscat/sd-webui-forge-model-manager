@@ -599,7 +599,12 @@ Where they differ, and what the extension does about it - on the server in
 - **SQLite 3.37.2 in the original Forge**, 3.50.4 in Neo's venv. An SQL
   feature is checked against the older: `WITH ... AS MATERIALIZED` needs 3.35;
   `json_each` and `json_extract` run there (#218, checked with that install's
-  Python).
+  Python) - but `json_extract` refuses JSON holding `NaN`, which Python's
+  `json.dumps` writes for a float NaN and a ComfyUI workflow can hand the
+  sync: "malformed JSON" (`OperationalError`) under 3.37.2, read under 3.50.4.
+  An error in a release note's condition empties the tab's whole notes
+  answer, so #232's condition matches the stored text with `instr`
+  (2026-11-19).
 - **PIL 9.5.0 in the original Forge**, 12.3.0 in Neo's venv. Under 9.5, a
   value set in `Image.Exif().get_ifd(0x8769)` is not written out by
   `tobytes()`: `image_sync_test`'s JPEG fixture comes out with no text there
@@ -1382,4 +1387,6 @@ choice is made, and how to write one.
 **A test run takes a minute at most; one that needs longer is asked for
 first.** That is the owner's rule. Start every run under a time limit
 (`timeout 60`), and if it would need more, ask before running it. After a run
-that was stopped, look for what it left running and stop only that.
+that was stopped, look for what it left running and stop only that. A break
+runner counts as a run: #232's ran 6 breaks against 2 suites, 12 runs under a
+590 s limit, unasked (2026-11-19).
