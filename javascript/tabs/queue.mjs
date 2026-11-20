@@ -49,7 +49,7 @@ SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const { TIMING, apiCall, escapeHtml, setText, settingLink } = await shared('core.mjs');
 const { ready, call } = await shared('calls.mjs');
-const { tabShowing } = await shared('tabs.mjs');
+const { tabShowing, IMG2IMG_NAMES } = await shared('tabs.mjs');
 const { tabWork, queueEnabled, linkTo, open } = await shared('loading.mjs');
 const { uiOptions, refreshUiOptions } = await shared('ui_options.mjs');
 const { showNotes } = await shared('notes.mjs');
@@ -325,6 +325,49 @@ function sizeText(task) {
     return text;
 }
 
+/** A number as a row says it: at most two decimals, a whole one without (CFG 7, 3.5, 0.75). */
+function numberText(value) {
+    const n = Number(value);
+    return value === null || value === undefined || value === '' || !Number.isFinite(n)
+        ? '' : String(Math.round(n * 100) / 100);
+}
+
+const TOOK_TITLE = "From the task's start to its end, checkpoint loads and waits included";
+
+/**
+ * How long a task took, from its start to its end (#432) - for one that
+ * completed or failed alone: a task a restart ended is marked stopped at the
+ * next start, its end that start's time, and a Stop cannot be told from it.
+ * Times are kept to the second, in local time: one below zero (a clock moved
+ * back) says nothing.
+ */
+function tookText(task) {
+    if (!['completed', 'failed'].includes(task.status) || !task.started_at || !task.finished_at) return '';
+    const seconds = Math.round((new Date(task.finished_at) - new Date(task.started_at)) / 1000);
+    if (!Number.isFinite(seconds) || seconds < 0) return '';
+    if (seconds < 1) return 'took under 1 s';
+    if (seconds < 60) return `took ${seconds} s`;
+    if (seconds < 3600) return `took ${Math.floor(seconds / 60)} min ${seconds % 60} s`;
+    return `took ${Math.floor(seconds / 3600)} h ${Math.floor((seconds % 3600) / 60)} min`;
+}
+
+/** How a task of several checkpoints' runs ended, once it has (#432): "1 completed, 1 failed, 1 not run". */
+function outcomesText(task) {
+    if (!hasSeveral(task) || !ENDED.includes(task.status)) return '';
+    const count = (status) => task.checkpoints.filter((c) => (c.status || null) === status).length;
+    return [['completed', 'completed'], ['failed', 'failed'], ['stopped', 'stopped'], [null, 'not run']]
+        .map(([status, said]) => [count(status), said]).filter(([n]) => n).map(([n, said]) => `${n} ${said}`)
+        .join(', ');
+}
+
+/** What one run of a task of several ran with (#403), as the server worked it out; nothing where it sent none. */
+function ranWithText(ran) {
+    if (!ran) return '';
+    const cfg = numberText(ran.cfg);
+    return [ran.sampler, ran.schedule_type, ran.steps != null && ran.steps !== '' ? `${ran.steps} steps` : '',
+            cfg ? `CFG ${cfg}` : ''].filter(Boolean).map(String).join(', ');
+}
+
 /** One fact of a row, with its whole text on hover. */
 function fact(text, title = '') {
     return text ? `<span class="queue-fact" title="${escapeHtml(title || text)}">${escapeHtml(text)}</span>` : '';
@@ -334,15 +377,18 @@ function fact(text, title = '') {
 const hasSeveral = (task) => (task.checkpoints || []).length > 1;
 
 /**
- * Its checkpoints, a line each: with its VAE / text encoders, and how its
- * run ended once it has - "not run" for one an ended task never reached.
+ * Its checkpoints, a line each: with its VAE / text encoders, what its run
+ * ran with where the server says (#403), and how its run ended once it has -
+ * "not run" for one an ended task never reached, which ran with nothing.
  */
 function checkpointLines(task) {
     return (task.checkpoints || []).map((c) => {
         const modules = (c.modules || []).map(fileName).join(', ');
+        const notRun = !c.status && ENDED.includes(task.status);
+        const ran = notRun ? '' : ranWithText(c.ran_with);
         const ended = c.status ? ` - ${STATUSES[c.status] || c.status}${c.error ? `: ${c.error}` : ''}`
-            : (ENDED.includes(task.status) ? ' - not run' : '');
-        return `${c.checkpoint || 'no checkpoint'}${modules ? ` (${modules})` : ''}${ended}`;
+            : (notRun ? ' - not run' : '');
+        return `${c.checkpoint || 'no checkpoint'}${modules ? ` (${modules})` : ''}${ran ? ` - ${ran}` : ''}${ended}`;
     }).join('\n');
 }
 
@@ -357,8 +403,15 @@ function taskRowHtml(task, which) {
     const pick = selecting[which] && deletable(task);
     const ticked = pick && picked[which].has(id);
     const modules = (task.modules || []).map(fileName).join(', ');
-    const sampler = [task.sampler, task.scheduler].filter(Boolean).join(' · ');
+    // A task of several states no settings: each run had its own (#403), in the checkpoints' tip.
+    const several = hasSeveral(task);
+    const sampler = several ? '' : [task.sampler, task.scheduler].filter(Boolean).join(' · ');
+    const cfg = several ? '' : numberText(task.cfg);
     const batch = task.batch_size || task.n_iter ? `${task.batch_size || 1} × ${task.n_iter || 1}` : '';
+    // img2img's own tab is the row's head already.
+    const img2img = task.mode === 'img2img';
+    const tab = img2img && Number(task.img2img_tab) > 0 ? IMG2IMG_NAMES[Number(task.img2img_tab)] || '' : '';
+    const denoising = img2img ? numberText(task.denoising) : '';
     return `
         <div class="queue-task ${ticked ? 'queue-picked' : ''}" data-action="queue.details" data-task="${id}"
              data-list="${which}" data-status="${escapeHtml(task.status)}"
@@ -378,15 +431,22 @@ function taskRowHtml(task, which) {
                 </div>
                 <div class="queue-prompt" title="${escapeHtml(task.prompt)}">${escapeHtml(task.prompt) || '<em>No prompt</em>'}</div>
                 <div class="queue-facts">
-                    ${hasSeveral(task) ? fact(`${task.checkpoints.length} checkpoints`, checkpointLines(task)) : `
+                    ${several ? `
+                    ${fact(`${task.checkpoints.length} checkpoints`, checkpointLines(task))}
+                    ${fact(outcomesText(task), checkpointLines(task))}` : `
                     ${fact(fileName(task.checkpoint), task.checkpoint)}
                     ${fact(modules, (task.modules || []).join('\n'))}`}
                     ${fact(sizeText(task))}
+                    ${fact(tab, 'The img2img tab it was queued from')}
+                    ${fact(denoising ? `denoising ${denoising}` : '', 'Denoising strength')}
                     ${fact(sampler)}
-                    ${fact(task.steps ? `${task.steps} steps` : '')}
+                    ${fact(!several && task.steps ? `${task.steps} steps` : '')}
+                    ${fact(cfg ? `CFG ${cfg}` : '', 'CFG scale')}
                     ${fact(batch ? `batch ${batch}` : '', 'Batch size × batch count')}
                     ${fact(task.created_at ? `queued ${when(task.created_at)}` : '')}
+                    ${fact(task.started_at ? `started ${when(task.started_at)}` : '')}
                     ${fact(task.finished_at ? `ended ${when(task.finished_at)}` : '')}
+                    ${fact(tookText(task), TOOK_TITLE)}
                 </div>
                 ${task.error ? `<div class="queue-error">${escapeHtml(task.error)}</div>` : ''}
             </div>

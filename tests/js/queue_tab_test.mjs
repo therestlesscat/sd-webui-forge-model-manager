@@ -5,7 +5,9 @@
 // can be done now: Start, Pause or Resume, Stop. Nothing is asked while it is
 // hidden; opened, both lists are read again, and only the rows that changed
 // are drawn again (#172). A row says what its task asks
-// for, and how many images its run made - never the images: Show images
+// for - its CFG scale, an img2img task's tab and denoising strength - when
+// it was queued, started and ended, how long a completed or failed one took
+// (#432), and how many images its run made - never the images: Show images
 // opens the Generations tab on them. The running task's row has a bar, as
 // far along as Forge says, never falling back within the task when Forge's
 // figure does (#337), at 99 until Forge has finished the run and at 100 once
@@ -35,16 +37,19 @@ const task = (id, status, extra = {}) => ({
     checkpoints: [{ checkpoint: '_SDXL\\Asgard\\asgard_v12.safetensors', modules: ['F:\\models\\VAE\\sdxl_vae.safetensors'],
                     status: null, error: null }],
     width: 832, height: 1216, hires: null, scale_by: null, sampler: 'Euler a', scheduler: 'Karras', steps: 30,
+    cfg: 7, img2img_tab: null, denoising: null,
     batch_size: 1, n_iter: 2, created_at: '2026-10-05T12:50:00', started_at: null, finished_at: null,
     error: null, first_seed: null, retry_of: null, retried_as: null, generations: [],
     image_count: 0, ...extra,
 });
 const LISTS = {
-    active: [task(15, 'running', { hires: { scale: 2 } }), task(16, 'pending', { retry_of: 4, prompt: 'a <b>bold</b> prompt' })],
+    active: [task(15, 'running', { hires: { scale: 2 }, started_at: '2026-10-05T12:51:00' }),
+             task(16, 'pending', { retry_of: 4, prompt: 'a <b>bold</b> prompt' })],
     history: [
-        task(14, 'completed', { finished_at: '2026-10-05T13:05:00', retried_as: 17, script: 'X/Y/Z plot',
-                                image_count: 7 }),
-        task(13, 'failed', { error: 'RuntimeError: boom', hires: { resize: [2048, 0] } }),
+        task(14, 'completed', { started_at: '2026-10-05T12:50:00', finished_at: '2026-10-05T13:05:00', retried_as: 17,
+                                script: 'X/Y/Z plot', image_count: 7 }),
+        task(13, 'failed', { error: 'RuntimeError: boom', hires: { resize: [2048, 0] },
+                             started_at: '2026-10-05T12:40:00', finished_at: '2026-10-05T12:40:42' }),
     ],
 };
 const INPUTS = {
@@ -146,9 +151,17 @@ check('Active is drawn in the order the server gives it, History too',
       [rows('active').map((r) => r.dataset.task), rows('history').map((r) => r.dataset.task)],
       [['15', '16'], ['14', '13']]);
 check('each list says its size', [text('queue_active_count'), text('queue_history_count')], ['(2)', '(21)']);
-check("a row says what its task asks for", facts(15).slice(0, 6),
-      ['asgard_v12', 'sdxl_vae', '832×1216 → hires ×2', 'Euler a · Karras', '30 steps', 'batch 1 × 2']);
-check('and when it was queued', [facts(15).length, facts(15)[6].startsWith('queued ')], [7, true]);
+check("a row says what its task asks for", facts(15).slice(0, 7),
+      ['asgard_v12', 'sdxl_vae', '832×1216 → hires ×2', 'Euler a · Karras', '30 steps', 'CFG 7', 'batch 1 × 2']);
+check('and when it was queued and started; running, not when it ended nor how long it took',
+      [facts(15).length, facts(15)[7]?.startsWith('queued '), facts(15)[8]?.startsWith('started ')], [9, true, true]);
+// #432: an ended one when it started, between queued and ended, then how long it took.
+check('an ended task says when it was queued, started and ended, then how long it took',
+      [facts(14).slice(7).map((f) => f.split(' ')[0]), facts(14)[10]], [['queued', 'started', 'ended', 'took'],
+                                                                        'took 15 min 0 s']);
+check('a failed one how long it took too', facts(13).at(-1), 'took 42 s');
+check("took's tip says what it measures", row(14).querySelector('.queue-fact:last-child')?.title,
+      "From the task's start to its end, checkpoint loads and waits included");
 check('hires fix by its resize, an ended one when it ended, a failed one its error',
       [facts(13)[2], facts(14).some((f) => f.startsWith('ended ')), row(13).querySelector('.queue-error')?.textContent],
       ['832×1216 → hires 2048×auto', true, 'RuntimeError: boom']);
@@ -595,6 +608,49 @@ observer.observe(document.querySelector('.queue-bar'), { childList: true, subtre
 await new Promise((resolve) => setTimeout(resolve, 200));
 observer.disconnect();
 check('a poll that finds nothing changed writes nothing', changes.length, 0);
+
+// ------------------------------------------------------------- what a row says (#432)
+// Took only where it measures the run: a stopped task's end may be the next
+// start's time, and a cancelled one never started. img2img's tab by Forge's
+// number - its own tab the row's head already - and its denoising strength.
+const saved = LISTS.history;
+LISTS.history = [
+    // A txt2img task the server would send neither for: the row reads them for img2img alone.
+    task(40, 'completed', { started_at: '2026-10-05T12:00:00', finished_at: '2026-10-05T12:00:00',
+                            img2img_tab: 2, denoising: 0.4 }),
+    task(41, 'completed', { started_at: '2026-10-05T12:00:00', finished_at: '2026-10-05T13:03:20' }),
+    task(42, 'stopped', { started_at: '2026-10-05T12:00:00', finished_at: '2026-10-07T09:00:00' }),
+    task(43, 'cancelled', { finished_at: '2026-10-05T12:10:00' }),
+    task(44, 'completed', { mode: 'img2img', img2img_tab: 2, denoising: 0.75 }),
+    task(45, 'completed', { mode: 'img2img', img2img_tab: 0, denoising: 0.5 }),
+    task(49, 'completed', { mode: 'img2img', img2img_tab: 5, denoising: 0.3 }),
+    task(46, 'completed', { cfg: 7.500000000000001 }),
+    // A server from before 0.82.0 sends no CFG.
+    task(47, 'completed', { cfg: undefined }),
+    task(48, 'completed', { started_at: '2026-10-05T12:00:00', finished_at: '2026-10-05T11:00:00' }),
+];
+await act('queue.historyPage', { page: 1 });
+await waitFor('the rows of what a row says', () => row(40) && row(48));
+if (!row(40) || !row(48)) done();
+const took = (id) => facts(id).filter((f) => f.startsWith('took '));
+check('took: under a second, past an hour', [took(40), took(41)], [['took under 1 s'], ['took 1 h 3 min']]);
+check('a stopped task says when it started and ended, not how long it took',
+      [facts(42).some((f) => f.startsWith('started ')), facts(42).some((f) => f.startsWith('ended ')), took(42)],
+      [true, true, []]);
+check('a cancelled task never started: no start, no took',
+      [facts(43).some((f) => f.startsWith('started ')), took(43)], [false, []]);
+check('an end before its start says nothing of how long', took(48), []);
+check("an img2img task names its tab and its denoising strength, after its size",
+      facts(44).slice(2, 5), ['832×1216', 'Inpaint', 'denoising 0.75']);
+check("img2img's own tab is the row's head: no tab fact, the denoising strength still",
+      [facts(45).includes('img2img'), facts(45).includes('denoising 0.5')], [false, true]);
+check('a txt2img task has neither', facts(40).some((f) => f.startsWith('denoising') || f === 'Inpaint'), false);
+check("Forge's last mode by its name", facts(49).includes('Batch'), true);
+check('CFG is said to two decimals at most', facts(46).includes('CFG 7.5'), true);
+check('a row a server sends no CFG with says none', facts(47).some((f) => f.startsWith('CFG')), false);
+LISTS.history = saved;
+await act('queue.historyPage', { page: 2 });
+await waitFor('History page 2 as it was', () => rows('history').map((r) => r.dataset.task).join() === '1');
 
 // ------------------------------------------------------------- the tab hidden
 tabButton.classList.remove('selected');

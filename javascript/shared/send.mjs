@@ -23,7 +23,7 @@
 // copy of it, with state of its own.
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 const { TIMING, apiCall, escapeHtml, settingLink } = await shared('core.mjs');
-const { goToTab, showTab, IMG2IMG_MODES } = await shared('tabs.mjs');
+const { goToTab, showTab, IMG2IMG_MODES, IMG2IMG_NAMES } = await shared('tabs.mjs');
 const { originalMediaUrl, isVideoUrl, videoCopyUrl } = await shared('media.mjs');
 const {
     collectResourceChips, renameLoraTags, resourceChipSources, fetchImageFiles, arrangeChips, promptLoras,
@@ -44,13 +44,7 @@ const CLIP_SKIP_MAX_SETTING = 'model_manager_send_clip_skip_max';
  * Forge's number for it, in its order. Batch (5) takes folders and uploads:
  * #300's, from Select mode.
  */
-export const IMG2IMG_SENDS = [
-    { mode: 0, label: 'Send to img2img' },
-    { mode: 1, label: 'Send to Sketch' },
-    { mode: 2, label: 'Send to Inpaint' },
-    { mode: 3, label: 'Send to Inpaint sketch' },
-    { mode: 4, label: 'Send to Inpaint upload' },
-];
+export const IMG2IMG_SENDS = IMG2IMG_NAMES.slice(0, 5).map((name, mode) => ({ mode, label: `Send to ${name}` }));
 
 /**
  * What a send relies on running, started with it by each tab that sends

@@ -14,6 +14,12 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.82 - What a queued task ran with.** A task's row in the Queue tab says when it started and,
+once it completed or failed, how long it took; a task of one checkpoint, its CFG scale; and an
+img2img task, the tab it was queued from and its denoising strength. A task of several checkpoints no longer states a
+sampler, schedule type and steps its runs did not share: it says how its runs ended, and hovering
+over its checkpoints shows what each run ran with.
+
 **0.81 - ComfyUI's workflow read.** The images ComfyUI makes carry the workflow they were made
 with, and the extension reads it. Sync images adds a ComfyUI image with its prompts, sampler, steps,
 seed, size, checkpoint, LoRAs, VAE and text encoders, and Send sets Forge up with them, saying where

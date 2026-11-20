@@ -48,6 +48,13 @@ const PANELS = {
 export const IMG2IMG_MODES = ['img2imgMode', 'img2imgSketch', 'img2imgInpaint', 'img2imgInpaintSketch',
                               'img2imgInpaintUpload', 'img2imgBatch'];
 
+/**
+ * The same modes by the names of their tabs, the same six in both WebUIs
+ * (`img2img_tabs`, each one's modules/ui.py): the ⋯ menu's sends into
+ * img2img (#299), and the Queue tab's row of an img2img task (#432).
+ */
+export const IMG2IMG_NAMES = ['img2img', 'Sketch', 'Inpaint', 'Inpaint sketch', 'Inpaint upload', 'Batch'];
+
 function find(id) {
     return (typeof gradioApp === 'function' ? gradioApp() : document).querySelector(`#${id}`);
 }

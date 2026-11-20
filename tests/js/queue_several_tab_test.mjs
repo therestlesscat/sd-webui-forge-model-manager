@@ -2,7 +2,9 @@
 // stand-in server.
 //
 // Its row says "3 checkpoints" where a task of one names its checkpoint and
-// VAE, each checkpoint and how its run ended on hover. While it runs, the row
+// VAE, each checkpoint, what its run ran with and how it ended on hover, and
+// states no sampler, schedule type, steps or CFG of its own: each run had its
+// own (#403). Once it has ended, how its runs ended (#432). While it runs, the row
 // and the status line say which run it is on - "run 2 of 3" - and a task of
 // one says no run. Its bar and the status line's % are the whole task's,
 // each run an equal share, never falling back between runs (#337). Its
@@ -16,23 +18,31 @@ const { check, waitFor, done } = checker();
 document.body.insertAdjacentHTML('afterbegin', '<button id="tab_queue_tab-button" class="selected">Queue</button>');
 window.mmTiming = { poll: 40, loadTask: 1000 };
 
+// What each run ran with, as the server works it out (#403): anime_v12's
+// usual steps alone, the press's sampler, schedule type and CFG with them;
+// photo_v5 its own of each - said while it is to run, not once an ended task
+// never reached it; flux_dev none, as a server from before 0.82.0 sends.
 const CHECKPOINTS = [
-    { checkpoint: 'anime_v12.safetensors', modules: ['F:\\models\\VAE\\sdxl_vae.safetensors'], status: 'completed', error: null },
+    { checkpoint: 'anime_v12.safetensors', modules: ['F:\\models\\VAE\\sdxl_vae.safetensors'], status: 'completed', error: null,
+      ran_with: { sampler: 'Euler a', schedule_type: 'Karras', steps: 24, cfg: 7 } },
     { checkpoint: 'flux_dev.safetensors', modules: [], status: 'failed', error: 'The checkpoint is not in this WebUI' },
-    { checkpoint: 'photo_v5.safetensors', modules: [], status: null, error: null },
+    { checkpoint: 'photo_v5.safetensors', modules: [], status: null, error: null,
+      ran_with: { sampler: 'DPM++ 2M', schedule_type: 'Automatic', steps: 20, cfg: 4.5 } },
 ];
 const task = (id, status, extra = {}) => ({
     id, mode: 'txt2img', status, prompt: `task ${id}`, script: null,
     checkpoint: 'anime_v12.safetensors', modules: ['F:\\models\\VAE\\sdxl_vae.safetensors'],
     checkpoints: [{ checkpoint: 'anime_v12.safetensors', modules: [], status: null, error: null }],
     width: 832, height: 1216, hires: null, scale_by: null, sampler: 'Euler a', scheduler: 'Karras', steps: 30,
-    batch_size: 1, n_iter: 1, created_at: '2026-11-05T12:50:00', started_at: null, finished_at: null,
+    cfg: 7, batch_size: 1, n_iter: 1, created_at: '2026-11-05T12:50:00', started_at: null, finished_at: null,
     error: null, first_seed: null, retry_of: null, retried_as: null, generations: [], image_count: 0, ...extra,
 });
 const LISTS = {
     active: [task(21, 'running', { checkpoints: CHECKPOINTS.map((c, i) => ({ ...c, status: i ? null : c.status, error: null })) })],
     history: [task(20, 'failed', { checkpoints: CHECKPOINTS, image_count: 2, error: '1 of 3 failed' }),
-              task(19, 'completed', { image_count: 1 })],
+              task(19, 'completed', { image_count: 1 }),
+              task(23, 'stopped', { checkpoints: [CHECKPOINTS[0], { ...CHECKPOINTS[1], status: 'stopped', error: null },
+                                                  CHECKPOINTS[2]] })],
 };
 // A running task of one beside it, as a row: no run label, ever.
 LISTS.active.push(task(22, 'running'));
@@ -78,10 +88,26 @@ if (!row(21) || !row(20) || !row(19)) done();
 check('a task of several says how many checkpoints, where one names its checkpoint and VAE',
       [facts(20)[0].textContent.trim(), facts(19).slice(0, 2).map((f) => f.textContent.trim())],
       ['3 checkpoints', ['anime_v12', 'sdxl_vae']]);
-const LINES = 'anime_v12.safetensors (sdxl_vae) - Completed\n'
-    + 'flux_dev.safetensors - Failed: The checkpoint is not in this WebUI\nphoto_v5.safetensors - not run';
-check('each checkpoint, its VAE, and how its run ended on hover, a line each; one never reached, not run',
-      facts(20)[0].title, LINES);
+const LINES = 'anime_v12.safetensors (sdxl_vae) - Euler a, Karras, 24 steps, CFG 7 - Completed\n'
+    + 'flux_dev.safetensors - Failed: The checkpoint is not in this WebUI\n'
+    + 'photo_v5.safetensors - not run';
+check('each checkpoint, its VAE, what its run ran with and how it ended on hover, a line each; one never '
+      + 'reached, not run, and no settings; one the server says nothing of, no settings', facts(20)[0].title, LINES);
+check('a run still to come says what it will run with', facts(21)[0].title.split('\n')[2],
+      'photo_v5.safetensors - DPM++ 2M, Automatic, 20 steps, CFG 4.5');
+// #403: none of the press's settings on the row of a task of several - each
+// run had its own, in the tip - where a task of one keeps them.
+const said = (id) => facts(id).map((f) => f.textContent.trim());
+check('a task of several states no sampler, schedule type, steps or CFG; its size and batch stay',
+      [said(20).filter((f) => f.includes('Euler') || f.includes('Karras') || f.endsWith(' steps') || f.startsWith('CFG')),
+       said(20).includes('832×1216'), said(20).includes('batch 1 × 1')], [[], true, true]);
+check('a task of one keeps them', said(19).filter((f) => f.includes('Euler') || f.endsWith(' steps') || f.startsWith('CFG')),
+      ['Euler a · Karras', '30 steps', 'CFG 7']);
+// #432: how its runs ended, once it has, beside how many there were.
+check('an ended task of several says how its runs ended, after how many there were',
+      [said(20)[1], facts(20)[1].title], ['1 completed, 1 failed, 1 not run', LINES]);
+check('a running one does not yet', said(21).some((f) => f.includes('completed') || f.includes('not run')), false);
+check('a run stopped is counted as stopped', said(23)[1], '1 completed, 1 stopped, 1 not run');
 
 await waitFor('the run it is on', () => row(21).querySelector('.queue-run')?.textContent === 'run 2 of 3');
 check('while it runs, its row says which run it is on', row(21).querySelector('.queue-run')?.textContent, 'run 2 of 3');
@@ -138,7 +164,8 @@ await waitFor('the details', () => document.querySelector('#mm_meta_modal .queue
 const details = document.querySelector('#mm_meta_modal');
 const cell = (key) => [...details.querySelectorAll('tr')].find((tr) => tr.querySelector('th')?.textContent === key)
     ?.querySelector('td')?.textContent;
-check('its details list each checkpoint with how its run ended, in place of one checkpoint and its VAE',
+check('its details list each checkpoint with what its run ran with and how it ended, in place of one checkpoint '
+      + 'and its VAE',
       [cell('Checkpoints'), cell('Checkpoint'), cell('VAE / Text Encoder')],
       [LINES, undefined, undefined]);
 
