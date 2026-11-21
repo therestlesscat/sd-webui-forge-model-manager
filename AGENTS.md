@@ -437,7 +437,13 @@ the code (2026-10-16).
   count of all images and that takes 15 minutes or more" and "I haven't
   tried syncing images". It was relayed as their Sync images being unusable
   and kept closed, until the owner asked "where does user said they had to
-  wait 15mins?" (2026-10-29). Quote it.
+  wait 15mins?" (2026-10-29). Quote it. So is what a plan says another
+  system does: #428's plan said removing the lock file left two WebUIs on
+  Linux unaffected, read from the docs, never run. A build reviewer ran it
+  under WSL's Python (3.12.3, SQLite 3.45.1): Linux removes a file another
+  process holds open, the waiting WebUI's lock then answered `disk I/O
+  error`, and it stopped, 3 runs of 3. WSL's Python stands in for Linux; a
+  probe there costs a minute.
 - **A number a reporter is asked to compare is checked against the page's
   own.** #340's reply set the grid's total, every filter cleared, beside a
   query of the Lora folder's cards. The grid counts every type (1,703
@@ -634,7 +640,10 @@ v32 a copy refuses a database newer than it knows (`_init_db`), and v32
 dropped `model_versions` and renamed `civitai_models` to `models`, so a copy
 from before it fails rather than writes the old shape. v33 is a fence too: a
 copy that still has Scan Disk refuses the database. Update both before
-starting either.
+starting either. Since 0.82.3 the first to migrate holds
+`models.db.migrating` beside the database for the whole migration; the
+other waits on it, up to an hour, then reads the version again and runs
+only what is left (#428).
 
 To see the original Forge's behaviour without starting it, run the code under
 its Python with its packages on `sys.path` (`webui`,

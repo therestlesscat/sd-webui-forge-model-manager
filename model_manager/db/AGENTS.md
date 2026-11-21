@@ -319,10 +319,12 @@ the lookup and the write leaves a row naming nothing.
   gallery replace would have been committed. A build reviewer found it. A
   read in there goes through the caller's own cursor, or a connection of
   its own.
-- **A database on a share is refused as a `file:` address.**
-  `Path(p).resolve().as_uri()` of `\\server\share\models.db` gives
-  `file://server/share/models.db`, which SQLite refuses - "unable to open
-  database file" in 3.50.4, "invalid uri authority" in 3.37.2 (probed
-  through `\\localhost\F$`). The plain path, opened with `PRAGMA
-  query_only = ON`, works: `_read_comfy_switch` does so; `_stored_schema`
-  still does not (#431).
+- **A database is read read-only through `_read_only_address`, never
+  `Path(p).resolve().as_uri()`.** That address puts a share's server in
+  the host, which SQLite refuses whatever its version - "invalid uri
+  authority: server", or through `\\localhost\...` "unable to open
+  database file" (3.50.4 and 3.37.2 alike, probed 2026-11-21). Nor by plain
+  path: even with `PRAGMA query_only = ON`, it copies a `-wal` a killed
+  writer left into the file (#431). The helper's docstring has the rules.
+  `_read_comfy_switch` still reads by plain path (#428's "Not in this
+  plan").
