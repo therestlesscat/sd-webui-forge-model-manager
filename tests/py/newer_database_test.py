@@ -9,13 +9,16 @@ ModelsDatabase, and ui-options tells the page, which covers the tabs with a
 notice. Startup leaves the database alone.
 
 What is checked: database_state for a newer database, a current one and none
-at all; ui-options carrying it; on_app_started not touching the database; and
+at all; the same read through a share, under the long-path prefix, and of a
+name holding # and % (#431), with database_behind for an older one through a
+share; ui-options carrying it; on_app_started not touching the database; and
 the file left byte for byte as it was. Throwaway databases under tests/work.
 """
 import hashlib
 import os
 import shutil
 import sqlite3
+import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -60,7 +63,27 @@ def made(name, schema):
     return path
 
 
+# A writer in its own process: the database at version 1 checkpointed into
+# the file, then its version written into the WAL alone, and the process held
+# until killed - so nothing checkpoints it on close.
+WAL_WRITER = """
+import sqlite3, sys, time
+conn = sqlite3.connect(sys.argv[1], isolation_level=None)
+conn.execute("PRAGMA journal_mode=WAL")
+conn.execute("PRAGMA wal_autocheckpoint=0")
+conn.execute("CREATE TABLE schema_info (key TEXT PRIMARY KEY, value TEXT)")
+conn.execute("INSERT INTO schema_info VALUES ('version', '1')")
+conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+conn.execute("UPDATE schema_info SET value = ? WHERE key = 'version'", (sys.argv[2],))
+print("written", flush=True)
+time.sleep(60)
+"""
+
+
 def digest(path):
+    """The file's SHA-256; None once it is gone - a -wal a read copied into its database."""
+    if not os.path.isfile(path):
+        return None
     with open(path, 'rb') as f:
         return hashlib.sha256(f.read()).hexdigest()
 
@@ -83,6 +106,78 @@ check('one at this copy\'s schema is not', state(), None)
 nowhere = os.path.join(WORK, 'not_yet.db')
 opts.model_manager_database_path = nowhere
 check('no file yet is not, and none is made', (state(), os.path.exists(nowhere)), (None, False))
+
+# ------------------------------------------- the same files by other names (#431)
+# Through a share, the address SQLite was handed put the server where SQLite
+# reads a host: the version could not be read, and a newer database or a due
+# migration read as nothing to say. \\localhost\<drive>$ stands in for a
+# share; where it does not reach this folder, those checks are skipped, said.
+def through_share(path):
+    drive, rest = os.path.splitdrive(path)
+    return '\\\\localhost\\%s$%s' % (drive[:1], rest)
+
+
+older = made('older.db', SCHEMA_VERSION - 1)
+odd = made('odd #1 100%.db', SCHEMA_VERSION + 1)
+shared = through_share(newer)
+if os.name == 'nt' and os.path.isfile(shared):
+    opts.model_manager_database_path = shared
+    check('1. a newer database through a share is said to be, with both versions and the path given',
+          state(), {'schema': SCHEMA_VERSION + 1, 'known': SCHEMA_VERSION, 'path': shared})
+    opts.model_manager_database_path = through_share(older)
+    check('2. an older one through a share is due a migration',
+          database.database_behind(), {'schema': SCHEMA_VERSION - 1, 'known': SCHEMA_VERSION,
+                                       'path': through_share(older)})
+    check('5. a share under the long-path prefix (\\\\?\\UNC\\) is read',
+          database._stored_schema('\\\\?\\UNC\\' + shared[2:]), SCHEMA_VERSION + 1)
+    check('5. and with the prefix in lower case (\\\\?\\unc\\)',
+          database._stored_schema('\\\\?\\unc\\' + shared[2:]), SCHEMA_VERSION + 1)
+    # Read with the prefix left in too, as //?/UNC/...: opened by the
+    # address of the share's own path, an ordinary one.
+    address = getattr(database, '_read_only_address', lambda p: p)
+    check('5. both opened by the same address as the share\'s path without the prefix',
+          [address(prefix + shared[2:]) for prefix in ('\\\\?\\UNC\\', '\\\\?\\unc\\')],
+          [address(shared)] * 2)
+
+    # A WAL database whose writer was killed leaves its last writes in the
+    # -wal. mode=ro reads through it and leaves both files as they were; a
+    # plain path, even query_only, would copy them into the database (#136).
+    wal_db = os.path.join(WORK, 'newer_wal.db')
+    writer = subprocess.Popen([sys.executable, '-c', WAL_WRITER, wal_db, str(SCHEMA_VERSION + 1)],
+                              stdout=subprocess.PIPE, text=True)
+    try:
+        ready = writer.stdout.readline().strip()
+    finally:
+        writer.kill()
+        writer.wait(timeout=20)
+    files = (digest(wal_db), digest(wal_db + '-wal'))
+    check('6. a WAL database left by a killed writer, its last version still in the -wal',
+          (ready, os.path.getsize(wal_db + '-wal') > 0), ('written', True))
+    check('6. is read through a share at the version in its -wal',
+          database._stored_schema(through_share(wal_db)), SCHEMA_VERSION + 1)
+    check('6. and neither the database nor its -wal changed', (digest(wal_db), digest(wal_db + '-wal')), files)
+else:
+    print('Skipped the share checks (1, 2 and the \\\\?\\UNC\\ form): %s does not reach this folder' % shared)
+if os.name == 'nt':
+    check('5. a local path under the long-path prefix (\\\\?\\) is read',
+          database._stored_schema('\\\\?\\' + newer), SCHEMA_VERSION + 1)
+    # Read either way: Windows takes the //?/ SQLite is handed without the
+    # rule for the prefix. Opened by the address without it, an ordinary one.
+    address = getattr(database, '_read_only_address', lambda p: p)
+    check('5. and opened by the same address as without the prefix',
+          address('\\\\?\\' + newer), address(newer))
+check('5. a name holding # and % is read', database._stored_schema(odd), SCHEMA_VERSION + 1)
+try:
+    relative = os.path.relpath(newer)
+except ValueError:                       # the suite run from another drive
+    relative = None
+if relative:
+    check('5. a relative path is read', database._stored_schema(relative), SCHEMA_VERSION + 1)
+opts.model_manager_database_path = newer
+check('6. a local newer database is still said to be', state(),
+      {'schema': SCHEMA_VERSION + 1, 'known': SCHEMA_VERSION, 'path': newer})
+check('6. no read above made anything beside the files',
+      sorted(n for n in os.listdir(WORK) if not n.endswith('.db') and not n.startswith('newer_wal.db')), [])
 
 # ----------------------------------------------------------------- the page
 opts.model_manager_database_path = newer

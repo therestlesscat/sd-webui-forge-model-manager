@@ -32,7 +32,6 @@ import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ..console import say
@@ -91,7 +90,7 @@ def _pages(path: str) -> Dict[str, int]:
     SQLite's own count of the file, read on a read-only connection: through
     the WAL, so a VACUUM not yet checkpointed already counts as done.
     """
-    conn = sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True)
+    conn = sqlite3.connect(database._read_only_address(path), uri=True)
     try:
         page_size = conn.execute("PRAGMA page_size").fetchone()[0]
         pages = conn.execute("PRAGMA page_count").fetchone()[0]

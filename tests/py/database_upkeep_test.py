@@ -12,7 +12,8 @@ fails; what stops one - each long job, a working queue, too little room;
 Cancel; two presses. The backups: only the names migrations give, in the
 database's folder, each with the version it holds; a delete by names alone,
 refused whole on a name not listed, refused while a migration runs, a copy
-held open said to be in use.
+held open said to be in use. The window's space and the check before a
+compact, on a database read through a share (#431).
 
 Throwaway databases under tests/work. The busy timeout is cut to 0.3 s, and a
 VACUUM slowed past it by a progress handler on the compact's connection - a
@@ -514,6 +515,37 @@ check('14. nothing deleted', there('models.db.backup_20261005_101010_v44'), True
 r = http.post('/model-manager/database/backups/delete', json={'names': ['models.db.backup_20261005_101010_v44']})
 check('14. once it has ended, it can be', (r.status_code, there('models.db.backup_20261005_101010_v44')),
       (200, False))
+
+# ------------------------------------------------- 15. a database on a share
+# Read through a share, the page count's address put the server where SQLite
+# reads a host (#431): the window's space and the check before a compact
+# failed. \\localhost\<drive>$ stands in for a share; skipped, said, where it
+# does not reach this folder.
+far = os.path.join(WORK, 'far')
+os.makedirs(far)
+for name, version in (('models.db', 49), ('models.db.backup_20260901_090909', 30)):
+    made = sqlite3.connect(os.path.join(far, name))
+    made.execute("CREATE TABLE schema_info (key TEXT PRIMARY KEY, value TEXT)")
+    made.execute("INSERT INTO schema_info VALUES ('version', ?)", (str(version),))
+    made.commit()
+    made.close()
+drive, rest = os.path.splitdrive(os.path.join(far, 'models.db'))
+shared = '\\\\localhost\\%s$%s' % (drive[:1], rest)
+if os.name == 'nt' and os.path.isfile(shared):
+    try:
+        answer = upkeep.space(shared)
+        answer = (answer['pages'] > 0, [(b['name'], b['holds']) for b in answer['backups']])
+    except Exception as e:
+        answer = repr(e)
+    check('15. (#431\'s check 3) the window\'s space for a database on a share, with an unnumbered backup\'s version read there',
+          answer, (True, [('models.db.backup_20260901_090909', 30)]))
+    try:
+        answer = upkeep.blocked(shared)
+    except Exception as e:
+        answer = repr(e)
+    check('15. (#431\'s check 4) the check before a compact answers there', answer, None)
+else:
+    print('Skipped the share checks (15): %s does not reach this folder' % shared)
 
 for db in opened:
     db.close()

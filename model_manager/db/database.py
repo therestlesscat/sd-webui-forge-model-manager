@@ -1047,18 +1047,50 @@ def migration_state() -> Optional[Dict[str, Any]]:
     return None
 
 
+# Windows' long-path prefix for a share, as `_read_only_address` matches it.
+_LONG_UNC = "\\\\?\\UNC\\"
+
+
+def _read_only_address(path: str) -> str:
+    """
+    The `file:` address SQLite opens a database by, read-only (#431). mode=ro
+    because a plain path, even with `query_only`, copies a `-wal` a writer
+    left behind into the file: a newer database must not be written (#136).
+
+    `Path.as_uri()` of `\\\\server\\share\\x` gives `file://server/share/x`,
+    and SQLite takes an address's host for a host of its own: "invalid uri
+    authority", or through `\\\\localhost\\...` a path that is not there.
+    The share goes in the path instead, `file:////server/share/x`. The
+    long-path prefix would land in the host the same way: `\\\\?\\UNC\\`, in any
+    case, is read as `\\\\`, and `\\\\?\\` before a drive letter comes off. Any
+    other `\\\\?\\` path - a volume's name - is left whole, which Neo's Python
+    reads and the original Forge's cannot make an address of. `abspath`, not
+    `resolve`: a mapped drive keeps its letter, and under Python 3.10
+    `resolve` raised on a share that is away.
+    """
+    if path[:len(_LONG_UNC)].upper() == _LONG_UNC:
+        path = "\\\\" + path[len(_LONG_UNC):]
+    elif path.startswith("\\\\?\\") and path[5:6] == ":":
+        path = path[len("\\\\?\\"):]
+    path = os.path.abspath(path)
+    address = Path(path).as_uri()
+    if path.startswith("\\\\"):
+        address = "file:////" + address[len("file://"):]
+    return address + "?mode=ro"
+
+
 def _stored_schema(path: str) -> Optional[int]:
     """The schema a database file says it is at, read with mode=ro; None where it cannot be read."""
     if not os.path.isfile(path):
         return None
     try:
-        conn = sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True)
+        conn = sqlite3.connect(_read_only_address(path), uri=True)
         try:
             row = conn.execute("SELECT value FROM schema_info WHERE key = 'version'").fetchone()
         finally:
             conn.close()
         return int(row[0]) if row else 0
-    except (sqlite3.Error, ValueError):
+    except (sqlite3.Error, ValueError, OSError):
         return None
 
 
