@@ -20,6 +20,7 @@ SQLite objects cannot cross between them.
 import os
 import sqlite3
 import threading
+import time
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, List, Dict, Any, Set, Tuple
@@ -149,7 +150,7 @@ class ModelsDatabase:
             # Rolled back to the step before the one that failed: each earlier
             # step is committed with its version, so the next start goes on
             # from the failed one (#391).
-            _migration_failed(str(error))
+            _migration_failed(str(error), getattr(error, "case", None), getattr(error, "newer", None))
             raise
         # Committed: the page's notice goes, and its tabs start.
         _migration_ended()
@@ -162,41 +163,65 @@ class ModelsDatabase:
                     value TEXT
                 )
             """)
-            cursor.execute("SELECT value FROM schema_info WHERE key = 'version'")
-            row = cursor.fetchone()
-            current_version = int(row[0]) if row else 0
-
-            # A newer copy of the extension, sharing this database, has
-            # changed its shape: this one's queries and writes are for the old
-            # one. It used to run them anyway.
-            if current_version > SCHEMA_VERSION:
-                raise RuntimeError(
-                    f"[ModelManager] The database {self.db_path} is at schema v{current_version}, "
-                    f"newer than this copy of the extension knows (v{SCHEMA_VERSION}). "
-                    "Update this copy - another WebUI sharing the database has been updated.")
-
-            if current_version == 0:
-                # A database made now, by this version: notes for people
-                # updating from before it do not apply (release_notes.py).
-                # Written before the run, so it is committed with its first
-                # step: a first run that fails keeps the steps it finished,
-                # and the next start no longer reads v0 (#391).
-                from ..version import VERSION
-                cursor.execute("INSERT OR IGNORE INTO schema_info (key, value) VALUES ('created_by', ?)",
-                               (VERSION,))
-                # Nothing stored yet is judged without its ComfyUI graph: a
-                # new library is judged filled from the start, and never
-                # offered Fill (#232).
-                cursor.executemany("INSERT OR IGNORE INTO schema_info (key, value) VALUES (?, ?)",
-                                   ((JUDGED_KEY, "1"), (FILLED_KEY, str(READER))))
-            if current_version < SCHEMA_VERSION:
-                # Said to the page while it runs (#285), the tabs held until it
-                # ends - a library's, not a new file's, which takes no time.
-                said = (lambda text: _migration_said(current_version, text)) if current_version else None
+            current_version = _version_in(cursor)
+        self._refuse_newer(current_version)
+        if current_version >= SCHEMA_VERSION:
+            return
+        # Said to the page while it runs (#285), the tabs held until it ends -
+        # a library's, not a new file's, which takes no time. Said before the
+        # lock is taken: a failure is kept only once the page has a migration
+        # to fail.
+        if current_version:
+            _migration_said(current_version, "")
+        # Two WebUIs sharing the database both read the old version; the
+        # first lets go of the database's write lock between steps and inside
+        # seven of them, so the second ran steps the first was running (#428).
+        # The lock file is held for the whole run instead, and the version
+        # read again under it, on this connection with no transaction open:
+        # it sees every step the other WebUI committed. A new database's
+        # first rows wait for the lock too - written before it, their
+        # transaction holds the write lock the first WebUI's next step needs,
+        # while this one waits for the lock file that WebUI holds.
+        with _migrating_alone(self.db_path, current_version):
+            with self._cursor() as cursor:
+                version = _version_in(cursor)
+                self._refuse_newer(version)
+                if version >= SCHEMA_VERSION:
+                    return               # the other WebUI did it
+                if version == 0:
+                    # A database made now, by this version: notes for people
+                    # updating from before it do not apply (release_notes.py).
+                    # Written before the run, so it is committed with its first
+                    # step: a first run that fails keeps the steps it finished,
+                    # and the next start no longer reads v0 (#391).
+                    from ..version import VERSION
+                    cursor.execute("INSERT OR IGNORE INTO schema_info (key, value) VALUES ('created_by', ?)",
+                                   (VERSION,))
+                    # Nothing stored yet is judged without its ComfyUI graph: a
+                    # new library is judged filled from the start, and never
+                    # offered Fill (#232).
+                    cursor.executemany("INSERT OR IGNORE INTO schema_info (key, value) VALUES (?, ?)",
+                                       ((JUDGED_KEY, "1"), (FILLED_KEY, str(READER))))
+                said = (lambda text: _migration_said(version, text)) if version else None
                 if said:
                     said("")
-                run_migrations(cursor, current_version, SCHEMA_VERSION,
+                run_migrations(cursor, version, SCHEMA_VERSION,
                                self.db_path, self.db_dir, progress=said)
+
+    def _refuse_newer(self, version: int) -> None:
+        """
+        A newer copy of the extension, sharing this database, has changed its
+        shape: this one's queries and writes are for the old one. It used to
+        run them anyway. Found after waiting for the other WebUI (#428), the
+        page says so as it does at a start (#136).
+        """
+        if version > SCHEMA_VERSION:
+            error = MigrationStopped(
+                f"[ModelManager] The database {self.db_path} is at schema v{version}, "
+                f"newer than this copy of the extension knows (v{SCHEMA_VERSION}). "
+                "Update this copy - another WebUI sharing the database has been updated.", "newer")
+            error.newer = {"schema": version, "known": SCHEMA_VERSION, "path": self.db_path}
+            raise error
 
     # ==================== Notes to the user ====================
 
@@ -1017,11 +1042,18 @@ def _migration_said(version: int, progress: str, error: Optional[str] = None) ->
         _migration = {"from": version, "to": SCHEMA_VERSION, "progress": progress, "error": error}
 
 
-def _migration_failed(error: str) -> None:
+def _migration_failed(error: str, case: Optional[str] = None,
+                      newer: Optional[Dict[str, Any]] = None) -> None:
+    """
+    The migration failed. A case the page words itself (#428) is named:
+    "waited" - the other WebUI was still at it - "lock_file", "newer".
+    """
     global _migration
     with _migration_lock:
         if _migration is not None:
             _migration = dict(_migration, error=error)
+            if case:
+                _migration.update(case=case, newer=newer)
 
 
 def _migration_ended() -> None:
@@ -1029,6 +1061,132 @@ def _migration_ended() -> None:
     with _migration_lock:
         if _migration is not None and not _migration.get("error"):
             _migration = None
+
+
+class MigrationStopped(RuntimeError):
+    """A migration that did not run, and why, in a case the page words itself (#428)."""
+
+    def __init__(self, message: str, case: str):
+        super().__init__(message)
+        self.case = case
+        self.newer: Optional[Dict[str, Any]] = None
+
+
+# Beside the database, while one WebUI migrates it (#428).
+LOCK_SUFFIX = ".migrating"
+WAITING = "Waiting for the other WebUI sharing this database to finish updating it."
+
+
+def _version_in(cursor) -> int:
+    cursor.execute("SELECT value FROM schema_info WHERE key = 'version'")
+    row = cursor.fetchone()
+    return int(row[0]) if row else 0
+
+
+def _waited(seconds: float) -> str:
+    if seconds == 3600:
+        return "an hour"
+    return f"{round(seconds / 60)} minutes" if seconds >= 120 else f"{seconds:g} s"
+
+
+# How often the waiter opens the lock file again because the other WebUI
+# removed it or made it anew as it let go, before it gives up (#428).
+REOPENS = 10
+
+
+def _file_named(path: str) -> Optional[Tuple[int, int]]:
+    """Which file a path names now - its device and number - or None when it names none."""
+    try:
+        found = os.stat(path)
+    except OSError:
+        return None
+    return (found.st_dev, found.st_ino)
+
+
+def _busy(error: sqlite3.Error) -> bool:
+    return "database is locked" in str(error)
+
+
+def _take(lock: sqlite3.Connection, deadline: Optional[float]) -> Optional[sqlite3.Error]:
+    """
+    The lock file's lock, waited for until `deadline` (None: not at all), and
+    a write inside it: a read-only file opens, and its lock would exclude
+    nothing. The error, or None once it is held.
+    """
+    try:
+        if deadline is not None:
+            lock.execute(f"PRAGMA busy_timeout = {max(0, int((deadline - time.monotonic()) * 1000))}")
+        lock.execute("BEGIN EXCLUSIVE")
+        lock.execute("PRAGMA user_version = 1")
+    except sqlite3.Error as error:
+        return error
+    return None
+
+
+@contextmanager
+def _migrating_alone(db_path: str, version: int):
+    """
+    Hold the lock file beside the database for a migration, alone (#428): a
+    small SQLite file of its own, held by `BEGIN EXCLUSIVE`, which the
+    operating system lets go of when the process ends, however it ends.
+    Another WebUI holding it is waited for, an hour at most, the page told
+    so. A file that cannot be used - other data, a folder, read-only, held by
+    another program - stops the migration with its name, and is left as it
+    is: the user decides what goes. Released, it is removed. Windows refuses
+    that while the other WebUI holds it open, and that one removes it at its
+    own release; Linux removes it, and the waiter's lock is then on a file
+    the path no longer names - so a waiter whose path names another file, or
+    none, opens it again.
+    """
+    lock_path = db_path + LOCK_SUFFIX
+
+    def unusable(error) -> MigrationStopped:
+        return MigrationStopped(
+            f"[ModelManager] The file {lock_path}, which keeps two WebUIs sharing the database "
+            f"from updating it at once, cannot be used: {error}. If another program has it open, restart "
+            "the WebUI once it lets go of it; otherwise delete the file, then restart the WebUI.",
+            "lock_file")
+
+    deadline = None                       # once another WebUI is found holding it
+    for _ in range(REOPENS + 1):
+        try:
+            lock = sqlite3.connect(lock_path, timeout=0, isolation_level=None)
+        except sqlite3.Error as error:
+            raise unusable(error) from error
+        opened = _file_named(lock_path)
+        failed = _take(lock, deadline)
+        if failed is not None and deadline is None and _busy(failed):
+            if version:
+                _migration_said(version, WAITING)
+            say(f"{WAITING[:-1]}: {db_path}")
+            deadline = time.monotonic() + COMPACT_WAIT_SECONDS
+            failed = _take(lock, deadline)
+        if _file_named(lock_path) != opened:
+            lock.close()                  # removed or made anew as the other let go: open it again
+            continue
+        if failed is None:
+            break
+        lock.close()
+        if _busy(failed):
+            raise MigrationStopped(
+                f"[ModelManager] The other WebUI sharing the database {db_path} is still updating it, "
+                f"after {_waited(COMPACT_WAIT_SECONDS)} of waiting. Restart this WebUI once it is done.",
+                "waited") from failed
+        raise unusable(failed) from failed
+    else:
+        raise unusable(f"it was removed or made anew each of the {REOPENS + 1} times this WebUI opened it")
+    try:
+        yield
+    finally:
+        try:
+            lock.execute("ROLLBACK")
+        except sqlite3.Error:
+            pass
+        lock.close()
+        try:
+            os.remove(lock_path)
+        except OSError:
+            pass                     # held by the other WebUI, which removes it
 
 
 def migration_state() -> Optional[Dict[str, Any]]:
@@ -1132,7 +1290,13 @@ def get_models_db() -> ModelsDatabase:
         with _db_lock:
             # A migration that failed is not run again by every request, each
             # with a backup of its own: the start's failure is said again (#285).
-            failed = (migration_state() or {}).get("error")
+            kept = migration_state() or {}
+            failed = kept.get("error")
+            if _db_instance is None and failed and kept.get("case"):
+                # Said again as what it was (#428): a migration that never ran.
+                stopped = MigrationStopped(failed, kept["case"])
+                stopped.newer = kept.get("newer")
+                raise stopped
             if _db_instance is None and failed:
                 raise RuntimeError(failed)
             if _db_instance is None:

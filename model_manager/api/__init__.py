@@ -28,7 +28,7 @@ from fastapi import FastAPI
 from . import civitai, common, gallery, generations, images, jobs, models, notes, scheduler, settings, webui
 from .. import prompt_levels, repairs, update_check
 from ..scheduler import runner
-from ..db import database_behind, database_state, get_models_db
+from ..db import MigrationStopped, database_behind, database_state, get_models_db
 from ..console import say, say_failure
 
 
@@ -73,6 +73,12 @@ def on_app_started(demo, app):
 def _migrate_then_start():
     try:
         get_models_db()
+    except MigrationStopped as error:
+        # It never ran (#428) - the other WebUI was still at it, the lock file
+        # could not be used, or the database is newer than this copy: nothing
+        # was changed, and its own words say why.
+        say(str(error).replace("[ModelManager] ", "", 1))
+        return
     except Exception:
         say_failure("The database's migration failed. What it finished is kept, and the next start goes on "
                     "from the step that failed.")

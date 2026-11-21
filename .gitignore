@@ -9,6 +9,9 @@ __pycache__/
 # SQLite sidecar files, present while the database is open
 *.db-wal
 *.db-shm
+# held beside the database while one WebUI migrates it (#428)
+*.db.migrating
+*.db.migrating-journal
 # Timestamped backups made before migrations and risky operations
 *.db.backup_*
 # Thumbnails of your generations, in their default folder beside the database (#5)
