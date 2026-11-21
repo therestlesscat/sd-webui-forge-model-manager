@@ -684,8 +684,29 @@ function refusedNotice() {
 }
 
 function migratingNotice() {
-    const { from, to, progress, error } = migrating;
+    const { from, to, progress, error, case: stopped } = migrating;
     const versions = `v${escapeHtml(String(from))} to v${escapeHtml(String(to))}`;
+    // A migration that never ran, said as such (#428): waiting on the other
+    // WebUI ran out, or the file that keeps the two apart cannot be used.
+    if (error && stopped === 'waited') {
+        return `<div class="newer-database database-migrating database-migration-failed">
+            <h3>The Model Manager could not update its database.</h3>
+            <p>The other WebUI sharing this database is still updating it, and this one
+               stopped waiting. Nothing was changed here. The tabs stay off until this WebUI
+               is restarted, once the other is done.</p>
+            <p class="newer-database-path">${escapeHtml(error)}</p>
+        </div>`;
+    }
+    if (error && stopped === 'lock_file') {
+        return `<div class="newer-database database-migrating database-migration-failed">
+            <h3>The Model Manager could not update its database.</h3>
+            <p>The file that keeps two WebUIs sharing this database from updating it at once
+               cannot be used, so the update did not start. Nothing was changed. If another
+               program has the file open, restart the WebUI once it lets go of it; otherwise
+               delete the file, then restart the WebUI.</p>
+            <p class="newer-database-path">${escapeHtml(error)}</p>
+        </div>`;
+    }
     if (error) {
         return `<div class="newer-database database-migrating database-migration-failed">
             <h3>The Model Manager could not update its database.</h3>
@@ -784,6 +805,16 @@ function followMigration() {
             }
             return;
         }
+        if (now.error && now.case === 'newer' && now.newer) {
+            // Updated past this copy by the other WebUI while this one waited
+            // for it (#428): said as at a start with such a database (#136).
+            migrating = null;
+            newerDatabase = now.newer;
+            removeMigratingNotices();
+            await offerDatabaseActions();
+            drawDatabaseNotices();
+            return;
+        }
         const failed = Boolean(now.error) && !migrating?.error;
         migrating = now;
         if (failed) removeMigratingNotices();
@@ -868,6 +899,10 @@ export const boot = once(() => {
         }
         restartable = data?.restartable === true;
         newerDatabase = data?.database_newer || null;
+        // Found newer once the wait for the other WebUI ended (#428), after the
+        // server's own check for a newer database had answered: said as that.
+        const stopped = data?.database_migrating;
+        if (!newerDatabase && stopped?.error && stopped.case === 'newer' && stopped.newer) newerDatabase = stopped.newer;
         if (newerDatabase) await offerDatabaseActions();
         migrating = newerDatabase ? null : data?.database_migrating || null;
         if (migrating && !migrating.error) followMigration();
