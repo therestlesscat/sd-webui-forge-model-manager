@@ -548,11 +548,19 @@ type($('#mm_settings_search'), 'queue tab');
 // ("queues the rest", "the Civitai Images tab"), How many downloads in parallel ("in the
 // queue", and "Tab" in its tags), and Queue a generation with several checkpoints ("in the
 // Queue", and "Tab" in its tags). Keep past notices has the Queue Tab among its tags, as it
-// has every tab's (#357).
+// has every tab's (#357). The views' tabs are searched too (#427): the presets are listed
+// for the Queue, and Send with a picked checkpoint's usual settings holds "to queue them"
+// and, listed for the tabs that send, "Tab".
 check('a tab\'s name finds what acts in it', ORDER.filter(shown),
       ['model_manager_queue_enabled', 'model_manager_civitai_images_at_once', 'model_manager_downloads_at_once',
-       'model_manager_queue_several', 'model_manager_keep_past_notices', 'model_manager_database_path', 'model_manager_queue_inputs_dir', 'model_manager_queue_ask_above',
+       'model_manager_queue_several', 'model_manager_send_usual_settings', 'model_manager_keep_past_notices',
+       'model_manager_modules_flux', 'model_manager_modules_lumina', 'model_manager_modules_zit',
+       'model_manager_modules_wan', 'model_manager_modules_qwen', 'model_manager_database_path', 'model_manager_queue_inputs_dir', 'model_manager_queue_ask_above',
        'model_manager_check_updates', 'model_manager_refuse_unknown_names', 'model_manager_other_host_names']);
+// And what is listed for a tab whose images Send sends, though tagged Send (#427).
+type($('#mm_settings_search'), 'generations tab');
+check('48. a tab\'s name finds what its view lists: Use the image\'s Clip skip for the Generations tab',
+      shown('model_manager_send_clip_skip'), true);
 // Every word typed, in any order (#320): as one piece, "queue folder" found nothing.
 type($('#mm_settings_search'), 'queue folder');
 check('every word typed, in any order, finds a setting holding them apart', ORDER.filter(shown),
@@ -960,13 +968,36 @@ const band = () => $('#mm_settings_band');
 const bandButtons = () => Array.from(band()?.querySelectorAll('[data-act="band"]') || [])
     .map((b) => [b.textContent.trim(), b.getAttribute('aria-pressed')]);
 check('opened with nothing named, the first group, and no band', [shownSections(), band()?.hidden], [['tabs'], true]);
-// A tab's gear (#320): the band, on that tab's settings - those tagged with
-// it - their groups open; All settings beside it, with each count.
+// A tab's gear (#320): the band, on that tab's settings - those the server
+// lists for it (#427) - their groups open; All settings beside it, with each count.
 const drawn = () => ORDER.filter((k) => field(k));
-const taggedWith = (tab) => drawn().filter((k) => (ANSWER.settings[k].tags || []).includes(tab));
+const taggedWith = (tab) => drawn().filter((k) => (ANSWER.settings[k].listed_in || []).includes(tab));
 const groupsOf = (keys) => present().filter((id) => keys.some((k) => ANSWER.settings[k].group === id));
 // The Civitai Images tab is off here (above): its own setting shows with no band.
 const byTabs = () => drawn().filter((k) => k !== 'model_manager_gallery_grid');
+// Send is no tab (#427): what Send reads is listed for each tab whose images it
+// sends, the presets and Queue several for the Queue too - and none of them
+// for the Civitai Browser, which sends nothing.
+const SEND_OWN = ['model_manager_send_clip_skip', 'model_manager_send_clip_skip_max', 'model_manager_send_rename_loras',
+                  'model_manager_send_choose_checkpoint', 'model_manager_queue_several',
+                  'model_manager_send_usual_settings'];
+const presetKeys = () => drawn().filter((k) => k.startsWith('model_manager_modules_'));
+const shownFrom = async (tab, keys) => { await reopen({ tab }); return keys.filter(shown); };
+check('44. from the Generations tab\'s gear: Use the image\'s Clip skip and the Flux.1 preset',
+      await shownFrom('generations', ['model_manager_send_clip_skip', 'model_manager_modules_flux']),
+      ['model_manager_send_clip_skip', 'model_manager_modules_flux']);
+check('45. from the Model Manager\'s: Choose the checkpoint at every Send too',
+      await shownFrom('model_manager', ['model_manager_send_clip_skip', 'model_manager_modules_flux',
+                                        'model_manager_send_choose_checkpoint']),
+      ['model_manager_send_clip_skip', 'model_manager_modules_flux', 'model_manager_send_choose_checkpoint']);
+check('46. from the Queue\'s: Queue several and the Flux.1 preset, and none of Send\'s own others',
+      await shownFrom('queue', [...SEND_OWN, 'model_manager_modules_flux']),
+      ['model_manager_queue_several', 'model_manager_modules_flux']);
+check('47. from the Civitai Browser\'s: none of Send\'s own settings, nor the presets',
+      await shownFrom('civitai_browser', [...SEND_OWN, ...presetKeys()]), []);
+check('47b. and the presets were drawn for 47 to look at: the stand-in\'s five', presetKeys(),
+      ['model_manager_modules_flux', 'model_manager_modules_lumina', 'model_manager_modules_zit',
+       'model_manager_modules_wan', 'model_manager_modules_qwen']);
 for (const [tab, label] of [['model_manager', 'Model Manager Tab'], ['civitai_browser', 'Civitai Browser Tab'],
                             ['generations', 'Generations Tab'], ['queue', 'Queue Tab']]) {
     await reopen({ tab });
@@ -978,8 +1009,10 @@ for (const [tab, label] of [['model_manager', 'Model Manager Tab'], ['civitai_br
     check(`and among them Keep past notices, from the ${tab} tab's gear`,
           drawn().filter(shown).includes('model_manager_keep_past_notices'), true);
 }
-check('the Queue Tab\'s: its switch, Keep past notices, its two settings, the database file, the update check and the two of Access',
-      taggedWith('queue'), ['model_manager_queue_enabled', 'model_manager_keep_past_notices', 'model_manager_database_path',
+check('the Queue Tab\'s: its switch, Queue several, Keep past notices, the presets (#427), its two settings, the database file, the update check and the two of Access',
+      taggedWith('queue'), ['model_manager_queue_enabled', 'model_manager_queue_several', 'model_manager_keep_past_notices',
+                            'model_manager_modules_flux', 'model_manager_modules_lumina', 'model_manager_modules_zit',
+                            'model_manager_modules_wan', 'model_manager_modules_qwen', 'model_manager_database_path',
                             'model_manager_queue_inputs_dir', 'model_manager_queue_ask_above',
                             'model_manager_check_updates', 'model_manager_refuse_unknown_names',
                             'model_manager_other_host_names']);

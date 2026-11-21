@@ -269,9 +269,9 @@ check('36. several checkpoints\' setting is registered: Send\'s group, its names
       ('send', 'Queue a generation with several checkpoints', 'Queue a generation with several checkpoints',
        ('queue',), False))
 choose = next((s for s in settings if s.key == 'model_manager_send_choose_checkpoint'), None)
-check('36b. nested under Choose the checkpoint at every Send, with the same tags',
+check('36b. nested under Choose the checkpoint at every Send, with the same tags and the Queue\'s (#427)',
       (several.under, several.tags) if several else None,
-      (('model_manager_send_choose_checkpoint', True), choose.tags if choose else None))
+      (('model_manager_send_choose_checkpoint', True), ('queue',) + choose.tags if choose else None))
 keys = [s.key for s in settings]
 check('37. and drawn right after Choose the checkpoint at every Send, whose list it changes',
       keys.index('model_manager_queue_several') - keys.index('model_manager_send_choose_checkpoint') if several else None, 1)
@@ -287,6 +287,29 @@ check('38. Keep past notices is registered: Send\'s group, a box, its names, eve
        ('queue', 'generations', 'gallery', 'model_manager', 'civitai_browser', 'send'), 'Shared across tabs', (), True))
 check('39. and drawn right after Send with a picked checkpoint\'s usual settings by default',
       keys.index('model_manager_keep_past_notices') - keys.index('model_manager_send_usual_settings') if keep else None, 1)
+
+# Which tabs' views list a setting (#427): the tabs it is tagged with, and
+# for Send the tabs whose images Send sends. Send is no tab, and 14 settings
+# tagged Send alone were listed in no tab's view.
+listed = lambda key: getattr(reg.by_key()[key], 'listed_in', ())
+check('40. every setting but the tabs\' switches is listed in some tab\'s view',
+      [s.key for s in settings if s.group != 'tabs' and not getattr(s, 'listed_in', ())], [])
+check('41. Send reaches the tabs that send; the Queue its presets and Queue several; the Browser downloads',
+      [listed(k) for k in ('model_manager_send_clip_skip', 'model_manager_modules_flux', 'model_manager_queue_several',
+                           'model_manager_civitai_folder_template')],
+      [('generations', 'gallery', 'model_manager'), ('queue', 'generations', 'gallery', 'model_manager'),
+       ('queue', 'generations', 'gallery', 'model_manager'),
+       ('generations', 'gallery', 'model_manager', 'civitai_browser')])
+inputs = [reg.by_key()[k] for k in ('model_manager_generations_keep_inputs', 'model_manager_generations_inputs_dir')]
+check('42. img2img\'s kept inputs: listed where a generation is sent back, shown with the recorder\'s switch',
+      [(listed(s.key), s.shown_with) for s in inputs],
+      [(('generations', 'model_manager'), ('generations',))] * 2)
+presets = [s for s in settings if s.key.startswith('model_manager_modules_')]
+# A guard, true before #427 too: tagged with the Queue, the presets keep no
+# tab heading and stay shown whatever tabs are on.
+check('43. the presets: under no tab\'s heading, shown whatever tabs are on; Queue several with the Queue',
+      ({(s.heading, s.shown_with) for s in presets}, reg.by_key()['model_manager_queue_several'].shown_with),
+      ({('Shared across tabs', ())}, ('queue',)))
 
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

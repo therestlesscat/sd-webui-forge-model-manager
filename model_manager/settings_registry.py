@@ -54,6 +54,12 @@ TAB_LABELS = {
     "civitai_browser": "Civitai Browser Tab",
 }
 SEND = "send"
+# The tabs whose images Send sends (#427): a setting tagged SEND is listed in
+# each one's view of the settings window. The Queue's Load to UI and the
+# Civitai Browser read none of Send's own settings. The window once matched
+# a view by tags, and SEND is no tab's id: 14 settings tagged it alone were
+# in no tab's view.
+SEND_TABS = ("generations", "gallery", "model_manager")
 TAG_LABELS = {**TAB_LABELS, SEND: "Send"}
 SHARED_HEADING = "Shared across tabs"
 
@@ -70,7 +76,7 @@ class Setting:
     name: str                       # in the settings window
     page_name: str                  # on Forge's Settings page
     description: str
-    tags: Tuple[str, ...]           # the tabs it acts in; SEND for any
+    tags: Tuple[str, ...]           # the tabs it acts in; SEND: through Send, in each of SEND_TABS
     under: Optional[Tuple[str, Any]] = None   # (key, value) that turns it on; True for "a key is set"
     badges: Tuple[str, ...] = ()
     args: Dict[str, Any] = field(default_factory=dict)
@@ -87,9 +93,14 @@ class Setting:
         return tuple(t for t in self.tags if t in TAB_LABELS)
 
     @property
+    def listed_in(self) -> Tuple[str, ...]:
+        """The tabs whose view of the settings window lists it, in the WebUI's order (#427)."""
+        return tuple(t for t in TAB_LABELS if t in self.tags or (SEND in self.tags and t in SEND_TABS))
+
+    @property
     def heading(self) -> str:
-        """The tab heading it sits under inside its group: the one tab it acts in, else shared."""
-        tabs = [t for t in self.tags if t in TAB_LABELS]
+        """The tab heading it sits under inside its group: the one tab it is listed in, else shared."""
+        tabs = self.listed_in
         return TAB_LABELS[tabs[0]] if len(tabs) == 1 else SHARED_HEADING
 
 
@@ -381,7 +392,8 @@ SETTINGS: Tuple[Setting, ...] = (
             "Ticking or clearing it in the dialog lasts until the page is reloaded. This applies while Choose the "
             "checkpoint at every Send is on. A task of several checkpoints loads back into txt2img whole with Load "
             "to UI, whatever this says.",
-            (CI, GEN, SEND), under=("model_manager_send_choose_checkpoint", True), needs=(Q,)),
+            # The Queue's too: its ticks become the press of Queue for N checkpoints (#427).
+            (Q, CI, GEN, SEND), under=("model_manager_send_choose_checkpoint", True), needs=(Q,)),
     Setting("model_manager_send_usual_settings", "send", "checkbox",
             "Send with a picked checkpoint's usual settings by default",
             "Send uses a picked checkpoint's usual settings by default",
@@ -414,7 +426,10 @@ SETTINGS: Tuple[Setting, ...] = (
             "When on, each img2img generation that is recorded also keeps the picture it started from, and what you "
             "painted over it: the mask, or the strokes. Send can then put them back in img2img, and the image "
             "viewer shows them. Each picture is kept once, however many generations started from it, and deleted "
-            "with the last of them. When off, nothing more is kept; what was kept before stays.", (GEN, SEND)),
+            "with the last of them. When off, nothing more is kept; what was kept before stays.",
+            # Read by the recorder alone; what it keeps shows where a generation
+            # is sent back and viewed, as the thumbnails' do (#427).
+            (GEN, MM), needs=(GEN,)),
     Setting("model_manager_image_sync_level", "your_generations", "dropdown", "NSFW level for images without infotext",
             "NSFW level Sync images gives images without infotext",
             "The level the Sync images dialog has picked when it opens; the dialog saves the level you pick there "
@@ -476,7 +491,7 @@ SETTINGS: Tuple[Setting, ...] = (
             "folder named generation-inputs beside the database file, which two WebUIs sharing the database share "
             "too. Generations keep the full paths of their files, so a change applies only to generations recorded "
             "after it.",
-            (GEN, SEND), under=("model_manager_generations_keep_inputs", True),
+            (GEN, MM), needs=(GEN,), under=("model_manager_generations_keep_inputs", True),
             args={"placeholder": "Empty: a generation-inputs folder beside the database"}),
 
     # ---------------------------------------------------- Sync and queue
@@ -537,11 +552,13 @@ def module_settings() -> Tuple[Setting, ...]:
     """
     Send's text encoders and VAE, one setting per Neo preset (forge_modules).
     Their descriptions, with links, are Forge's page's (ui/settings.py); the
-    window draws them as its table.
+    window draws them as its table. The Queue's press of several checkpoints
+    picks them for a checkpoint of another family too (scheduler/several.py),
+    and they are shown whatever tabs are on (#427).
     """
     from .forge_modules import MODULE_PRESETS, SETTING_PREFIX
     return tuple(Setting(SETTING_PREFIX + preset, "send", "textbox", f"{label} text encoders and VAE",
-                         f"Text encoders and VAE Send picks for {label}", "", (SEND,))
+                         f"Text encoders and VAE Send picks for {label}", "", (Q, SEND), needs=())
                  for preset, label, _ in MODULE_PRESETS)
 
 

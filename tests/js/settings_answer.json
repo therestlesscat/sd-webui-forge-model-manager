@@ -11,6 +11,9 @@
    "tags": [
     "queue"
    ],
+   "listed_in": [
+    "queue"
+   ],
    "shown_with": [],
    "under": null,
    "badges": [],
@@ -26,6 +29,9 @@
    "group": "tabs",
    "heading": "Generations Tab",
    "tags": [
+    "generations"
+   ],
+   "listed_in": [
     "generations"
    ],
    "shown_with": [],
@@ -45,6 +51,9 @@
    "tags": [
     "gallery"
    ],
+   "listed_in": [
+    "gallery"
+   ],
    "shown_with": [],
    "under": null,
    "badges": [],
@@ -62,6 +71,9 @@
    "tags": [
     "model_manager"
    ],
+   "listed_in": [
+    "model_manager"
+   ],
    "shown_with": [],
    "under": null,
    "badges": [],
@@ -77,6 +89,9 @@
    "group": "tabs",
    "heading": "Civitai Browser Tab",
    "tags": [
+    "civitai_browser"
+   ],
+   "listed_in": [
     "civitai_browser"
    ],
    "shown_with": [],
@@ -97,6 +112,12 @@
     "model_manager",
     "civitai_browser",
     "send"
+   ],
+   "listed_in": [
+    "generations",
+    "gallery",
+    "model_manager",
+    "civitai_browser"
    ],
    "shown_with": [],
    "under": null,
@@ -119,6 +140,12 @@
     "model_manager",
     "civitai_browser",
     "send"
+   ],
+   "listed_in": [
+    "generations",
+    "gallery",
+    "model_manager",
+    "civitai_browser"
    ],
    "shown_with": [],
    "under": [
@@ -143,6 +170,11 @@
     "model_manager",
     "civitai_browser",
     "gallery"
+   ],
+   "listed_in": [
+    "gallery",
+    "model_manager",
+    "civitai_browser"
    ],
    "shown_with": [
     "model_manager",
@@ -170,6 +202,12 @@
     "civitai_browser",
     "send"
    ],
+   "listed_in": [
+    "generations",
+    "gallery",
+    "model_manager",
+    "civitai_browser"
+   ],
    "shown_with": [],
    "under": null,
    "badges": [],
@@ -188,6 +226,12 @@
     "model_manager",
     "civitai_browser",
     "send"
+   ],
+   "listed_in": [
+    "generations",
+    "gallery",
+    "model_manager",
+    "civitai_browser"
    ],
    "shown_with": [],
    "under": null,
@@ -210,6 +254,12 @@
     "model_manager",
     "civitai_browser",
     "send"
+   ],
+   "listed_in": [
+    "generations",
+    "gallery",
+    "model_manager",
+    "civitai_browser"
    ],
    "shown_with": [],
    "under": [
@@ -234,6 +284,12 @@
     "civitai_browser",
     "send"
    ],
+   "listed_in": [
+    "generations",
+    "gallery",
+    "model_manager",
+    "civitai_browser"
+   ],
    "shown_with": [],
    "under": null,
    "badges": [],
@@ -249,6 +305,10 @@
    "group": "pages_and_cards",
    "heading": "Shared across tabs",
    "tags": [
+    "model_manager",
+    "civitai_browser"
+   ],
+   "listed_in": [
     "model_manager",
     "civitai_browser"
    ],
@@ -273,6 +333,10 @@
     "model_manager",
     "civitai_browser"
    ],
+   "listed_in": [
+    "model_manager",
+    "civitai_browser"
+   ],
    "shown_with": [
     "model_manager",
     "civitai_browser"
@@ -291,6 +355,10 @@
    "group": "pages_and_cards",
    "heading": "Shared across tabs",
    "tags": [
+    "model_manager",
+    "civitai_browser"
+   ],
+   "listed_in": [
     "model_manager",
     "civitai_browser"
    ],
@@ -315,6 +383,11 @@
     "model_manager",
     "civitai_browser",
     "gallery"
+   ],
+   "listed_in": [
+    "gallery",
+    "model_manager",
+    "civitai_browser"
    ],
    "shown_with": [
     "model_manager",
@@ -347,6 +420,9 @@
    "tags": [
     "generations"
    ],
+   "listed_in": [
+    "generations"
+   ],
    "shown_with": [
     "generations"
    ],
@@ -374,6 +450,9 @@
    "group": "pages_and_cards",
    "heading": "Generations Tab",
    "tags": [
+    "generations"
+   ],
+   "listed_in": [
     "generations"
    ],
    "shown_with": [
@@ -410,6 +489,9 @@
    "tags": [
     "gallery"
    ],
+   "listed_in": [
+    "gallery"
+   ],
    "shown_with": [
     "gallery"
    ],
@@ -430,6 +512,9 @@
    "group": "pages_and_cards",
    "heading": "Model Manager Tab",
    "tags": [
+    "model_manager"
+   ],
+   "listed_in": [
     "model_manager"
    ],
    "shown_with": [
@@ -454,6 +539,9 @@
    "tags": [
     "model_manager"
    ],
+   "listed_in": [
+    "model_manager"
+   ],
    "shown_with": [
     "model_manager"
    ],
@@ -476,6 +564,9 @@
    "tags": [
     "model_manager"
    ],
+   "listed_in": [
+    "model_manager"
+   ],
    "shown_with": [
     "model_manager"
    ],
@@ -496,6 +587,9 @@
    "tags": [
     "model_manager"
    ],
+   "listed_in": [
+    "model_manager"
+   ],
    "shown_with": [
     "model_manager"
    ],
@@ -513,6 +607,9 @@
    "group": "pages_and_cards",
    "heading": "Model Manager Tab",
    "tags": [
+    "model_manager"
+   ],
+   "listed_in": [
     "model_manager"
    ],
    "shown_with": [
@@ -537,6 +634,9 @@
    "tags": [
     "civitai_browser"
    ],
+   "listed_in": [
+    "civitai_browser"
+   ],
    "shown_with": [
     "civitai_browser"
    ],
@@ -559,6 +659,9 @@
    "tags": [
     "civitai_browser"
    ],
+   "listed_in": [
+    "civitai_browser"
+   ],
    "shown_with": [
     "civitai_browser"
    ],
@@ -577,6 +680,9 @@
    "group": "pages_and_cards",
    "heading": "Civitai Browser Tab",
    "tags": [
+    "civitai_browser"
+   ],
+   "listed_in": [
     "civitai_browser"
    ],
    "shown_with": [
@@ -599,6 +705,11 @@
     "model_manager",
     "civitai_browser",
     "gallery"
+   ],
+   "listed_in": [
+    "gallery",
+    "model_manager",
+    "civitai_browser"
    ],
    "shown_with": [
     "model_manager",
@@ -634,6 +745,12 @@
     "gallery",
     "generations"
    ],
+   "listed_in": [
+    "generations",
+    "gallery",
+    "model_manager",
+    "civitai_browser"
+   ],
    "shown_with": [
     "model_manager",
     "civitai_browser",
@@ -661,6 +778,12 @@
     "civitai_browser",
     "gallery",
     "generations"
+   ],
+   "listed_in": [
+    "generations",
+    "gallery",
+    "model_manager",
+    "civitai_browser"
    ],
    "shown_with": [
     "model_manager",
@@ -692,6 +815,12 @@
     "gallery",
     "generations"
    ],
+   "listed_in": [
+    "generations",
+    "gallery",
+    "model_manager",
+    "civitai_browser"
+   ],
    "shown_with": [
     "model_manager",
     "civitai_browser",
@@ -715,6 +844,10 @@
     "model_manager",
     "civitai_browser"
    ],
+   "listed_in": [
+    "model_manager",
+    "civitai_browser"
+   ],
    "shown_with": [
     "model_manager",
     "civitai_browser"
@@ -733,6 +866,9 @@
    "group": "hidden",
    "heading": "Generations Tab",
    "tags": [
+    "generations"
+   ],
+   "listed_in": [
     "generations"
    ],
    "shown_with": [
@@ -757,6 +893,9 @@
    "tags": [
     "civitai_browser"
    ],
+   "listed_in": [
+    "civitai_browser"
+   ],
    "shown_with": [
     "civitai_browser"
    ],
@@ -774,6 +913,9 @@
    "group": "hidden",
    "heading": "Civitai Browser Tab",
    "tags": [
+    "civitai_browser"
+   ],
+   "listed_in": [
     "civitai_browser"
    ],
    "shown_with": [
@@ -797,6 +939,9 @@
    "tags": [
     "civitai_browser"
    ],
+   "listed_in": [
+    "civitai_browser"
+   ],
    "shown_with": [
     "civitai_browser"
    ],
@@ -814,6 +959,9 @@
    "group": "hidden",
    "heading": "Civitai Browser Tab",
    "tags": [
+    "civitai_browser"
+   ],
+   "listed_in": [
     "civitai_browser"
    ],
    "shown_with": [
@@ -835,6 +983,11 @@
    "tags": [
     "send"
    ],
+   "listed_in": [
+    "generations",
+    "gallery",
+    "model_manager"
+   ],
    "shown_with": [],
    "under": null,
    "badges": [],
@@ -854,6 +1007,11 @@
    "heading": "Shared across tabs",
    "tags": [
     "send"
+   ],
+   "listed_in": [
+    "generations",
+    "gallery",
+    "model_manager"
    ],
    "shown_with": [],
    "under": [
@@ -875,6 +1033,11 @@
    "tags": [
     "send"
    ],
+   "listed_in": [
+    "generations",
+    "gallery",
+    "model_manager"
+   ],
    "shown_with": [],
    "under": null,
    "badges": [],
@@ -894,6 +1057,11 @@
     "generations",
     "send"
    ],
+   "listed_in": [
+    "generations",
+    "gallery",
+    "model_manager"
+   ],
    "shown_with": [
     "gallery",
     "generations"
@@ -912,9 +1080,16 @@
    "group": "send",
    "heading": "Shared across tabs",
    "tags": [
+    "queue",
     "gallery",
     "generations",
     "send"
+   ],
+   "listed_in": [
+    "queue",
+    "generations",
+    "gallery",
+    "model_manager"
    ],
    "shown_with": [
     "queue"
@@ -938,6 +1113,11 @@
    "tags": [
     "send"
    ],
+   "listed_in": [
+    "generations",
+    "gallery",
+    "model_manager"
+   ],
    "shown_with": [],
    "under": null,
    "badges": [],
@@ -960,6 +1140,13 @@
     "civitai_browser",
     "send"
    ],
+   "listed_in": [
+    "queue",
+    "generations",
+    "gallery",
+    "model_manager",
+    "civitai_browser"
+   ],
    "shown_with": [],
    "under": null,
    "badges": [],
@@ -976,7 +1163,14 @@
    "group": "send",
    "heading": "Shared across tabs",
    "tags": [
+    "queue",
     "send"
+   ],
+   "listed_in": [
+    "queue",
+    "generations",
+    "gallery",
+    "model_manager"
    ],
    "shown_with": [],
    "under": null,
@@ -994,7 +1188,14 @@
    "group": "send",
    "heading": "Shared across tabs",
    "tags": [
+    "queue",
     "send"
+   ],
+   "listed_in": [
+    "queue",
+    "generations",
+    "gallery",
+    "model_manager"
    ],
    "shown_with": [],
    "under": null,
@@ -1012,7 +1213,14 @@
    "group": "send",
    "heading": "Shared across tabs",
    "tags": [
+    "queue",
     "send"
+   ],
+   "listed_in": [
+    "queue",
+    "generations",
+    "gallery",
+    "model_manager"
    ],
    "shown_with": [],
    "under": null,
@@ -1030,7 +1238,14 @@
    "group": "send",
    "heading": "Shared across tabs",
    "tags": [
+    "queue",
     "send"
+   ],
+   "listed_in": [
+    "queue",
+    "generations",
+    "gallery",
+    "model_manager"
    ],
    "shown_with": [],
    "under": null,
@@ -1048,7 +1263,14 @@
    "group": "send",
    "heading": "Shared across tabs",
    "tags": [
+    "queue",
     "send"
+   ],
+   "listed_in": [
+    "queue",
+    "generations",
+    "gallery",
+    "model_manager"
    ],
    "shown_with": [],
    "under": null,
@@ -1066,7 +1288,14 @@
    "group": "send",
    "heading": "Shared across tabs",
    "tags": [
+    "queue",
     "send"
+   ],
+   "listed_in": [
+    "queue",
+    "generations",
+    "gallery",
+    "model_manager"
    ],
    "shown_with": [],
    "under": null,
@@ -1084,7 +1313,14 @@
    "group": "send",
    "heading": "Shared across tabs",
    "tags": [
+    "queue",
     "send"
+   ],
+   "listed_in": [
+    "queue",
+    "generations",
+    "gallery",
+    "model_manager"
    ],
    "shown_with": [],
    "under": null,
@@ -1102,7 +1338,14 @@
    "group": "send",
    "heading": "Shared across tabs",
    "tags": [
+    "queue",
     "send"
+   ],
+   "listed_in": [
+    "queue",
+    "generations",
+    "gallery",
+    "model_manager"
    ],
    "shown_with": [],
    "under": null,
@@ -1120,7 +1363,14 @@
    "group": "send",
    "heading": "Shared across tabs",
    "tags": [
+    "queue",
     "send"
+   ],
+   "listed_in": [
+    "queue",
+    "generations",
+    "gallery",
+    "model_manager"
    ],
    "shown_with": [],
    "under": null,
@@ -1138,7 +1388,14 @@
    "group": "send",
    "heading": "Shared across tabs",
    "tags": [
+    "queue",
     "send"
+   ],
+   "listed_in": [
+    "queue",
+    "generations",
+    "gallery",
+    "model_manager"
    ],
    "shown_with": [],
    "under": null,
@@ -1158,6 +1415,10 @@
     "generations",
     "model_manager"
    ],
+   "listed_in": [
+    "generations",
+    "model_manager"
+   ],
    "shown_with": [
     "generations"
    ],
@@ -1173,10 +1434,14 @@
    "default": true,
    "name": "Keep img2img source images and masks",
    "group": "your_generations",
-   "heading": "Generations Tab",
+   "heading": "Shared across tabs",
    "tags": [
     "generations",
-    "send"
+    "model_manager"
+   ],
+   "listed_in": [
+    "generations",
+    "model_manager"
    ],
    "shown_with": [
     "generations"
@@ -1223,6 +1488,9 @@
    "tags": [
     "generations"
    ],
+   "listed_in": [
+    "generations"
+   ],
    "shown_with": [
     "generations"
    ],
@@ -1240,6 +1508,9 @@
    "group": "your_generations",
    "heading": "Generations Tab",
    "tags": [
+    "generations"
+   ],
+   "listed_in": [
     "generations"
    ],
    "shown_with": [
@@ -1266,6 +1537,13 @@
     "model_manager",
     "civitai_browser"
    ],
+   "listed_in": [
+    "queue",
+    "generations",
+    "gallery",
+    "model_manager",
+    "civitai_browser"
+   ],
    "shown_with": [],
    "under": null,
    "badges": [
@@ -1283,6 +1561,10 @@
    "group": "files",
    "heading": "Shared across tabs",
    "tags": [
+    "generations",
+    "model_manager"
+   ],
+   "listed_in": [
     "generations",
     "model_manager"
    ],
@@ -1316,6 +1598,10 @@
     "generations",
     "model_manager"
    ],
+   "listed_in": [
+    "generations",
+    "model_manager"
+   ],
    "shown_with": [
     "generations"
    ],
@@ -1337,6 +1623,10 @@
    "group": "files",
    "heading": "Shared across tabs",
    "tags": [
+    "generations",
+    "model_manager"
+   ],
+   "listed_in": [
     "generations",
     "model_manager"
    ],
@@ -1366,6 +1656,10 @@
     "generations",
     "model_manager"
    ],
+   "listed_in": [
+    "generations",
+    "model_manager"
+   ],
    "shown_with": [
     "generations"
    ],
@@ -1389,6 +1683,9 @@
    "tags": [
     "queue"
    ],
+   "listed_in": [
+    "queue"
+   ],
    "shown_with": [
     "queue"
    ],
@@ -1405,10 +1702,14 @@
    "placeholder": "Empty: a generation-inputs folder beside the database",
    "name": "Folder for img2img source images",
    "group": "files",
-   "heading": "Generations Tab",
+   "heading": "Shared across tabs",
    "tags": [
     "generations",
-    "send"
+    "model_manager"
+   ],
+   "listed_in": [
+    "generations",
+    "model_manager"
    ],
    "shown_with": [
     "generations"
@@ -1435,6 +1736,9 @@
    "tags": [
     "queue"
    ],
+   "listed_in": [
+    "queue"
+   ],
    "shown_with": [
     "queue"
    ],
@@ -1455,6 +1759,9 @@
    "group": "sync_and_queue",
    "heading": "Model Manager Tab",
    "tags": [
+    "model_manager"
+   ],
+   "listed_in": [
     "model_manager"
    ],
    "shown_with": [
@@ -1481,6 +1788,12 @@
     "civitai_browser",
     "send"
    ],
+   "listed_in": [
+    "generations",
+    "gallery",
+    "model_manager",
+    "civitai_browser"
+   ],
    "shown_with": [],
    "under": null,
    "badges": [],
@@ -1496,6 +1809,13 @@
    "group": "updates",
    "heading": "Shared across tabs",
    "tags": [
+    "queue",
+    "generations",
+    "gallery",
+    "model_manager",
+    "civitai_browser"
+   ],
+   "listed_in": [
     "queue",
     "generations",
     "gallery",
@@ -1523,6 +1843,13 @@
     "model_manager",
     "civitai_browser"
    ],
+   "listed_in": [
+    "queue",
+    "generations",
+    "gallery",
+    "model_manager",
+    "civitai_browser"
+   ],
    "shown_with": [],
    "under": null,
    "badges": [],
@@ -1538,6 +1865,13 @@
    "group": "access",
    "heading": "Shared across tabs",
    "tags": [
+    "queue",
+    "generations",
+    "gallery",
+    "model_manager",
+    "civitai_browser"
+   ],
+   "listed_in": [
     "queue",
     "generations",
     "gallery",

@@ -366,15 +366,18 @@ The NSFW switch says what it alone hides; the prompt switch every image with an
 unusable prompt (`promptless_total`). The database's counts, a page's, the
 Civitai Browser's and your generations' are kept to the same meanings.
 
-**A setting is listed in a tab's view of the settings window only when it is
-tagged with that tab; `SEND` is no tab.** Opened from a tab's ⚙, the window
-lists the settings whose `tags` hold that tab, and All settings beside them.
-#357's Keep past notices was tagged Send alone, as Send's own settings are,
-and opened from any tab's ⚙ it was missing: only All settings listed it. The
-owner: "keep notices not shown in any tab mode, it should be shown for all
-tabs". A setting that acts on every tab is tagged with all five, as the
-database path, Check for updates and the two Access settings are. The 14
-settings tagged Send alone are #427.
+**A tab's view of the settings window lists a setting by its `listed_in`:
+the tabs among its tags, and for `SEND` each tab whose images Send sends
+(`SEND_TABS`).** Opened from a tab's ⚙, the window lists those, and All
+settings beside them. Until 0.82.5 it matched a view by `tags`, and `SEND`
+is no tab's id: 14 settings tagged Send alone were in no tab's view (#427),
+and #357's Keep past notices, tagged so at first, was missing from every one
+- the owner: "keep notices not shown in any tab mode, it should be shown for
+all tabs". A setting that acts on every tab is tagged with all five, as the
+database path, Check for updates and the two Access settings are; one that
+also acts in a tab outside Send is tagged with that tab too - the presets,
+which the Queue's press of several checkpoints reads, and Queue several,
+whose Select several box starts that press.
 
 ### Your generations
 

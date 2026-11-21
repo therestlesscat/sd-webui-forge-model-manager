@@ -33,9 +33,10 @@ const { showNotice } = await shared('notices.mjs');
 export const STARTS = ['forge.mjs', 'notices.mjs'];
 
 // The settings this window draws a control of its own for, or acts on. Every
-// setting's name, group, tab heading, tags, badges and the setting it sits
-// under come from the server's answer: the registry, one entry a setting
-// (model_manager/settings_registry.py, #320). The window kept its own tables
+// setting's name, group, tab heading, tags, the tabs whose views list it,
+// badges and the setting it sits under come from the server's answer: the
+// registry, one entry a setting (model_manager/settings_registry.py, #320,
+// #427). The window kept its own tables
 // of names, groups and nesting, and they drifted from Forge's.
 const K = {
     apiKey: 'model_manager_civitai_api_key',
@@ -114,8 +115,8 @@ function createSettings() {
     // footer until the next save or opening. The footer's count of unsaved
     // changes was drawn over it at once, from the window's first version.
     let failed = '';
-    // What the list shows (#320): 'tab' - the settings tagged with the tab
-    // whose gear opened it - or 'all', with the band; null, opened from
+    // What the list shows (#320): 'tab' - the settings listed for the tab
+    // whose gear opened it (#427) - or 'all', with the band; null, opened from
     // anywhere else, no band. And whether only those off their default show.
     let band = null;
     let changedOnly = false;
@@ -192,12 +193,26 @@ function createSettings() {
         return !needs.length || needs.some((tab) => !switchOf[tab] || state.value(switchOf[tab]) !== false);
     }
 
+    /**
+     * Whether a tab's view lists a setting: the server says, reading Send as
+     * each tab whose images Send sends - Send is no tab, and its settings
+     * were in no tab's view (#427).
+     */
+    function listedFor(key, tab) {
+        return (meta.settings[key]?.listed_in || []).includes(tab);
+    }
+
+    /** The labels of the tabs whose views list a setting, which a search for a tab's name finds (#427). */
+    function listedLabels(key) {
+        return (meta.settings[key]?.listed_in || []).map((tab) => meta.tag_labels[tab] || tab);
+    }
+
     /** The settings drawn, as the band would count them: the tab's, or all. */
     function countFor(which) {
         const switchOf = tabSwitches();
         return [...root.querySelectorAll('.mm-settings-field[data-key]')].map((f) => f.dataset.key)
             .filter((k) => shownByTabs(k, switchOf)
-                && (which !== 'tab' || (meta.settings[k].tags || []).includes(openedFor.tab))).length;
+                && (which !== 'tab' || listedFor(k, openedFor.tab))).length;
     }
 
     /**
@@ -322,8 +337,8 @@ function createSettings() {
             presetsError ? `
             <div class="mm-settings-error mm-settings-presets-error" data-presets-part>${escapeHtml(presetsError)}</div>` : ''}`;
         if (!modulesPending) return head + keys.map(renderField).join('');
-        const words = [MODULES_HEADING, ...keys.flatMap((k) => [meta.settings[k].name, meta.settings[k].label])]
-            .join(' ').toLowerCase();
+        const words = [MODULES_HEADING, ...keys.flatMap((k) => [meta.settings[k].name, meta.settings[k].label]),
+            ...listedLabels(keys[0])].join(' ').toLowerCase();
         return `${head}
             <div class="mm-settings-field mm-settings-presets-wait" data-key="${escapeHtml(keys[0])}"
                  data-search="${escapeHtml(words)}">
@@ -487,7 +502,8 @@ function createSettings() {
             <div class="mm-settings-field${depth ? ` mm-settings-child mm-settings-child-${Math.min(depth, 2)}` : ''}${
                 wide ? ' mm-settings-wide' : ''}"
                  data-key="${escapeHtml(key)}"
-                 data-search="${escapeHtml([label, s.label, s.info || '', ...tags].join(' ').toLowerCase())}">
+                 data-search="${escapeHtml([label, s.label, s.info || '', ...tags, ...listedLabels(key)]
+                     .join(' ').toLowerCase())}">
                 <div class="mm-settings-name">
                     <label for="${id}" class="mm-settings-label">${escapeHtml(label)}</label>${markings(key, headingFor(key))}
                 </div>
@@ -671,8 +687,8 @@ function createSettings() {
 
     function renderModules(key) {
         const m = modules[key];
-        const search = [m.label, ...m.classes, ...m.rows.flatMap((r) => [r.label, ...r.candidates.map((c) => c.label)])]
-            .join(' ').toLowerCase();
+        const search = [m.label, ...m.classes, ...m.rows.flatMap((r) => [r.label, ...r.candidates.map((c) => c.label)]),
+            ...listedLabels(key)].join(' ').toLowerCase();
         const body = m.text
             ? `<input type="text" class="mm-settings-input" data-key="${escapeHtml(key)}" value="${escapeHtml(draft[key])}"
                       spellcheck="false" placeholder="file names, separated by commas" aria-label="${escapeHtml(m.label)}">`
@@ -944,7 +960,7 @@ function createSettings() {
                 const key = field.dataset.key;
                 const s = meta.settings[key] || {};
                 const shown = shownByTabs(key, switchOf)
-                    && (band !== 'tab' || (s.tags || []).includes(openedFor.tab))
+                    && (band !== 'tab' || listedFor(key, openedFor.tab))
                     && (!changedOnly || !atDefault(key))
                     && words.every((word) => field.dataset.search.includes(word));
                 field.hidden = !shown;
@@ -1173,7 +1189,7 @@ function createSettings() {
     /**
      * @param {{tab?: string, section?: string, focus?: string}} [options] - tab: the tab
      *     whose gear it is ("queue", "generations", "gallery", "model_manager",
-     *     "civitai_browser"): the band shows the settings tagged with it,
+     *     "civitai_browser"): the band shows the settings listed for it (#427),
      *     beside All settings (#320); section: one group's id
      *     (settings_registry.GROUPS), shown, scrolled to - a note's button.
      *     Neither: the first group with a setting shown (#344). focus: a

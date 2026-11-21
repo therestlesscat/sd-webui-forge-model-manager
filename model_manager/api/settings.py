@@ -86,8 +86,8 @@ def _ours() -> List[Tuple[str, Any]]:
 def _placed(s) -> Dict[str, Any]:
     """Where the window draws a setting, and what it calls it (#320): from the registry."""
     return {"name": s.name, "group": s.group, "heading": s.heading, "tags": list(s.tags),
-            "shown_with": list(s.shown_with), "under": list(s.under) if s.under else None,
-            "badges": list(s.badges), "switch": list(s.switch) if s.switch else None}
+            "listed_in": list(s.listed_in), "shown_with": list(s.shown_with),
+            "under": list(s.under) if s.under else None, "badges": list(s.badges), "switch": list(s.switch) if s.switch else None}
 
 
 def described() -> Dict[str, Any]:
