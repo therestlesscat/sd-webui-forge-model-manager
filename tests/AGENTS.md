@@ -93,6 +93,14 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   Send's source has no `usual`, written `check(label, source.usual,
   undefined)`, demanded `true`; it is `check(label, 'usual' in source,
   false)`.
+- **A break of the settings registry reaches the browser suites only
+  through a regenerated `settings_answer.json`.** `settings_window_test.mjs`
+  reads that file (line 23), not the registry; left as it was, a registry
+  break fails only `settings_registry_test.py`'s "the stand-in answer is
+  current", which every registry break fails alike. #427's first plan named
+  window checks two of its breaks would fail; a plan review found they could
+  not. Its break runner regenerates the file inside the break tree for each
+  break (`tools/settings_answer.py`) (2026-11-21).
 - **A new suite runs on the old code from a copy of HEAD.** `git archive HEAD
   | tar -x -C tests/work/<x>/head`, the suite copied into that tree: its
   paths come from its own place, so HEAD's package runs and the working tree

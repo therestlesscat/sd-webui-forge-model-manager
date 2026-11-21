@@ -818,7 +818,11 @@ the owner's screenshot found it. A Range over the text
   a review found: 0.74.0's message first said two reviews "found eight
   faults", each fixed; their reports said six (five fixed, one kept) and
   four. Amended before the push, the issue's comment corrected by a
-  follow-up.
+  follow-up. So does a plan posted on its issue: its checks are said as
+  planned. #427's comment ended "Verified in a running WebUI by opening the
+  settings window from each tab's ⚙ after a restart" before the build
+  began; a side agent flagged it, and a second comment reported the check
+  once the owner had run it (2026-11-21).
 - Tests assert what the code does, never what someone's library happens to
   contain. Four suites had to be fixed for exactly this.
 - **A stop needs a way back.** A dialog that blocks an action offers that
