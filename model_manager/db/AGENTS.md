@@ -282,9 +282,37 @@ the lookup and the write leaves a row naming nothing.
 - **SQLite reads a row's whole page, whatever column is asked for.** Every
   image's level, from v36's 3 KB rows: 262 to 375 ms; with the small columns
   first in the row, 286; through an index holding it, 2.6; from a narrow
-  table, 7. And it may pass over a covering index for a lookup by row id:
-  each image's prompt looked up by id read the prompt's text row, 130 ms at
-  76,000 images, and 26 with `INDEXED BY idx_generation_prompts_lookup` (#231).
+  table, 7. A row larger than a page spills to overflow pages, read only as
+  far as the column asked for: there, small columns first is what helps (10 KB
+  rows, 12 ms against 44). And it may pass over a covering index for a lookup
+  by row id: each image's prompt looked up by id read the prompt's text row,
+  130 ms at 76,000 images, and 26 with
+  `INDEXED BY idx_generation_prompts_lookup` (#231). The same `INDEXED BY` on
+  a LEFT JOIN nothing reads keeps it: SQLite drops an unused LEFT JOIN only
+  when the lookup it picks returns at most one row - the rowid, or a UNIQUE
+  index with every column matched by `=` - or the query is DISTINCT.
+  `INDEXED BY idx_image_prompts_lookup (id, grouped_as, length)` forces a
+  lookup on its first column alone, which SQLite does not count as one row
+  though `id` is the rowid; declared UNIQUE, the same index kept the join too
+  (3.50.4 and 3.37.2). The Civitai Images level joined `image_prompts` so in
+  every build and read it nowhere in the fill: 382 to 388 ms with the join,
+  181 to 184 without (#434).
+- **A CTE read by two `IN`s is worked out once for each, if SQLite can flatten
+  it.** Each `x IN hitN` is a subquery of its own, and a plain CTE is
+  flattened into each: the Civitai Images search's
+  `prompt_id IN hitN OR negative_id IN hitN` scanned `image_prompts` twice a
+  word, 798,828 `LIKE` calls for 399,414 prompts. SQLite's default of
+  materializing a CTE used more than once does not reach one it can flatten,
+  in either WebUI. `AS MATERIALIZED` stops the flattening in Neo's SQLite
+  3.50.4 (399,414 calls; the fill 1.67 s to 1.10 s), and the original Forge's
+  3.37.2 accepts it and ignores it (798,828; 1.55 s either way). A body SQLite
+  cannot flatten is materialized once in both:
+  `AS MATERIALIZED (SELECT DISTINCT id ...)` made 399,414 calls in both (1.16
+  to 1.19 s), with the same rows for one to three words. Elsewhere
+  `MATERIALIZED` costs: read once, or narrowed by the outer query's filters, a
+  made-up 200,000-row table took under 0.1 ms flattened and 53 to 67 ms
+  materialized. Read the plan under both WebUIs' SQLite (`MATERIALIZE hitN`
+  once) and time both ways (#434).
 - **A table holding another source's facts is built from that source's
   fields, not from the old table's columns.** v32 split `model_versions` into
   what it held, and Civitai's own id for each file - which a sync, a download
@@ -303,9 +331,11 @@ the lookup and the write leaves a row naming nothing.
   frees their memory (a held table, 73 MB of the process to 57), and setting
   the value it already has deletes nothing. "Temporary tables live only in
   memory" was said in #259 until a side agent checked.
-- **A materialized CTE has no index.** Each read of it goes through all its
-  rows: one statement holding a level's images lost to an indexed temporary
-  table by 14 to 66 ms a level (#259).
+- **A materialized CTE has no index of its own:** SQLite may build an
+  automatic one for an equality join on it, for that statement alone
+  (`AUTOMATIC COVERING INDEX` in the plan, both WebUIs), never for a range or
+  an order. One statement holding a level's images lost to an indexed
+  temporary table by 14 to 66 ms a level (#259).
 - **Top N of each group: a cutoff through an index, not `IN (... LIMIT)`.**
   `lv.id IN (SELECT ... WHERE x.u = part.u ORDER BY sk DESC LIMIT 4)` read
   the table again for each part row: 3.8 s at the top level. `sk >= (SELECT

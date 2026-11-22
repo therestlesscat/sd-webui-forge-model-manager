@@ -415,7 +415,11 @@ the code (2026-10-16).
   a linked file as "its model is deleted". It is set on any failed lookup by
   hash, and before 0.48.3 Scan Disk linked files from their sidecars alone:
   3 of the 13 models linked to such files exist on Civitai. Read every
-  writer and its history (`git log -S`) first.
+  writer and its history (`git log -S`) first, and grep the AGENTS.md files
+  for the pattern: #434 said the level's `INDEXED BY` had "no reason written
+  beside it", read from `git log -S`; the reason was
+  `model_manager/db/AGENTS.md`'s covering-index bullet (#231), followed
+  where it did not apply.
 - **Verify before asserting, especially about your own effects.** "I only work
   on copies" was said in this repository while a test was overwriting 747 real
   sidecars and applying migrations to the live database. If you have not
@@ -603,11 +607,14 @@ Where they differ, and what the extension does about it - on the server in
   `py_compile` with `cfile='NUL'` raised on all 16 files of #34, the fault
   the command's, not the code's.
 - **SQLite 3.37.2 in the original Forge**, 3.50.4 in Neo's venv. An SQL
-  feature is checked against the older: `WITH ... AS MATERIALIZED` needs 3.35;
+  feature is checked against the older: `WITH ... AS MATERIALIZED` needs 3.35,
+  and 3.37.2 ignores the hint on a CTE it can flatten
+  (`model_manager/db/AGENTS.md`);
   `json_each` and `json_extract` run there (#218, checked with that install's
   Python) - but `json_extract` refuses JSON holding `NaN`, which Python's
   `json.dumps` writes for a float NaN and a ComfyUI workflow can hand the
-  sync: "malformed JSON" (`OperationalError`) under 3.37.2, read under 3.50.4.
+  sync: "malformed JSON" (`OperationalError`) under 3.37.2, read under 3.50.4,
+  as NULL.
   An error in a release note's condition empties the tab's whole notes
   answer, so #232's condition matches the stored text with `instr`
   (2026-11-19).
@@ -1242,7 +1249,9 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   or run a script file.
 - WSL's shell here is zsh: `noclobber` is on - a refused `>` leaves the old
   file in place to be read: an issue listing read an earlier session's
-  `issues.json` and gave 83 open issues for 65 - `cp` asks before overwriting
+  `issues.json` and gave 83 open issues for 65, and `>>` onto a file not
+  there yet is refused too ("no such file or directory"): write `>>|` - `cp`
+  asks before overwriting
   (see `tests/AGENTS.md`, "Make sure the old code is what ran") and `rm`
   before deleting - a chained `rm` waited for an answer that never came,
   until the task was stopped: write `command rm -f`, though not inside
