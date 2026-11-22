@@ -533,4 +533,71 @@ shownList = list;
 pressSeveral(false);
 close();
 
+// --------------------- ticks taken back stay so when the list is asked again (#417)
+// The list is asked again while the dialog is open - Send's check finding the
+// image's checkpoint ready, a download landing - and its answer names a pick.
+// The pick is the dialog's to fill only while the person has not set the ticks:
+// taken back, by hand or by Untick all, they stay taken back. Each check opens
+// a dialog of its own: once its check finds the checkpoint ready, it asks no more.
+const EXTRA = row('extra_v1.safetensors [g7]', 'xl', 'Extra', 'v1');
+// The list asked again: as before, with a row only this answer has, so a wait can tell it came.
+const askedAgain = { ...list, checkpoints: [...list.checkpoints, EXTRA] };
+let readyAgain417 = false;
+const recheckable417 = () => ({ check: async () => (readyAgain417 ? '' : 'missing') });
+async function open417(first = list) {
+    shownList = first;
+    readyAgain417 = false;
+    await open('txt2img', recheckable417());
+}
+async function askAgain417() {
+    shownList = askedAgain;
+    readyAgain417 = true;
+    call('resources.checkAgain');
+    await waitFor('the list asked again', () => rowOf(EXTRA.name));
+    await settle();
+}
+
+await open417();
+pressSeveral(true);
+check('#417: tick boxes, the image\'s own ticked as it opens', [kinds(), ticked()], [['checkbox'], [OWN.name]]);
+if (untickAll()) press(untickAll());
+check('    Untick all: nothing ticked', ticked(), []);
+await askAgain417();
+check('1. Untick all, then the list asked again naming a pick: nothing ticked, Send waits for a tick',
+      [ticked(), sendButton()?.disabled, status()], [[], true, 'Tick a checkpoint to send with.']);
+pressSeveral(false);
+close();
+
+await open417();
+pressSeveral(true);
+tick(OWN.name, false);
+check('#417: the one tick taken off by hand: nothing ticked', ticked(), []);
+await askAgain417();
+check('2. a tick taken off by hand, then the list asked again naming a pick: nothing ticked, Send waits for a tick',
+      [ticked(), sendButton()?.disabled, status()], [[], true, 'Tick a checkpoint to send with.']);
+pressSeveral(false);
+close();
+
+await open417();
+pressSeveral(true);
+if (untickAll()) press(untickAll());
+pressSeveral(false);
+check('#417: Untick all, then round buttons again: nothing picked', [kinds(), ticked(), status()],
+      [['radio'], [], 'Pick a checkpoint to send with.']);
+await askAgain417();
+check('3. round buttons after Untick all, then the list asked again naming a pick: nothing picked, Send waits',
+      [ticked(), sendButton()?.disabled, status()], [[], true, 'Pick a checkpoint to send with.']);
+close();
+
+// The guard: a dialog whose first read picked nothing, untouched - the list asked
+// again once Send's check finds the image's checkpoint ready picks it, the stop's way back.
+await open417({ ...list, picked: null });
+check('#417 guard: round buttons, nothing picked at the first read', [kinds(), ticked(), status()],
+      [['radio'], [], 'Pick a checkpoint to send with.']);
+await askAgain417();
+check('5. untouched, the list asked again once the checkpoint is ready: its pick is picked, Send on',
+      [ticked(), sendButton()?.disabled, status()], [[OWN.name], false, 'Sends with Own v1. The image comes out as made.']);
+close();
+shownList = list;
+
 done();

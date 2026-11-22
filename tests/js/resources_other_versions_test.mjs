@@ -316,6 +316,33 @@ check('    its download landed: Send sends the image\'s own, the box left as pre
 progress = [];
 close();
 
+// The guard of #417: a dialog opened by a stop, nothing picked at its first read,
+// untouched - once the image's own checkpoint lands from the dialog, the list
+// asked again names it, and it is picked: the stop's way back.
+const OWN_LANDS = 116;
+const LANDED = { name: 'a_v9.safetensors [1160]', file: 'a_v9.safetensors', family: 'sd', read: true, supported: true,
+                 model: 'A Checkpoint', version: 'v9', base_model: 'SD 1.5' };
+const lands = { id: 7116, meta: { prompt: 'a lighthouse', civitaiResources: [
+    { type: 'checkpoint', modelVersionId: OWN_LANDS, modelId: MODEL, name: 'A Checkpoint', modelVersionName: 'v9' }] } };
+list = answer([OTHER], []);
+listAfter = null;
+await showImageResources(lands, null, { note: 'Not in your library.', send: stoppedSend() });
+await waitFor('the list', () => rows().length);
+check('#417 guard: a stop, nothing picked at the first read: Send waits for a pick',
+      [box()?.checked, sendButton()?.disabled, status()], [true, true, 'Pick a checkpoint to send with.']);
+// Asked again from here on - only the ask after downloads asks again in this dialog.
+list = answer([OTHER, LANDED], [{ name: LANDED.name, why: ['the image\'s own'] }], LANDED.name);
+const landsDownload = modal()?.querySelector(`[data-action="resources.download"][data-version-id="${OWN_LANDS}"]`);
+check('    its checkpoint\'s row offers its Download', Boolean(landsDownload), true);
+if (landsDownload) press(landsDownload);
+progress = [{ version_id: OWN_LANDS, file_id: 1111, status: 'complete', percent: 100, synced: true }];
+await waitFor('the list asked again, the landed file in it', () => rowOf(LANDED.name), 100);
+check('4. untouched, once the image\'s own lands: the list\'s answer picks it, Send on, sending with it',
+      [rowOf(LANDED.name)?.querySelector('input')?.checked, sendButton()?.disabled, status()],
+      [true, false, 'Sends with A Checkpoint v9. The image comes out as made.']);
+progress = [];
+close();
+
 // ---------------------------------------------- a Civitai image's Send
 // It stops for the checkpoint; a pick goes to the server as use_checkpoint,
 // with the image's model, and the notice says what it was to the image.

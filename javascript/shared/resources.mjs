@@ -377,7 +377,8 @@ let resourcesLeaving = null;
 // asked with for a pick (#378); `usualAnswers`: its answer per name, kept
 // while the dialog is open; `usual`: its tick, as the setting says at each
 // pick (`usualOn`, read as the dialog opens); `usualPressed`: the tick
-// pressed for this pick.
+// pressed for this pick. `picksSet`: the ticks set in the dialog, after which
+// no answer of the list picks for the person (#417).
 let resourcesSend = null;
 // The dialog's resources, as last drawn: Send's line finds the checkpoint's row in them.
 let resourcesRows = [];
@@ -1206,7 +1207,9 @@ async function askPickList({ again = false } = {}) {
         list.error = '';
         if (list.tab === null) list.tab = firstPickTab(data);
         // The pick made first: the image comes out as made (#304's same file among them).
-        if (!line.chosen && data.picked) {
+        // Also at a later answer - the image's own may be there by then, the stop's way back -
+        // unless the person set the ticks here (#417).
+        if (!line.chosen && !line.picksSet && data.picked) {
             line.chosen = data.picked;
             if (line.ticked) line.ticked = [data.picked];
             askUsual(line, line.chosen);
@@ -1489,6 +1492,8 @@ function tickInDialog(name, input) {
 function tickedInDialog(ticked) {
     const line = resourcesSend;
     if (!Array.isArray(line?.ticked)) return;
+    // The person set the ticks: a list asked again no longer picks for them, even none left (#417).
+    line.picksSet = true;
     line.ticked = ticked;
     const first = ticked[0] || null;
     // The usual tick is one pick's: it starts as the setting says again only for a new first.
