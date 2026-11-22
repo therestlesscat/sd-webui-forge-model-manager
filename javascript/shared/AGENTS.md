@@ -72,6 +72,22 @@ nowhere. #425's plan said a closed dialog asks nothing, and the build
 review's suggested check was built on that; a check of "replaced during the
 wait" opens a second dialog.
 
+**While the list shows, it is asked again only by a download landing or
+Send's timed check** (#417). Check again is drawn only with Choose the
+checkpoint unticked - `sendLineStatus` gives the choosing line text alone -
+and pressed then it asks no list: `askPickList` returns while not choosing.
+With Choose ticked, the list is asked again when any download batch from the
+dialog lands (`listAfterDownloads`); when Send's check finds the image's
+checkpoint ready, only for `missing` and `not_listed`, every 1 s for up to
+10 s (`TIMING.sendRecheck`); and when Choose is ticked again after a download
+landed while it was off. An away checkpoint (`gone`, `unseen`) is asked once,
+then given up. #417's issue steps and its first plan's live check - a
+checkpoint the library lacks or renamed aside, Untick all, Check again -
+could not reproduce the fault: with the image's own file away the list picks
+nothing, Untick all stays disabled with nothing ticked, and no Check again is
+drawn. The plan review found both. On 7880, an embedding's download landing
+from the dialog asked the list again 0.2 to 0.3 s after (2026-11-21).
+
 **The settings window holds every section's fields, and shows those of the
 tab it was opened from.** Opened from the Model Manager, the Civitai
 Browser's page-size field was hidden and a Playwright fill timed out; another
