@@ -391,6 +391,11 @@ the code (2026-10-16).
   note asks: no `Co-Authored-By`, no `Claude-Session`, no "Generated with".
   They went into 409 of 417 commits unasked, and removing them meant
   rewriting the whole history and recreating the repository (2026-10-08).
+- **A commit is staged by naming its paths, never `git add -A`.** A
+  `.codex/config.toml` this session had not made appeared in the folder while
+  #435's second commit was being built; `git add -A` staged it, and it was
+  still staged when the build reviewer began. `git status -s`, read before
+  the ask, showed it (2026-11-24).
 - **A change asked for "only for me" is never committed.** It lives in the
   working tree, and a commit is made around it: copy the files aside, strip
   the hunks, run `--all`, commit, copy them back.

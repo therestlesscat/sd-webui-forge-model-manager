@@ -30,6 +30,10 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   Its guard failed on the old code too: the press it ran held a face pass,
   the bug's own trigger, so it became a press with none. A plan's break
   list and guards are run on the old code and the new before it goes out.
+  So is a row marked "there already": #435's plan gave "no `onUiTabChange`" to
+  `queue_tab_test`, and with the helper's check removed three suites still
+  passed, two printing a `ReferenceError`: the look was set before the helper
+  ran.
   And a guard meets the state the old code's own bug left behind it in the
   suite: #397's guard at the suite's end pressed Remove on a key the old
   code had already removed, at an earlier save of the same suite - written
@@ -77,6 +81,11 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   reads a Windows Python's output as UTF-8 with `errors='replace'`: S3's
   crashed on a byte a suite printed (0xe9), and the break's result was lost
   until a rerun.
+  And a comparison written while planning still names the tree as its old
+  side: #435's imported the tree's `ran_with` as the old code, so run again on
+  the built code it would have compared the new with itself, "0 different",
+  its broken-version line still counting thousands. A plan reviewer found it;
+  the old side is a `git archive` from the start (2026-11-24).
 - **Two kinds of id equal in a fixture cannot tell which one the code
   reads.** Before #374 the download suites gave every test version file id
   1; once downloads were found by file, their downloads merged. Giving each
@@ -145,6 +154,11 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   too; a break in Test's request failed the new check alone. A break for a
   new check fails that check and is named with every other it fails
   (2026-11-13).
+  And a guard's odd value sits where the code reads it: #435's "control in two
+  scripts" put the second script after the one read first, so two wrong builds
+  passed it, until it was put first. A check that something is not copied
+  names what is copied: "nothing copied holds the prompt" passed a build that
+  kept the whole cost, and passes on an empty record.
 - **A failure report the console cannot print hides the failure.** A check
   expecting the settings' ⚙ failed on HEAD, and printing it crashed the
   suite on Windows' console (cp1252) before any FAIL line; `download_test`
