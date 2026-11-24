@@ -141,7 +141,8 @@ is close to a browser and not one:
   that matters for that removes the container, loads the page, then puts it
   back (`download_controls_test.mjs`).
 - **`onAfterUiUpdate` does nothing** unless the suite collects the callbacks
-  and runs them (`quiet_updates_test.mjs`).
+  and runs them (`quiet_updates_test.mjs`), and `onUiTabChange` is not there
+  at all (`queue_opened_test.mjs` stands in for it).
 - **The stand-in window starts at `scrollY` 0, as a browser's** (#271).
   Without it a gallery going to its top worked out NaN, asked for a scroll
   the harness ignores, and waited out its 500 ms fallback, 19 times in 8

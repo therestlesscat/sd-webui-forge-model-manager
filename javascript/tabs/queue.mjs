@@ -1014,11 +1014,16 @@ async function load(taskId) {
 // -------------------------------------------------------------- the polling
 
 /**
- * Each poll: the status line while the tab shows, and both lists as it
- * opens or the queue changes. Nothing is asked while it is hidden.
+ * Each poll - once a second, and as the WebUI's tabs change: the status line
+ * while the tab shows, and both lists as it opens or the queue changes.
+ * Nothing is asked while it is hidden.
  */
 async function poll() {
-    if (polling) return;
+    if (polling) {
+        // Left while a look is out: hidden all the same, so the next opening reads the lists.
+        if (!tabShowing('queue')) showing = false;
+        return;
+    }
     polling = true;
     try {
         const now = tabShowing('queue');
@@ -1179,4 +1184,6 @@ export async function start(scope) {
     }
     await poll();
     tabScope.every(poll, TIMING.poll);
+    // As the tab is opened too: the look alone came up to a second after the press (#435).
+    tabScope.tabChange(poll);
 }

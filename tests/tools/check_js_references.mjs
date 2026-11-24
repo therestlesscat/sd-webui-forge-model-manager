@@ -176,7 +176,7 @@ const GLOBALS = new Set(['window', 'document', 'console', 'fetch', 'setTimeout',
     'parseInt', 'parseFloat', 'isNaN', 'isFinite', 'encodeURIComponent', 'decodeURIComponent', 'encodeURI',
     'decodeURI',
     // provided by the WebUI's own classic scripts
-    'gradioApp', 'onUiLoaded', 'onAfterUiUpdate', 'onUiUpdate', 'onOptionsChanged', 'opts',
+    'gradioApp', 'onUiLoaded', 'onAfterUiUpdate', 'onUiTabChange', 'onUiUpdate', 'onOptionsChanged', 'opts',
     'updateInput', 'selectCheckpoint', 'selectVAE', 'inputAccordionChecked', 'switch_to_txt2img',
     'restart_reload']);
 

@@ -11,8 +11,8 @@
  * added its listeners. A tab's script, in javascript/tabs/ - a folder the
  * WebUI does not list - does nothing as it is imported. It exports start(scope),
  * and whatever it adds outside its own markup goes through the scope: a
- * listener on the document or the window, a timer, an after-update hook, an
- * observer, an action offered. Listeners on its own elements hide with it.
+ * listener on the document or the window, a timer, an after-update or
+ * tab-change hook, an observer, an action offered. Listeners on its own elements hide with it.
  *
  * Switched off mid-session, a tab stops at once: its scope takes all of that
  * back, its button hides, and the page leaves it if it showed. So does each
@@ -202,6 +202,11 @@ export function createScope(name) {
             const hook = () => { if (scope.live) work(); };
             Object.defineProperty(hook, 'name', { value: work.name });
             onAfterUiUpdate(hook);
+        },
+        /** onUiTabChange: run at once as another of the WebUI's tabs is selected, and kept for ever, as onAfterUiUpdate's. */
+        tabChange: (work) => {
+            if (typeof onUiTabChange !== 'function') return;
+            onUiTabChange(() => { if (scope.live) work(); });
         },
         /** An observer, disconnected on stop. */
         observe: (observer) => {

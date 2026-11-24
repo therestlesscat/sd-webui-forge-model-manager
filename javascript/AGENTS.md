@@ -169,7 +169,10 @@ the latest press is dropped and asked again (`presses` in
 - **A click on a tab's button never reaches the document from it.** Gradio's
   Tabs replace the button clicked with a selected one first, so a listener
   on the document sees a detached target (seen 3 of 3 on Neo). Watch for the
-  tab showing - `tabShowing` from `onAfterUiUpdate` - not the click (#128).
+  tab showing - `tabShowing` from the scope's `tabChange` (the WebUI's
+  `onUiTabChange`: 3 to 5 ms after the press, where `afterUpdate` came 151 to
+  272 after, #435) - not the click (#128). It does not run for two presses
+  within one script: the WebUI looks once they are over.
 - **A page reload starts on the first tab, every field as the UI was built.**
   A prompt typed in txt2img was gone after one on 7870. So a popup that
   offers a reload says unsaved input is lost, and the loading module brings
