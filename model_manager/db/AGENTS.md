@@ -302,8 +302,9 @@ the lookup and the write leaves a row naming nothing.
   lookup on its first column alone, which SQLite does not count as one row
   though `id` is the rowid; declared UNIQUE, the same index kept the join too
   (3.50.4 and 3.37.2). The Civitai Images level joined `image_prompts` so in
-  every build and read it nowhere in the fill: 382 to 388 ms with the join,
-  181 to 184 without (#434).
+  every build until 0.82.10, and read it nowhere in the fill: 382 to 388 ms
+  with the join, 181 to 184 without (#434). Each read names what it joins now
+  (`_joins`).
 - **A CTE read by two `IN`s is worked out once for each, if SQLite can flatten
   it.** Each `x IN hitN` is a subquery of its own, and a plain CTE is
   flattened into each: the Civitai Images search's

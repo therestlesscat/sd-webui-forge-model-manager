@@ -72,10 +72,15 @@ def group_rank(seed: int, group: str, key: Any) -> bytes:
     return hashlib.blake2b(f"{seed}:{group}:{key}".encode("utf-8"), digest_size=8).digest()
 
 
-def ordered_groups(db, seed: int, group: str, scope: Scope, level) -> List[Dict[str, Any]]:
-    """A grouping's groups within a level (read by `level`), in the seed's order, kept until the images change."""
+def ordered_groups(seed: int, group: str, scope: Scope, level, signature: Tuple[Any, ...]) -> List[Dict[str, Any]]:
+    """
+    A grouping's groups within a level (read by `level`), in the seed's order,
+    kept until the images change: until `signature`, read before the level,
+    does. Read after it, a list made before images were added or judged again
+    was kept under the signature of the store with them (#434).
+    """
     kept = (group, seed, nsfw_mode(scope.nsfw), tuple(scope.words), tuple(scope.opened), tuple(scope.images),
-            tuple(scope.versions), tuple(scope.models), db.gallery_signature())
+            tuple(scope.versions), tuple(scope.models), signature)
     with _lock:
         if kept in _groups_kept:
             return _groups_kept[kept]
@@ -236,11 +241,13 @@ def browse_page(db, seed: int, nsfw: Any, page: int, group: str = "",
     scope = Scope(nsfw_mode(nsfw), terms.words, opened, images=terms.images,
                   versions=terms.versions, models=terms.models)
     grouping = chain[len(opened)] if len(opened) < len(chain) else None
+    # Before the level: what is kept is worked out again when it changed since.
+    signature = db.gallery_signature() if grouping else ()
     # The level read once, its counts and its page or groups from it (#283).
     with db.gallery_level(seed, scope) as read:
         counts = read.counts()
         if grouping:
-            groups = ordered_groups(db, seed, grouping, scope, read)
+            groups = ordered_groups(seed, grouping, scope, read, signature)
         else:
             keys = read.image_keys(offset, size + 1)
 

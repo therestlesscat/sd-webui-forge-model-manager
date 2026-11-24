@@ -12,11 +12,14 @@ show it: a fetch without prompts keeps the stored ones, a gallery replaced
 or cleared takes only the images no other gallery shows, and a restamp
 judges each image once and writes its level to every gallery row.
 
-Through the HTTP endpoints and the database's own methods, so that on the
-code before #283 each check fails by name rather than the suite stopping.
+Through the HTTP endpoints and the database's own methods; what a level joins
+is watched on this thread's connection (#434).
 """
 import os
+import sqlite3
 import sys
+import threading
+from contextlib import contextmanager
 from datetime import datetime
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -38,7 +41,9 @@ except ImportError:
 
 import fixtures                                          # noqa: E402
 import model_manager.db.database as dbmod                # noqa: E402
+from model_manager.api import gallery as gallery_api      # noqa: E402
 from model_manager.api import setup_api                  # noqa: E402
+from model_manager.db.gallery_ops import Scope           # noqa: E402
 from model_manager.civitai.prompt_filter import generation_ids_needing_lookup, keep_generation_data  # noqa: E402
 
 fails = []
@@ -205,6 +210,178 @@ grouping('prompt')
 check('a key narrows a grouped level: only the groups holding a match, each counting its matches - '
       'the groups kept for the same grouping unsearched are not reused',
       sorted(grouping('prompt', search=f'version:{V2}').values()), [('', 1)])
+
+# ------------------------------------------------------------ what a level joins (#434)
+# On this thread's connection, made anew for each: a request runs on another,
+# and Python 3.10 cannot take a watcher back from a connection.
+BY = ('model', 'base_model', 'type', 'size', 'prompt', 'loras', 'day')
+TABLES = {row[0] for row in db._get_connection().execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+
+
+@contextmanager
+def own_connection():
+    """A connection of this thread's own for a while, the thread's put back after."""
+    kept, db._local.connection = db._local.connection, None
+    try:
+        yield db._get_connection()
+    finally:
+        db._get_connection().close()
+        db._local.connection = kept
+
+
+def asked(scope, grouping_by=None):
+    """The tables SQLite is asked to read for a level - or, given a grouping, for
+    its groups - and whether an index is made."""
+    reads, indexes = set(), []
+
+    def watch(action, first, second, *_):
+        if action == sqlite3.SQLITE_READ and first in TABLES:
+            reads.add(first)
+        if action == sqlite3.SQLITE_CREATE_TEMP_INDEX:
+            indexes.append(first)
+        return sqlite3.SQLITE_OK
+
+    with own_connection() as connection:
+        if grouping_by is None:
+            connection.set_authorizer(watch)
+        with db.gallery_level(1, scope) as read:
+            if grouping_by is not None:
+                connection.set_authorizer(watch)
+                read.groups(grouping_by)
+    return sorted(reads), bool(indexes)
+
+
+def prompts_looked_up(scope):
+    """Whether each image's prompt is looked up for a level, by the plan of the
+    statement that fills it: a search reads the prompts besides, so that they
+    are read says nothing."""
+    statements = []
+    with own_connection() as connection:
+        connection.set_trace_callback(statements.append)
+        with db.gallery_level(1, scope):
+            pass
+        connection.set_trace_callback(None)
+        fill = [s for s in statements if s.lstrip().startswith('CREATE TEMP TABLE')]
+        plan = ' '.join(row[3] for row in connection.execute('EXPLAIN QUERY PLAN ' + fill[0])) if len(fill) == 1 else fill
+    return 'idx_image_prompts_lookup' in plan
+
+
+def first_key(by):
+    return gallery_api.group_key(by, list(grouping(by))[0])
+
+
+ALWAYS = ['files', 'image_galleries', 'versions']
+check('a level with no search reads the galleries, the library\'s files and its versions, and no more; no index is made',
+      attempt('plain', lambda: asked(Scope())), (ALWAYS, False))
+check('a search by word reads the images and the prompts besides', attempt('words', lambda: asked(Scope(words=['fox']))[0]),
+      sorted(ALWAYS + ['images', 'image_prompts']))
+check('a search by id reads what it names, and no image\'s row',
+      attempt('ids', lambda: [asked(scope)[0] for scope in (Scope(images=[1001]), Scope(versions=[502]), Scope(models=[50]))]),
+      [ALWAYS, sorted(ALWAYS + ['image_resources']), sorted(ALWAYS + ['image_resources'])])
+check('no level looks each image\'s prompt up: not a plain one, a search, nor an opened prompt group',
+      attempt('plans', lambda: [prompts_looked_up(scope) for scope in (
+          Scope(), Scope(words=['fox', 'snow']), Scope(opened=[('prompt', first_key('prompt'))]))]), [False] * 3)
+OPENED_READS = {'model': [], 'base_model': [], 'type': ['models'], 'size': ['images'], 'prompt': ['images', 'image_prompts'],
+                'loras': ['image_resources'], 'day': ['images']}
+GROUPS_READ = {'model': ['models', 'versions'], 'base_model': ['versions'], 'type': ['files', 'models', 'versions'],
+               'size': ['images'], 'prompt': ['image_prompts', 'images'], 'loras': ['image_resources'], 'day': ['images']}
+for by in BY:
+    check(f'a {by} group opened: the level reads that besides',
+          attempt(by, lambda: asked(Scope(opened=[(by, first_key(by))]))[0]), sorted(ALWAYS + OPENED_READS[by]))
+    check(f'the groups by {by} read what they are worked out from', attempt(by, lambda: asked(Scope(), by)[0]),
+          GROUPS_READ[by])
+
+# Every grouping inside every other, with a word and without: a group's images
+# are those of both its groups, and its subgroups add up to it.
+found_fox = set(found(search='fox')[0])
+member = {by: {key: set(members(by, key)) for key in grouping(by)} for by in BY}
+for search, kept in (('', set(ALL)), ('fox', found_fox)):
+    wrong = []
+    for outer in BY:
+        for inner in BY:
+            if outer == inner:
+                continue
+            for key, held in member[outer].items():
+                if not held & kept:
+                    continue
+                sub = grouping(f'{outer}>{inner}', in_group=key, search=search)
+                want = {k: len(held & ids & kept) for k, ids in member[inner].items() if held & ids & kept}
+                if {k: count for k, (_, count) in sub.items()} != want:
+                    wrong.append((outer, inner, key, sub, want))
+                for sub_key in want:
+                    got = found(group=f'{outer}>{inner}', in_group=key, in_subgroup=sub_key, search=search)[0]
+                    if set(got) != held & member[inner][sub_key] & kept:
+                        wrong.append((outer, inner, key, sub_key, got))
+    check(f'every grouping inside every other, searching "{search}": the right groups, counts and images', wrong, [])
+
+parts = []
+gallery_module.TILE_PART = 4
+for page in (1, 2, 3):
+    data = browse(page=page)
+    parts.append((len(data.get('tiles') or []), data.get('more')))
+gallery_module.TILE_PART = 50
+check('the last part of a level, and one past its end', parts, [(4, True), (2, False), (0, False)])
+
+# An image only a version with no row of its own shows - a database fault.
+raw = db._get_connection()
+columns = ', '.join(row[1] for row in raw.execute('PRAGMA table_info(images)') if row[1] != 'id')
+raw.execute(f'INSERT INTO images (id, {columns}) SELECT 7001, {columns} FROM images WHERE id = 1001')
+raw.execute("INSERT INTO files (file_path, file_name, version_id) VALUES ('no_version.safetensors', 'no_version', 999999)")
+raw.execute('INSERT INTO image_galleries (version_id, image_id, page, position, effective_nsfw_level) VALUES (999999, 7001, 1, 1, 1)')
+raw.commit()
+check('an image of a version with no row is neither shown nor counted', (found()[0], found()[1].get('state', {}).get('total')),
+      (ALL, len(ALL)))
+for statement in ('DELETE FROM images WHERE id = 7001', "DELETE FROM files WHERE version_id = 999999",
+                  'DELETE FROM image_galleries WHERE version_id = 999999'):
+    raw.execute(statement)
+raw.commit()
+
+
+# The store changed between a level and its groups, as a sync or a restamp in
+# another thread, or the other WebUI, changes it: what was kept is not answered
+# again.
+def changed_between(by, change, nsfw='all'):
+    """A grouping asked while `change` runs after its level is read; whether it
+    then answers as it is worked out afresh, and whether the change told."""
+    real = db.gallery_level
+
+    @contextmanager
+    def level_then_change(seed, scope):
+        with real(seed, scope) as read:
+            thread = threading.Thread(target=change)
+            thread.start()
+            thread.join()
+            yield read
+
+    def counts():
+        page = gallery_api.browse_page(db, 1, nsfw, 1, group=by)
+        return sorted((t['group']['value'], t['group']['count'], t['matching_count']) for t in page['tiles'])
+
+    gallery_api._groups_kept.clear()
+    db.gallery_level = level_then_change
+    try:
+        first = counts()
+    finally:
+        db.gallery_level = real
+    again = counts()
+    gallery_api._groups_kept.clear()
+    afresh = counts()
+    return again == afresh, first != afresh
+
+
+def judged_explicit():
+    with db._cursor() as cursor:
+        cursor.execute('UPDATE image_galleries SET effective_nsfw_level = 16 WHERE image_id IN (1001, 1002)')
+
+
+check('images judged again while a grouping was read: asked again, its groups are as worked out afresh',
+      changed_between('day', judged_explicit, 'nsfw'), (True, True))
+with db._cursor() as cursor:
+    cursor.execute('UPDATE image_galleries SET effective_nsfw_level = 1 WHERE image_id IN (1001, 1002)')
+check('images removed while a grouping was read: the same',
+      changed_between('loras', lambda: db.replace_first_page(V1, [IMAGES[1004], IMAGES[1002]], None)), (True, True))
+check('images added while a grouping was read: the same',
+      changed_between('loras', lambda: db.replace_first_page(V1, [IMAGES[1004], IMAGES[1005], IMAGES[1002]], None)), (True, True))
 
 # ------------------------------------------------------------ one record per image
 def record(image_id):

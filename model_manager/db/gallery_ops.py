@@ -19,7 +19,7 @@ import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Sequence, Set, Tuple
 
 from ..console import say_failure
 from ..gallery import ALL, nsfw_kept_sql
@@ -37,18 +37,20 @@ SIZE_SIGN = "×"
 # no sync has read (model_manager/AGENTS.md, "Civitai's labels are the uploader's").
 _FILE_TYPE = ("(SELECT f.file_type FROM files f WHERE f.version_id = v.id AND f.file_type IS NOT NULL"
               " ORDER BY f.file_path LIMIT 1)")
-# What a grouping groups by: its key, and what a group is called. A prompt
-# group is named by its text and a LoRA group by its LoRAs, which the endpoint
-# reads for the groups it shows rather than for every group.
-GROUPINGS: Dict[str, Tuple[str, str]] = {
-    "model": ("v.model_id", "COALESCE(m.name, '')"),
-    "base_model": ("COALESCE(v.base_model, '')", "COALESCE(v.base_model, '')"),
-    "type": (f"COALESCE({_FILE_TYPE}, m.type, '')", f"COALESCE({_FILE_TYPE}, m.type, '')"),
-    "size": (f"COALESCE(i.width || '{SIZE_SIGN}' || i.height, '')", f"COALESCE(i.width || '{SIZE_SIGN}' || i.height, '')"),
-    "prompt": ("COALESCE(ip.grouped_as, 0)", "''"),
-    "loras": ("COALESCE(combo.k, '')", "''"),
+# What a grouping groups by: its key, what a group is called, and the tables
+# the two read (_joins). A prompt group is named by its text and a LoRA group
+# by its LoRAs, which the endpoint reads for the groups it shows rather than
+# for every group.
+GROUPINGS: Dict[str, Tuple[str, str, Tuple[str, ...]]] = {
+    "model": ("v.model_id", "COALESCE(m.name, '')", ("models",)),
+    "base_model": ("COALESCE(v.base_model, '')", "COALESCE(v.base_model, '')", ("versions",)),
+    "type": (f"COALESCE({_FILE_TYPE}, m.type, '')", f"COALESCE({_FILE_TYPE}, m.type, '')", ("models",)),
+    "size": (f"COALESCE(i.width || '{SIZE_SIGN}' || i.height, '')", f"COALESCE(i.width || '{SIZE_SIGN}' || i.height, '')",
+             ("images",)),
+    "prompt": ("COALESCE(ip.grouped_as, 0)", "''", ("prompts",)),
+    "loras": ("COALESCE(combo.k, '')", "''", ("combo",)),
     # Your local date: Civitai's times are UTC (#283, question 11).
-    "day": ("COALESCE(date(i.created_at, 'localtime'), '')", "COALESCE(date(i.created_at, 'localtime'), '')"),
+    "day": ("COALESCE(date(i.created_at, 'localtime'), '')", "COALESCE(date(i.created_at, 'localtime'), '')", ("images",)),
 }
 # Groupings whose key is a number in a request.
 NUMBER_KEYS = ("model", "prompt")
@@ -67,20 +69,33 @@ _COMBO = """,
     combo AS (SELECT image_id, group_concat(version_id, ',') AS k FROM (
         SELECT DISTINCT image_id, version_id FROM image_resources INDEXED BY idx_image_resources_image
         WHERE role = 'lora' AND version_id IS NOT NULL ORDER BY image_id, version_id) GROUP BY image_id)"""
-_JOINS = """
-    FROM picked p JOIN versions v ON v.id = p.version_id LEFT JOIN models m ON m.id = v.model_id
-    JOIN images i ON i.id = p.id
-    LEFT JOIN image_prompts ip INDEXED BY idx_image_prompts_lookup ON ip.id = i.prompt_id"""
+# What an image is joined to, by the table's name, in the order joined.
+_JOIN = {
+    "versions": "JOIN versions v ON v.id = p.version_id",
+    "models": "LEFT JOIN models m ON m.id = v.model_id",
+    "images": "JOIN images i ON i.id = p.id",
+    "prompts": "LEFT JOIN image_prompts ip INDEXED BY idx_image_prompts_lookup ON ip.id = i.prompt_id",
+    "combo": "LEFT JOIN combo ON combo.image_id = p.id",
+}
+# What a join reads of another.
+_JOIN_READS = {"models": "versions", "prompts": "images"}
 # Explicit, as everywhere: an image no rule has judged reads as not safe.
 _EXPLICIT = f"(NOT COALESCE(p.level <= {SFW_MAX}, 0))"
 _SCORE = f"((((p.id | :seed) - (p.id & :seed)) * {_MIX}) % {_SPAN})"
 # A level's images, read once a request (level()): this connection's alone.
 _LEVEL_TABLE = "mm_gallery_level"
-# A grouping's joins over the level's table, as _JOINS over `picked`.
-_LEVEL_JOINS = f"""
-    FROM temp.{_LEVEL_TABLE} p JOIN versions v ON v.id = p.version_id LEFT JOIN models m ON m.id = v.model_id
-    JOIN images i ON i.id = p.id
-    LEFT JOIN image_prompts ip INDEXED BY idx_image_prompts_lookup ON ip.id = i.prompt_id"""
+
+
+def _joins(source: str, needs: Iterable[str]) -> str:
+    """
+    The FROM of `source` (its images, as `p`) with the tables `needs` names,
+    and no other: every image of a level is looked up in each one joined.
+    Joined whether read or not, a level of 305,606 images with no search took
+    about 400 ms to fill, and 139 with the one join it reads (#434).
+    """
+    wanted = set(needs)
+    wanted |= {_JOIN_READS[name] for name in wanted if name in _JOIN_READS}
+    return f"FROM {source} p " + " ".join(join for name, join in _JOIN.items() if name in wanted)
 
 
 def score(image_id: int, seed: int) -> int:
@@ -124,11 +139,13 @@ _BY_MODELS = """(p.id IN (SELECT image_id FROM image_resources WHERE model_id IN
         (SELECT id FROM versions WHERE model_id IN (SELECT value FROM json_each(:models)))))"""
 
 
-def _scope_sql(scope: Scope, hide: bool) -> Tuple[str, List[str], Dict[str, Any], bool]:
+def _scope_sql(scope: Scope, hide: bool) -> Tuple[str, List[str], Dict[str, Any], Set[str]]:
     """A scope as SQL: the CTEs after `picked`, the conditions, their values, and
-    whether the LoRA combination is joined."""
+    the tables the conditions read (_joins)."""
     ctes, where, args = "", [], {}
+    needs: Set[str] = set()
     for n, word in enumerate(scope.words):
+        needs.add("images")
         ctes += ",\n    " + IMAGE_PROMPTS.match(f"hit{n}", f":w{n}")
         args[f"w{n}"] = like_pattern(word)
         where.append(f"(i.prompt_id IN hit{n} OR i.negative_id IN hit{n})")
@@ -141,7 +158,6 @@ def _scope_sql(scope: Scope, hide: bool) -> Tuple[str, List[str], Dict[str, Any]
     if scope.models:
         where.append(_BY_MODELS)
         args["models"] = json.dumps(scope.models)
-    combo = False
     for n, (grouping, key) in enumerate(scope.opened):
         name = f"o{n}"
         args[name] = key
@@ -149,18 +165,24 @@ def _scope_sql(scope: Scope, hide: bool) -> Tuple[str, List[str], Dict[str, Any]
             # Its versions named first, so its images are found without
             # joining every image to its version.
             where.append(f"p.version_id IN (SELECT id FROM versions WHERE model_id = :{name})")
+            continue
         elif grouping == "base_model":
             where.append(f"p.version_id IN (SELECT id FROM versions WHERE COALESCE(base_model, '') = :{name})")
+            continue
         elif grouping == "size" and SIZE_SIGN in str(key):
+            needs.add("images")
             width, height = str(key).split(SIZE_SIGN, 1)
             where.append(f"i.width = :{name}w AND i.height = :{name}h")
             args[f"{name}w"], args[f"{name}h"] = _number(width), _number(height)
             continue
         elif grouping == "prompt":
+            # The prompts are named by the images' own rows: no join to them.
+            needs.add("images")
             where.append(f"(i.prompt_id IN (SELECT id FROM image_prompts WHERE grouped_as = :{name})"
                          + (" OR i.prompt_id IS NULL)" if not key else ")"))
             continue
         elif grouping == "day" and key:
+            needs.add("images")
             try:
                 args[f"{name}lo"], args[f"{name}hi"] = day_range(str(key))
             except ValueError:
@@ -168,11 +190,11 @@ def _scope_sql(scope: Scope, hide: bool) -> Tuple[str, List[str], Dict[str, Any]
                 continue
             where.append(f"i.created_at >= :{name}lo AND i.created_at < :{name}hi")
             continue
-        combo = combo or grouping == "loras"
+        needs.update(GROUPINGS[grouping][2])
         where.append(f"{GROUPINGS[grouping][0]} = :{name}")
     if hide:
         where.append(f"NOT {_EXPLICIT}")
-    return ctes, where, args, combo
+    return ctes, where, args, needs
 
 
 def _number(text: str) -> Any:
@@ -188,13 +210,12 @@ class GalleryOps:
     def __init__(self, cursor: Callable):
         self._cursor = cursor
 
-    def _level(self, scope: Scope, hide: bool, grouping: Optional[str] = None) -> Tuple[str, str, Dict[str, Any]]:
-        """The CTEs, the FROM with its joins, and the values, of a scope's images."""
-        ctes, where, args, combo = _scope_sql(scope, hide)
-        combo = combo or grouping == "loras"
-        head = _PICKED + (_COMBO if combo else "") + ctes
-        body = _JOINS + (" LEFT JOIN combo ON combo.image_id = p.id" if combo else "")
-        return head, f"{body} WHERE {' AND '.join(where) or '1'}", args
+    def _level(self, scope: Scope, hide: bool) -> Tuple[str, str, Dict[str, Any]]:
+        """The CTEs, the FROM with its joins, and the values, of a scope's images:
+        always of a version that has its row, whatever else is read."""
+        ctes, where, args, needs = _scope_sql(scope, hide)
+        head = _PICKED + (_COMBO if "combo" in needs else "") + ctes
+        return head, f"{_joins('picked', needs | {'versions'})} WHERE {' AND '.join(where) or '1'}", args
 
     @contextmanager
     def level(self, seed: int, scope: Scope) -> Iterator["_Level"]:
@@ -205,10 +226,13 @@ class GalleryOps:
         its counts, a page and its groups are then read from. Searched, each
         request read every prompt's text twice, for the counts and for the
         page: 1.16 s a request for one word at 117,142 images, 0.57 s through
-        the table, and 206 ms against 118 with no search (#283). The table is
-        this connection's alone, so two requests at once have one each; it is
-        dropped on the way out, and one a failed drop left is dropped first,
-        as the Generations tab's Single pass does (#259).
+        the table, and 206 ms against 118 with no search (#283). It has no
+        index: one in the tab's order took 96 ms to make at 305,606 images and
+        was read once, where SQLite finds a part's best without it in 11 ms
+        (#434). The table is this connection's alone, so two requests at once
+        have one each; it is dropped on the way out, and one a failed drop
+        left is dropped first, as the Generations tab's Single pass does
+        (#259).
         """
         head, body, args = self._level(scope, hide=False)
         args["seed"] = int(seed)
@@ -220,7 +244,6 @@ class GalleryOps:
                 cursor.execute(f"DROP TABLE IF EXISTS temp.{_LEVEL_TABLE}")
                 cursor.execute(f"CREATE TEMP TABLE {_LEVEL_TABLE} AS {head} SELECT p.id AS id, "
                                f"p.version_id AS version_id, p.level AS level, {_SCORE} AS s {body}", args)
-                cursor.execute(f"CREATE INDEX temp.{_LEVEL_TABLE}_order ON {_LEVEL_TABLE} (s, id)")
                 yield _Level(cursor, scope.nsfw)
             finally:
                 try:
@@ -325,14 +348,13 @@ class _Level:
         the group): placed by their lowest-scoring image, the biggest groups
         came first for almost every seed (#209).
         """
-        key, label = GROUPINGS[grouping]
-        combo = grouping == "loras"
+        key, label, needs = GROUPINGS[grouping]
         # The LoRA combination is worked out only for the grouping that reads it.
-        combo_cte = _COMBO.lstrip(",\n ") + "," if combo else ""
+        combo_cte = _COMBO.lstrip(",\n ") + "," if "combo" in needs else ""
         sql = f"""WITH {combo_cte}
             scored AS (SELECT p.id, p.version_id, {key} AS k, {label} AS name, p.s AS s,
                               {_EXPLICIT} AS explicit, ({self._shown}) AS shown
-                       {_LEVEL_JOINS}{" LEFT JOIN combo ON combo.image_id = p.id" if combo else ""}),
+                       {_joins(f"temp.{_LEVEL_TABLE}", needs)}),
             counted AS (SELECT *, COUNT(*) OVER (PARTITION BY k) AS n_all,
                                TOTAL(explicit) OVER (PARTITION BY k) AS n_explicit FROM scored),
             ranked AS (SELECT *, ROW_NUMBER() OVER (PARTITION BY k ORDER BY s, id) AS rn
