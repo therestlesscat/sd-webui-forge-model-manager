@@ -14,8 +14,10 @@ but those a copy still names; Clear history hides. Only this install's tasks
 are listed or acted on.
 """
 import dataclasses
+import json
 import os
 import sys
+import types
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TESTS = os.path.dirname(HERE)
@@ -46,7 +48,7 @@ from model_manager.api import scheduler as api           # noqa: E402
 from model_manager.db.tasks_ops import HISTORY          # noqa: E402
 from model_manager.install import INSTALL_KEY            # noqa: E402
 from model_manager.nsfw import PG, PG13, X               # noqa: E402
-from model_manager.scheduler import runner               # noqa: E402
+from model_manager.scheduler import load, runner         # noqa: E402
 from model_manager.scheduler.values import Keeper        # noqa: E402
 
 fails = []
@@ -378,6 +380,65 @@ check("a task's row lists each checkpoint, what its run ran with and how it ende
         'ran_with': {**PRESS, 'steps': 40}},
        {'checkpoint': 'c.safetensors', 'modules': None, 'status': 'completed', 'error': None,
         'ran_with': {'sampler': 'DPM++ 2M', 'schedule_type': 'Beta', 'steps': 25, 'cfg': 1}}])
+
+# What the rows copy of a press (#435): for a run with usual settings, the CFG
+# and the Sampler script's three entries, once - not the whole press.
+real_copy, copied = load.copy, []
+load.copy = types.SimpleNamespace(deepcopy=lambda value: (copied.append(value), real_copy.deepcopy(value))[1])
+try:
+    listed('history')
+finally:
+    load.copy = real_copy
+FOUR = {'fixed': {'cfg_scale': 7}, 'scripts': {'Sampler': inputs('three')['scripts']['Sampler']}}
+check("a run's row copies the four settings it says, not the whole press", copied, [FOUR, FOUR])
+
+# And what it says is with_usual's own answer on the whole press, read back.
+KEYS = {'sampler': 'sampling', 'schedule_type': 'scheduler', 'steps': 'steps'}
+
+
+def read_back(tab, press, usual):
+    applied = load.with_usual(tab, press, usual)
+    found = {}
+    for controls in (applied.get('scripts') or {}).values():
+        for entry in controls:
+            for key, control in KEYS.items():
+                if entry.get('id') == f'{tab}_{control}':
+                    found.setdefault(key, entry.get('value'))
+    return {**found, 'cfg': (applied.get('fixed') or {}).get('cfg_scale')}
+
+
+def said(tab, press, settings):
+    try:
+        return load.ran_with(tab, press, settings)
+    except Exception as e:
+        return repr(e)
+
+
+whole = inputs('whole', image='whole')
+no_cfg, no_scripts, twice = inputs('a'), inputs('b'), inputs('c')
+del no_cfg['fixed']['cfg_scale']
+del no_scripts['scripts']
+# First, so its entries are the ones read: the first found wins.
+twice['scripts'] = {'Another': [{'id': 'txt2img_steps', 'value': 99}, {'id': 'txt2img_sampling'}],
+                    **twice['scripts']}
+other_tab = inputs('d')
+other_tab['scripts']['Sampler'] = [{**e, 'id': e['id'].replace('txt2img', 'img2img')}
+                                   for e in other_tab['scripts']['Sampler']]
+ALL = {'sampler': 'DPM++ 2M', 'schedule_type': 'Beta', 'steps': 25, 'cfg': 1, 'distilled_cfg': 3, 'shift': 9}
+USUALS = [{}, ALL, *({key: value} for key, value in ALL.items()), *({**ALL, key: None} for key in ALL)]
+TRIED = [(tab, name, usual) for tab, name in
+         [('txt2img', 'whole'), ('txt2img', 'no_cfg'), ('txt2img', 'no_scripts'), ('txt2img', 'twice'),
+          ('img2img', 'other_tab'), ('img2img', 'whole')] for usual in USUALS]
+presses = {'whole': whole, 'no_cfg': no_cfg, 'no_scripts': no_scripts, 'twice': twice, 'other_tab': other_tab}
+before = json.dumps(presses)
+check("what a run ran with is with_usual's answer on its whole press, each usual setting alone, all, none or unset",
+      [(t, n, u) for t, n, u in TRIED
+       if said(t, presses[n], {'usual': u}) != read_back(t, presses[n], u)], [])
+check('and no settings kept with a run is the press as it is',
+      [said(t, presses[n], none) == read_back(t, presses[n], {}) for t, n, none in
+       [('txt2img', 'whole', None), ('txt2img', 'whole', {}), ('txt2img', 'twice', {'another_family': True})]],
+      [True] * 3)
+check('the press itself is not changed', json.dumps(presses), before)
 
 # An img2img task's row names the tab it was queued from, by Forge's number
 # - kept as a number field gives it, 2.0 - and its denoising strength (#432).

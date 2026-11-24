@@ -321,16 +321,20 @@ def ran_with(tab: str, named: Dict[str, Any], settings: Optional[Dict[str, Any]]
     changes - Hires fix, another family's modules - is none of these.
     """
     usual = (settings or {}).get("usual")
-    applied = with_usual(tab, named, usual) if usual else named
-    fixed = applied.get("fixed") or {}
     keys = {tab + suffix: key for suffix, key in _USUAL_CONTROLS.items()}
+    # with_usual copies what it is handed: the four settings, not the whole press (#435).
+    fixed = named.get("fixed") or {}
+    part = {"fixed": {"cfg_scale": fixed["cfg_scale"]} if "cfg_scale" in fixed else {},
+            "scripts": {title: own for title, controls in (named.get("scripts") or {}).items()
+                        if (own := [entry for entry in controls if entry.get("id") in keys])}}
+    applied = with_usual(tab, part, usual) if usual else part
     found: Dict[str, Any] = {}
-    for controls in (applied.get("scripts") or {}).values():
+    for controls in applied["scripts"].values():
         for entry in controls:
             key = keys.get(entry.get("id"))
             if key and key not in found:
                 found[key] = entry.get("value")
-    found["cfg"] = fixed.get("cfg_scale")
+    found["cfg"] = applied["fixed"].get("cfg_scale")
     return found
 
 
