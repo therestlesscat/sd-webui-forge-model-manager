@@ -945,12 +945,13 @@ class GenerationsOps:
                          "(SELECT file_path FROM files WHERE version_id IN "
                          "(SELECT id FROM versions WHERE model_id IN (SELECT value FROM json_each(?)))))")
             args_where.append(json.dumps(scope.models))
-        for index, word in enumerate(scope.words):
-            # A word is matched as typed, ignoring case: % and _ mean themselves.
-            ctes.append(PROMPTS.match(f"hit{index}"))
-            args.append(like_pattern(word))
-            where.append(f"(gi.prompt_id IN hit{index} OR gi.negative_id IN hit{index} "
-                         f"OR g.prompt_id IN hit{index} OR g.negative_id IN hit{index})")
+        # A word is matched as typed, ignoring case: % and _ mean themselves.
+        scans, found = PROMPTS.scans(["?"] * len(scope.words))
+        ctes += scans
+        args += [like_pattern(word) for word in scope.words]
+        for ids in found:
+            where.append(f"(gi.prompt_id IN {ids} OR gi.negative_id IN {ids} "
+                         f"OR g.prompt_id IN {ids} OR g.negative_id IN {ids})")
         for grouping, opened in scope.opened:
             key = group_key(grouping, opened)
             if key is None:

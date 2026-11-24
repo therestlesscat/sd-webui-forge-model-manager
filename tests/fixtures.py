@@ -17,8 +17,10 @@ migrations on the way in and cannot drift from the schema.
 import io
 import json
 import os
+import re
 import shutil
 import sys
+from contextlib import contextmanager
 
 # The extension package, from wherever this file happens to live.
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -231,6 +233,33 @@ def sidecar(path, payload):
     info = os.path.splitext(path)[0] + ".civitai.info"
     io.open(info, "w", encoding="utf-8").write(json.dumps(payload))
     return info
+
+
+@contextmanager
+def own_connection(db):
+    """A connection of this thread's own for a while, the thread's put back after."""
+    kept, db._local.connection = db._local.connection, None
+    try:
+        yield db._get_connection()
+    finally:
+        db._get_connection().close()
+        db._local.connection = kept
+
+
+@contextmanager
+def likes_counted(db):
+    """How many times LIKE runs on this thread, as a list of one - on a connection
+    of its own, as what stands in for LIKE there cannot be taken back."""
+    count = [0]
+
+    def like(pattern, text, escape):
+        count[0] += 1
+        word = re.sub(re.escape(escape) + '(.)', r'\1', pattern[1:-1])
+        return int(word.lower() in text.lower())
+
+    with own_connection(db) as connection:
+        connection.create_function('like', 3, like)
+        yield count
 
 
 if __name__ == "__main__":

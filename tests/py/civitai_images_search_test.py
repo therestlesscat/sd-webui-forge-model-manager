@@ -44,6 +44,7 @@ import model_manager.db.database as dbmod                # noqa: E402
 from model_manager.api import gallery as gallery_api      # noqa: E402
 from model_manager.api import setup_api                  # noqa: E402
 from model_manager.db.gallery_ops import Scope           # noqa: E402
+from model_manager.db.images_ops import IMAGE_PROMPTS    # noqa: E402
 from model_manager.civitai.prompt_filter import generation_ids_needing_lookup, keep_generation_data  # noqa: E402
 
 fails = []
@@ -218,17 +219,6 @@ BY = ('model', 'base_model', 'type', 'size', 'prompt', 'loras', 'day')
 TABLES = {row[0] for row in db._get_connection().execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
 
 
-@contextmanager
-def own_connection():
-    """A connection of this thread's own for a while, the thread's put back after."""
-    kept, db._local.connection = db._local.connection, None
-    try:
-        yield db._get_connection()
-    finally:
-        db._get_connection().close()
-        db._local.connection = kept
-
-
 def asked(scope, grouping_by=None):
     """The tables SQLite is asked to read for a level - or, given a grouping, for
     its groups - and whether an index is made."""
@@ -241,7 +231,7 @@ def asked(scope, grouping_by=None):
             indexes.append(first)
         return sqlite3.SQLITE_OK
 
-    with own_connection() as connection:
+    with fixtures.own_connection(db) as connection:
         if grouping_by is None:
             connection.set_authorizer(watch)
         with db.gallery_level(1, scope) as read:
@@ -251,19 +241,22 @@ def asked(scope, grouping_by=None):
     return sorted(reads), bool(indexes)
 
 
-def prompts_looked_up(scope):
-    """Whether each image's prompt is looked up for a level, by the plan of the
-    statement that fills it: a search reads the prompts besides, so that they
-    are read says nothing."""
+def plan_of(scope):
+    """The plan of the statement that fills a level."""
     statements = []
-    with own_connection() as connection:
+    with fixtures.own_connection(db) as connection:
         connection.set_trace_callback(statements.append)
         with db.gallery_level(1, scope):
             pass
         connection.set_trace_callback(None)
         fill = [s for s in statements if s.lstrip().startswith('CREATE TEMP TABLE')]
-        plan = ' '.join(row[3] for row in connection.execute('EXPLAIN QUERY PLAN ' + fill[0])) if len(fill) == 1 else fill
-    return 'idx_image_prompts_lookup' in plan
+        return [row[3] for row in connection.execute('EXPLAIN QUERY PLAN ' + fill[0])] if len(fill) == 1 else fill
+
+
+def prompts_looked_up(scope):
+    """Whether each image's prompt is looked up for a level: a search reads the
+    prompts besides, so that they are read says nothing."""
+    return 'idx_image_prompts_lookup' in ' '.join(plan_of(scope))
 
 
 def first_key(by):
@@ -293,6 +286,12 @@ for by in BY:
 
 # Every grouping inside every other, with a word and without: a group's images
 # are those of both its groups, and its subgroups add up to it.
+# Through the endpoint's own function: hundreds of requests, each an event
+# loop's own sockets, can use up Windows' ports.
+def direct(**params):
+    return gallery_api.browse_page(db, 1, 'all', 1, **params)['tiles']
+
+
 found_fox = set(found(search='fox')[0])
 member = {by: {key: set(members(by, key)) for key in grouping(by)} for by in BY}
 for search, kept in (('', set(ALL)), ('fox', found_fox)):
@@ -304,12 +303,14 @@ for search, kept in (('', set(ALL)), ('fox', found_fox)):
             for key, held in member[outer].items():
                 if not held & kept:
                     continue
-                sub = grouping(f'{outer}>{inner}', in_group=key, search=search)
+                sub = {t['group']['key']: t['group']['count']
+                       for t in direct(group=f'{outer}>{inner}', in_group=key, search=search)}
                 want = {k: len(held & ids & kept) for k, ids in member[inner].items() if held & ids & kept}
-                if {k: count for k, (_, count) in sub.items()} != want:
+                if sub != want:
                     wrong.append((outer, inner, key, sub, want))
                 for sub_key in want:
-                    got = found(group=f'{outer}>{inner}', in_group=key, in_subgroup=sub_key, search=search)[0]
+                    got = [t['image']['id'] for t in direct(group=f'{outer}>{inner}', in_group=key, in_subgroup=sub_key,
+                                                            search=search)]
                     if set(got) != held & member[inner][sub_key] & kept:
                         wrong.append((outer, inner, key, sub_key, got))
     check(f'every grouping inside every other, searching "{search}": the right groups, counts and images', wrong, [])
@@ -382,6 +383,51 @@ check('images removed while a grouping was read: the same',
       changed_between('loras', lambda: db.replace_first_page(V1, [IMAGES[1004], IMAGES[1002]], None)), (True, True))
 check('images added while a grouping was read: the same',
       changed_between('loras', lambda: db.replace_first_page(V1, [IMAGES[1004], IMAGES[1005], IMAGES[1002]], None)), (True, True))
+
+# An image Civitai gave no size and no date: in a group of each with no key.
+db.store_images(V2, 2, [dict(image(7500, 'a red fox'), width=None, height=None, createdAt=None)])
+check('no size and no date: a group of each, opened, and with a word',
+      [[sorted(members(by, 'v')), sorted(members(by, 'v', search='fox')), members(by, 'v', search='snow')]
+       for by in ('size', 'day')], [[[7500], [7500], []]] * 2)
+db.replace_first_page(V2, [IMAGES[1006]], None)
+
+# ------------------------------------------------------------ how often a search reads the prompts (#434)
+check('a first word found nowhere, then two that are: nothing found', found(search='zebra fox snow')[0], [])
+check('five words, the last, of the second scan, found nowhere; and all found',
+      (found(search='a red fox in zebra')[0], found(search='a red fox in snow')[0]), ([], [1001, 1005]))
+# One image more for each word: holding the first none, one, two ... of them,
+# so every word is asked of some image's prompt and negative prompt.
+LADDER = ['firstword', 'secondword', 'thirdword', 'fourthword', 'fifthword']
+db.store_images(V2, 2, [image(8000 + n, ' '.join(LADDER[:n]) or 'none of them') for n in range(len(LADDER) + 1)])
+texts = db._get_connection().execute('SELECT COUNT(*) FROM image_prompts').fetchone()[0]
+
+
+def likes(words):
+    with fixtures.likes_counted(db) as count:
+        with db.gallery_level(1, Scope(words=words)) as read:
+            total = read.counts()['total']
+    return count[0], total
+
+
+for n in (1, 3, 5):
+    check(f'{n} words: each is asked of each prompt once, and the images found are those of every word',
+          likes(LADDER[:n]), (n * texts, len(LADDER) + 1 - n))
+check('five words, the first found nowhere: the first four alone are asked', likes(['zebra'] + LADDER[:4]), (4 * texts, 0))
+
+
+# The original Forge's SQLite takes AS MATERIALIZED and does not act on it here.
+def untold(placeholders, scans=getattr(IMAGE_PROMPTS, 'scans', None)):
+    ctes, ids = scans(placeholders)
+    return [c.replace('AS MATERIALIZED', 'AS') for c in ctes], ids
+
+
+IMAGE_PROMPTS.scans = untold
+check('three words, the scan not told to be made once: made once all the same', likes(LADDER[:3]),
+      (3 * texts, len(LADDER) - 2))
+del IMAGE_PROMPTS.scans
+check('a scan reads the prompts\' table, not the index of their texts',
+      [step for step in plan_of(Scope(words=LADDER)) if 'image_prompts' in step], ['SCAN image_prompts'] * 2)
+db.replace_first_page(V2, [IMAGES[1006]], None)
 
 # ------------------------------------------------------------ one record per image
 def record(image_id):

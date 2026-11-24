@@ -144,11 +144,12 @@ def _scope_sql(scope: Scope, hide: bool) -> Tuple[str, List[str], Dict[str, Any]
     the tables the conditions read (_joins)."""
     ctes, where, args = "", [], {}
     needs: Set[str] = set()
+    scans, found = IMAGE_PROMPTS.scans([f":w{n}" for n in range(len(scope.words))])
+    ctes += "".join(",\n    " + scan for scan in scans)
     for n, word in enumerate(scope.words):
         needs.add("images")
-        ctes += ",\n    " + IMAGE_PROMPTS.match(f"hit{n}", f":w{n}")
         args[f"w{n}"] = like_pattern(word)
-        where.append(f"(i.prompt_id IN hit{n} OR i.negative_id IN hit{n})")
+        where.append(f"(i.prompt_id IN {found[n]} OR i.negative_id IN {found[n]})")
     if scope.images:
         where.append("p.id IN (SELECT value FROM json_each(:images))")
         args["images"] = json.dumps(scope.images)

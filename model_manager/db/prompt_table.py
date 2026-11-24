@@ -15,6 +15,16 @@ from typing import Any, Iterable, List, Optional, Sequence, Tuple
 from ..prompt_rules import trimmed_sql
 
 
+# How many of a search's words one scan of a table answers for. On 406,763
+# texts (255 MB), SQLite 3.50.4, eight words found: one scan each took 4.1 s,
+# four a scan 2.6, all in one 2.3. Eight whose first is found nowhere: 0.6 s,
+# 1.0 and 1.7, against 1.3 before - the next scan is made only while an image
+# is left - and thirty of them, all in one scan, 5.1 s. Where the texts are few
+# or short, the same eight take a little longer than before: 60,000 of 100
+# characters, 62 ms for 39 (#434).
+WORDS_A_SCAN = 4
+
+
 def tidy(text: Any) -> str:
     """A prompt as a group's key: its spacing tidied, nothing else changed."""
     return " ".join(str(text if text is not None else "").split())
@@ -85,10 +95,27 @@ class PromptTable:
             ids = heads
         return dropped
 
-    def match(self, name: str, placeholder: str = "?") -> str:
-        """A CTE `name` holding the ids of the prompts a LIKE pattern finds (like_pattern),
-        bound at `placeholder` - `?`, or `:name` where a statement binds by name."""
-        return f"{name} AS (SELECT id FROM {self.table} WHERE text LIKE {placeholder} ESCAPE '\\')"
+    def scans(self, placeholders: Sequence[str]) -> Tuple[List[str], List[str]]:
+        """
+        A search's words, each bound at its placeholder as a LIKE pattern
+        (like_pattern) - `?`, or `:name` where a statement binds by name -
+        as the CTEs that scan the table for them, WORDS_A_SCAN a scan, and
+        for each word the ids of the prompts it finds, to check a prompt IN:
+        however many checks a word has, the table is read once for its scan.
+        A CTE a word's checks name was made again for each of them: DISTINCT
+        is what keeps it to one, as the original Forge's SQLite 3.37.2 does
+        not read MATERIALIZED so. NOT INDEXED reads the table, where the
+        text's index takes 1.4 times as long (#434).
+        """
+        ctes, found = [], []
+        for start in range(0, len(placeholders), WORDS_A_SCAN):
+            name = f"hits{start // WORDS_A_SCAN}"
+            words = [(f"w{start + n}", placeholder)
+                     for n, placeholder in enumerate(placeholders[start:start + WORDS_A_SCAN])]
+            columns = ", ".join(f"text LIKE {placeholder} ESCAPE '\\' AS {column}" for column, placeholder in words)
+            ctes.append(f"{name} AS MATERIALIZED (SELECT DISTINCT id, {columns} FROM {self.table} NOT INDEXED)")
+            found += [f"(SELECT id FROM {name} WHERE {column})" for column, _ in words]
+        return ctes, found
 
     def texts(self, cursor, ids: List[int]) -> dict:
         """These prompts' texts, by id."""

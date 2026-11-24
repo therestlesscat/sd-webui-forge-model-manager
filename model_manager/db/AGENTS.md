@@ -307,20 +307,27 @@ the lookup and the write leaves a row naming nothing.
   (`_joins`).
 - **A CTE read by two `IN`s is worked out once for each, if SQLite can flatten
   it.** Each `x IN hitN` is a subquery of its own, and a plain CTE is
-  flattened into each: the Civitai Images search's
+  flattened into each: until 0.82.11 the Civitai Images search's
   `prompt_id IN hitN OR negative_id IN hitN` scanned `image_prompts` twice a
-  word, 798,828 `LIKE` calls for 399,414 prompts. SQLite's default of
-  materializing a CTE used more than once does not reach one it can flatten,
-  in either WebUI. `AS MATERIALIZED` stops the flattening in Neo's SQLite
-  3.50.4 (399,414 calls; the fill 1.67 s to 1.10 s), and the original Forge's
+  word, 798,828 `LIKE` calls for 399,414 prompts, and the Generations tab's
+  its table four times a word, 8 to 12 in its view of tasks. SQLite's
+  default of materializing a CTE used more than once does not reach one it
+  can flatten, in either WebUI. `AS MATERIALIZED` stops the flattening in Neo's
+  SQLite 3.50.4 (399,414 calls; the fill 1.67 s to 1.10 s), and the original Forge's
   3.37.2 accepts it and ignores it (798,828; 1.55 s either way). A body SQLite
   cannot flatten is materialized once in both:
   `AS MATERIALIZED (SELECT DISTINCT id ...)` made 399,414 calls in both (1.16
   to 1.19 s), with the same rows for one to three words. Elsewhere
   `MATERIALIZED` costs: read once, or narrowed by the outer query's filters, a
   made-up 200,000-row table took under 0.1 ms flattened and 53 to 67 ms
-  materialized. Read the plan under both WebUIs' SQLite (`MATERIALIZE hitN`
-  once) and time both ways (#434).
+  materialized. Read the plan under both WebUIs' SQLite (`MATERIALIZE hits0`
+  once) and time both ways. One scan for every word of a search is quicker
+  where every word is found (11 words 3.1 s, four a scan 3.6), but it pays
+  for all of them where the first is found nowhere, 30 words 5.1 s for 1.2
+  until 0.82.11, and preparing it grows with the square of the words - so a
+  scan answers for four, 1.0 s there, though 62 ms for 39 on 60,000 texts of
+  100 characters
+  (`PromptTable.scans`, #434).
 - **A table holding another source's facts is built from that source's
   fields, not from the old table's columns.** v32 split `model_versions` into
   what it held, and Civitai's own id for each file - which a sync, a download

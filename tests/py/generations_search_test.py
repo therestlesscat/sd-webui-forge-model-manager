@@ -21,7 +21,7 @@ for _p in (ROOT, TESTS):
 import webui_stub                                        # noqa: E402
 
 WORK = os.path.join(TESTS, 'work', 'generations_search')
-webui_stub.install()
+opts = webui_stub.install()
 
 try:
     from fastapi import FastAPI
@@ -32,6 +32,7 @@ except ImportError:
 
 import fixtures                                          # noqa: E402
 import model_manager.db.database as dbmod                # noqa: E402
+from model_manager import tile_reading                   # noqa: E402
 from model_manager.api import generations as api         # noqa: E402
 from model_manager.api import levels as levels_module    # noqa: E402
 from model_manager.db.generations_ops import Scope       # noqa: E402
@@ -206,6 +207,94 @@ narrowed = api.browse_page(tdb, 'all', tasks=True, search='task:103 cat', task=1
 check('task:103 with the task opened: its runs; and a word too: those its prompt holds',
       [sorted(place[t['generation']['id']] for t in opened), sorted(place[t['generation']['id']] for t in narrowed)],
       [[8, 11, 16, 18], [11]])
+
+# How often a search reads the prompts (#434): each word is asked of each
+# prompt once, though four of an image's checks read what it finds - and the
+# view of tasks reads the images twice. One batch more for each word, holding
+# the first none, one, two ... of them, so every check of every word is made.
+LADDER = ['firstword', 'secondword', 'thirdword', 'fourthword', 'fifthword']
+
+
+def ladder(to):
+    for n in range(len(LADDER) + 1):
+        text = ' '.join(LADDER[:n]) or 'none of them'
+        to.record_generation({'created_at': '2026-10-06T12:00:00', 'mode': 'txt2img', 'prompt': f'typed {n}',
+                              'negative_prompt': '', 'image_count': 1},
+                             [{'position': 0, 'path': os.path.join(WORK, f'ladder-{n}.png'), 'prompt': text,
+                               'negative_prompt': 'none', 'prompt_nsfw_level': PG}], [[]])
+    return to._get_connection().execute('SELECT COUNT(*) FROM generation_prompts').fetchone()[0]
+
+
+def likes(of, words, single_pass, tasks=False):
+    """How many times LIKE runs in one read of a level, and the batches it finds."""
+    scope = Scope(words=words, task_key=tasks)
+    with fixtures.likes_counted(of) as count:
+        with of.generation_scope_level(scope, 'run' if tasks else 'generation', None, 'all', single_pass) as level:
+            units = len(level.units(0, 50))
+    return count[0], units
+
+
+for reading in (True, False):
+    way = 'One pass' if reading else 'Classic'
+    if reading:
+        texts, task_texts = ladder(db), ladder(tdb)
+    for n in (1, 3, 5):
+        check(f'{way}, {n} words: each is asked of each prompt once', likes(db, LADDER[:n], reading),
+              (n * texts, len(LADDER) + 1 - n))
+        check(f'{way}, {n} words, in the view of tasks: the same', likes(tdb, LADDER[:n], reading, tasks=True),
+              (n * task_texts, len(LADDER) + 1 - n))
+    check(f'{way}, five words, the first found nowhere: the first four alone are asked, in the view of tasks too',
+          [likes(db, ['zebra'] + LADDER[:4], reading), likes(tdb, ['zebra'] + LADDER[:4], reading, tasks=True)],
+          [(4 * texts, 0), (4 * task_texts, 0)])
+check('five words, the last, of the second scan, found nowhere; and all found',
+      (found(' '.join(LADDER[:4]) + ' zebra'), len(found(' '.join(LADDER)))), ([], 1))
+
+# A search against a plain match of the texts, wherever it is asked: inside a
+# group, a batch, beside keys, in each NSFW mode, both ways of reading.
+TEXTS = {row[0]: [t or '' for t in row[1:]] for row in db._get_connection().execute(
+    'SELECT gi.id, a.text, b.text, c.text, d.text FROM generation_images gi JOIN generations g ON g.id = gi.generation_id '
+    'LEFT JOIN generation_prompts a ON a.id = gi.prompt_id LEFT JOIN generation_prompts b ON b.id = gi.negative_id '
+    'LEFT JOIN generation_prompts c ON c.id = g.prompt_id LEFT JOIN generation_prompts d ON d.id = g.negative_id')}
+
+
+def matching(ids, words):
+    return sorted(i for i in ids if all(any(w.lower() in t.lower() for t in TEXTS[i]) for w in words))
+
+
+level_of = db._get_connection()
+level_of.execute('UPDATE generation_images SET prompt_nsfw_level = 16 WHERE id % 3 = 0')
+level_of.commit()
+KEYS = f'model:{model_of[CK]} version:{CK}'
+WHERE = [{}, {'generation': barn}, {'generation': lighthouse}]
+for by in ('prompt', 'prompt_written'):
+    tiles = client.get('/model-manager/generations/browse', params={'group': by, 'nsfw_images': 'all'}).json()['tiles']
+    WHERE += [{'group': by, 'in_group': t['group']['id']} for t in tiles if t['kind'] == 'group'][:4]
+check('a level, two batches and four groups of each prompt grouping to search in', len(WHERE), 11)
+
+
+def direct(search, nsfw_images, **params):
+    """As found, through the endpoint's own function: hundreds of requests, each
+    an event loop's own sockets, can use up Windows' ports."""
+    tiles = api.browse_page(db, nsfw_images, search=search, **params)['tiles']
+    return sorted(i['id'] for t in tiles for i in t['images'])
+
+
+wrong, hits = [], 0
+for reading in (tile_reading.SINGLE_PASS, tile_reading.CLASSIC):
+    setattr(opts, tile_reading.SETTING, reading)
+    for nsfw in ('safe', 'all', 'nsfw'):
+        for where in WHERE:
+            for keys in ('', KEYS):
+                params = dict(where, nsfw_images=nsfw, expand=True)
+                held = direct(keys, **params)
+                for words in (['a'], ['red', 'barn'], ['fox', 'watermark'], ['cat', 'lighthouse'], LADDER, ['zebra', 'a'], ['lighthouse', 'storm']):
+                    got = direct((keys + ' ' + ' '.join(words)).strip(), **params)
+                    hits += bool(got)
+                    if got != matching(held, words):
+                        wrong.append((reading, params, keys, words, got, matching(held, words)))
+delattr(opts, tile_reading.SETTING)
+check('a search finds what a plain match of the texts does, in every view - and finds something in 60 and more of them',
+      (wrong, hits >= 60), ([], True))
 tdb.close()
 
 db.close()
