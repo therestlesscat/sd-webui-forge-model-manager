@@ -214,6 +214,13 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   before the one awaited, which still held the names. The held answer is
   built when asked, with a value of its own, and the wait names a value only
   the awaited answer has.
+- **A check around a change made in a thread first sees that the change
+  told.** #434's compared a grouping's answers after a change with a fresh
+  one; an exception in the thread changed nothing, the two agreed, and it
+  passed. It now also requires the first answer to differ. And a check of
+  which tables a statement reads cannot see a join to a table it reads
+  anyway: the words' and the opened prompt's checks passed with #434's own
+  join put back. The plan (`EXPLAIN QUERY PLAN`) shows it.
 - **A break can be made in memory.** A module hook (`module.registerHooks`,
   or an `--import` preload) rewrites a page module as Node loads it: no file
   is touched, and suites can be proven side by side - #272's five were, at
@@ -307,6 +314,14 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   original Forge's is 3.10, so the tracer keeps a profile-hook fallback.
 - Windows' Python cannot lock a SQLite file on a WSL path: a throwaway
   database goes under `tests/work/`, on the Windows drive.
+- **The suites run under Neo's SQLite alone.** What only the original
+  Forge's 3.37.2 needs passes without it: with `DISTINCT` taken out of
+  #434's scan, the two search suites passed. A check stands in for the other
+  SQLite - there, `MATERIALIZED` taken out of the SQL.
+- **Hundreds of TestClient requests in one suite can use up Windows'
+  ports.** At 959, break runs of two suites close together hung in
+  `client.get`, with about 10,000 of 16,384 ports in TIME_WAIT; the cause
+  was inferred, not traced (#434). A big loop calls the endpoint's function.
 - **`timeout` from WSL does not stop a Windows `node.exe`.** It ends the WSL
   side; the suite runs on. Three hung copies of one suite kept running after
   their runs timed out. Find them by command line - `Get-CimInstance

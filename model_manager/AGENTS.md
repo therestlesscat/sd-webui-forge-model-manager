@@ -682,6 +682,13 @@ LoRAs from); anything that shows one says whose it is (a whole path).
   Windows remembers the dead server was not measured. Code that asks about
   each kept row - `held_here` on every Civitai Browser search - pays the
   first wait again once it has forgotten.
+- **A junction whose drive is away reads as no folder, and `os.rmdir`
+  deletes it.** On Windows `os.path.isdir` is False for it, `os.makedirs`
+  inside it raises `FileNotFoundError`, and `os.rmdir` succeeds, taking the
+  link itself (probed under 3.13.15 and 3.10.6, 2026-11-24). A cleanup of
+  folders "we made", told from which were missing before, takes such a link
+  for one of them (#436); `download_dir` hands out `models\<type>` whether
+  it is there or not.
 - **A file another program holds is refused its rename and its deletion
   alike.** Opened without delete sharing - an antivirus scan, the search
   indexer, a backup tool - it answers both `os.rename` and `os.remove` with

@@ -112,6 +112,13 @@ the code (2026-10-16).
   paches. how come we simply dont remember currently open model, version
   and file ids". The panel now keeps the copy it opened, and both mechanisms
   went (2026-11-11).
+  And on #436 a build review asked that a refused download leave no empty
+  folder behind. The fix removed folders it had made; about 40 lines that
+  ran at the end of every download, it would have deleted a folder link
+  whose drive was away (`model_manager/AGENTS.md`, "The environment"). It
+  was replaced by making the folder later, at the first byte written:
+  nothing is removed. Before code that cleans up, look for not making the
+  thing (2026-11-24).
 - **A build is read against its plan by a fresh agent before the commit.**
   Once `--all` passes, one agent is handed the plan as posted - the Final
   tab, and any later comment on its issue - and the staged diff, never the
@@ -129,6 +136,11 @@ the code (2026-10-16).
   split by question, took 140,414 and 138,027 tokens, under 4 minutes each;
   #408's five took 131,667 to 174,794 tokens, 4 min 36 s to 7 min 7 s.
   Asked first, with the cost, as any two agents are.
+  Fresh is a new agent for each commit: one resumed from the commit before
+  knows it. #434's second commit went to the first's reviewer, read into "1
+  reviewer for both commits"; the owner: "dont you have to run code review
+  on 2 commits?" A fresh agent then read both together and found that the
+  gain had been told too widely (2026-11-24).
 - **A plan doc says what before it says where.** Technical, but not
   overdone: what a part does in plain words first, its code name after - or
   in a closing "Code:" line. More than a few
@@ -971,6 +983,12 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
 - **Measure at the sizes the page asks.** #229's issue costed a page of 100
   cards; a page holds 5 to 50. "this seems to be the worst case scenario",
   the owner said - measured again, 20 cards took 0.3 to 0.4 s and 0.3 to 1 MB.
+- **"No case is slower" is measured on a small library too.** #434's plan
+  said four words a scan beat the old search in every case, from one library
+  of 406,763 texts averaging 627 characters. A fresh reviewer's made-up
+  libraries were slower for a search of eight words whose first is found
+  nowhere: 60,000 texts of 100 characters, 39 ms to 62, and of 627
+  characters, 114 to 155 (2026-11-24).
 - **Drive the page's own control, not its endpoint.** A download started by
   a POST to `/model-manager/civitai/download` was never followed by the
   page: its poll starts from the page's own Download. So Forge's lists were

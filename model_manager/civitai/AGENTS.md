@@ -42,6 +42,11 @@ because that would mean the assumption no longer holds.
   and the New version badge counts only its versions: a model whose held
   version is on another base model is not in the list, and gets no badge
   (#387).
+- **`earlyAccess=true` keeps models with an Early Access version, not those
+  paid for good.** Of the models unfiltered searches answered, it kept 11 of
+  11 whose shown version was Early Access and 0 of 19 Paid, and 2 to 27 of
+  each answer show a free version first (2026-11-24, no key);
+  `earlyAccess=false` changes nothing (#385's plan).
 - **Civitai's `nsfw` search parameter has two states, not three, and neither
   is "every model".** `true` leaves out models Civitai keeps out of its NSFW
   lists (4 of 4 seen); left out, or `false`, it returns only models whose
