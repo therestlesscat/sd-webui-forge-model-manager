@@ -212,8 +212,12 @@ await waitFor('its usual settings', () => usualTick());
 check('one ticked works as one pick: its usual settings, their tick, its Send line, no note on its row',
       [usualTick()?.checked, status(), runs(MIX.name), rowParts(MIX.name), sendButton()?.disabled],
       [true, 'Sends with Anime Mix v12. It will not come out exactly as made. With its usual settings.', '', 4, false]);
-usualTick().checked = false;
-press(usualTick());
+// Pressed only where drawn: the check above fails without it, not the suite.
+const usualBox = usualTick();
+if (usualBox) {
+    usualBox.checked = false;
+    press(usualBox);
+}
 tick(REAL.name);
 await waitFor('its answer', () => answered(REAL.name));
 tick(REAL.name, false);
@@ -345,8 +349,10 @@ async function ticking(names, extra = {}) {
     await open('txt2img', extra);
     tick(OWN.name, false);
     for (const name of names) tick(name);
-    if (names.length > 1) await waitFor('what each runs with', settled);
-    else await settle();
+    if (names.length === 1) return settle();
+    await waitFor('what each runs with', settled);
+    // Never said, every wait after would run its whole length, past the runner's limit: the failures so far, now.
+    return settled() ? undefined : done();
 }
 // Pressed only where drawn: on the code before, a Send that waits has closed the dialog at once.
 const pressSend = () => { if (sendButton()) press(sendButton()); };
