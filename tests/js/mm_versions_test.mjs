@@ -148,16 +148,16 @@ check('4. picking the other file points the rows and the button at it',
       ['v3_fp32.safetensors', '4.00 MB', ['modelManager.download', '4001', '503', '9031']]);
 
 await click(pill('v2'));
-check('5. a paid version says so, and offers no Download',
-      [row('Access'), !!button(), details().querySelector('.detail-actions button[disabled]')?.textContent],
-      ['Paid', false, 'Paid']);
-const paidLabel = () => details().querySelector('.detail-actions button[disabled]');
+const paidLabel = () => details().querySelector('.detail-actions .mm-paid-label');
+check('5. a paid version says so, and offers Try download, its label beside it (#436)',
+      [row('Access'), button()?.textContent.trim(), paidLabel()?.textContent],
+      ['Paid', 'Try download', 'Paid']);
 // View on Civitai is in the header, for whichever version is shown - a
 // button, as its neighbours are, so it looks like them: a link beside them
 // did not, whatever its classes.
 const viewOnCivitai = () => details().querySelector('.detail-header button[data-open-url*="civitai.com/models/"]');
 check('   saying why - the account has not bought it - with View on Civitai in the header, for this version',
-      [/has not bought it/.test(paidLabel()?.getAttribute('title') || ''), viewOnCivitai()?.getAttribute('data-open-url')],
+      [/has not bought it.*Try download asks Civitai/.test(button()?.getAttribute('title') || ''), viewOnCivitai()?.getAttribute('data-open-url')],
       [true, 'https://civitai.com/models/4001?modelVersionId=502']);
 
 check('   Show in Civitai Browser is the table\'s first row, not in the header, and sends this version',
@@ -270,6 +270,18 @@ check('12. a paid version the account bought has a Download, saying so, and no P
       [downloads(), /bought it/.test(button()?.getAttribute('title') || ''), !!paidLabel()],
       [['modelManager.download', '4001', '502', '9032'], true, false]);
 v2Owned = false;
+
+// --------------------------------------------- a paid version, not bought
+// Try download asks as such; Download does not (#436).
+progress.length = 0;
+await act('modelManager.selectModel', { index: 0 });
+await click(pill('v2'));
+refuse = 'for this check';
+posted.length = 0;
+if (button()) click(button());
+await waitFor('Try download to ask', () => posted.length === 1);
+check('12b. Try download says so to the server', [posted[0]?.version_id, posted[0]?.try_paid], ['502', 'true']);
+refuse = null;
 
 // -------------------------------------------------- nothing recorded yet
 civitaiVersions = () => [];

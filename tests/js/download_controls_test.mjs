@@ -188,7 +188,42 @@ check('and pressed, it is asked for, not refused as "Already downloading"', [sec
 const again = await downloads().start(1, 95, 951);
 check('the file on its way, pressed again, is refused here, the server not asked',
       [again.error, started], ['Already downloading', [952]]);
+// A paid version not known to be bought (#436): Try download, and its label
+// beside it, whatever redraws the button.
+const PAID = { id: 96, files: [{ id: 961, name: 'p.safetensors', primary: true }, { id: 962, name: 'q.safetensors' }],
+               paid_access: { permanent: true, ends_at: null, owned: false } };
+const paidDrawn = (version, owned = false) => {
+    const box = document.createElement('div');
+    box.innerHTML = renderDownloadControls({ controls: CONTROLS, modelId: 1, version, fileIndex: 0, owned });
+    const button = box.querySelector('button');
+    return [button?.textContent.trim(), Boolean(button?.disabled), button?.getAttribute('data-try-paid'),
+            box.querySelector('.mm-paid-label')?.textContent ?? null];
+};
+const paidAs = (paid_access, rest = {}) => ({ ...PAID, ...rest, paid_access: { ...PAID.paid_access, ...paid_access } });
+check('paid, not bought: Try download, and Paid beside it', paidDrawn(PAID), ['Try download', false, 'true', 'Paid']);
+check('paid, not known to be bought: the same', paidDrawn(paidAs({ owned: null })), ['Try download', false, 'true', 'Paid']);
+check('in early access: its label says until when',
+      paidDrawn(paidAs({ permanent: false, ends_at: '2026-12-01T12:00:00Z' }))[3], 'Early Access until Dec 1, 2026');
+check('paid and bought: Download, no label', paidDrawn(paidAs({ owned: true })), ['Download', false, null, null]);
+check('free: Download, no label', paidDrawn({ ...PAID, paid_access: null }), ['Download', false, null, null]);
+check('paid, with no file listed: its label, with nothing to ask for',
+      paidDrawn(paidAs({}, { files: [] })), ['Paid', true, null, null]);
+check('paid and held, or on-site only: as before',
+      [paidDrawn(PAID, true)[0], paidDrawn(paidAs({}, { on_site_only: true }))[0]], ['Already Owned', 'On-site only']);
+const paidHolder = document.createElement('div');
+paidHolder.innerHTML = renderDownloadControls({ controls: CONTROLS, modelId: 1, version: PAID, fileIndex: 0, owned: false });
+document.body.appendChild(paidHolder);
+const paidName = () => paidHolder.querySelector('button')?.textContent.trim();
+downloads().track({ version_id: 97, file_id: 971, file_name: 'other.safetensors', status: 'complete', synced: true });
+check('the downloads list drawn again: still Try download', paidName(), 'Try download');
+downloads().track({ version_id: 96, file_id: 961, file_name: 'p.safetensors', status: 'downloading', percent: 10 });
+check('on its way: it says so', paidName(), 'Downloading...');
+downloads().track({ version_id: 96, file_id: 961, file_name: 'p.safetensors', status: 'error', error: 'Early Access' });
+check('refused: Try download again', paidName(), 'Try download');
 const { showChosenFile } = await sharedModule('downloads.mjs');
+showChosenFile(CONTROLS, 1, PAID, PAID.files[1]);
+check('its other file picked: still Try download', paidName(), 'Try download');
+paidHolder.remove();
 const holder = document.createElement('div');
 holder.innerHTML = renderDownloadControls({ controls: CONTROLS, modelId: 1, version: TWO, fileIndex: 1, owned: false });
 document.body.appendChild(holder);

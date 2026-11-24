@@ -131,10 +131,29 @@ export function downloadState(fileId) {
              percent: Math.floor(item.percent || 0), error: item.error || null };
 }
 
-/** A Download button's label and whether it is disabled, from its file's download. */
-function downloadButtonState(fileId) {
+/**
+ * A Download button's label and whether it is disabled, from its file's
+ * download; `tryPaid`, a paid version's own (#436), named for what it does.
+ */
+function downloadButtonState(fileId, tryPaid = false) {
     const busy = DOWNLOAD_BUTTON_BUSY[downloadState(fileId)?.status];
-    return { disabled: !!busy, label: busy || 'Download' };
+    return { disabled: !!busy, label: busy || (tryPaid ? 'Try download' : 'Download') };
+}
+
+/** Whether a drawn Download button is a paid version's Try download. */
+const isTryPaid = (button) => button.getAttribute('data-try-paid') === 'true';
+
+/** For a paid version: why it is not known to be bought, or nothing for one that is (#43). */
+function whyNotBought(version) {
+    const bought = version?.paid_access?.owned;
+    if (bought === true) return '';
+    if (bought === false) {
+        return 'Civitai says your account has not bought it. Just bought it? Its API takes some minutes to know: '
+            + 'open this version again shortly';
+    }
+    return apiKeyIsMissing()
+        ? 'Set a Civitai API key in the settings: a version you have bought then downloads here'
+        : 'Civitai could not say whether your account has bought it';
 }
 
 /**
@@ -143,12 +162,14 @@ function downloadButtonState(fileId) {
  * `controls` is the tab's, named once there: the `prefix` of its ids - the
  * button is `<prefix>_download_btn` - and what its markup does
  * (shared/calls.mjs): `download`, reading data-model-id, data-version-id,
- * data-file-id, and the file's data-file-name and data-size-kb - the row's
- * until its turn (#223) - and `selectFile`, the picker's value its file's index.
+ * data-file-id, the file's data-file-name and data-size-kb - the row's
+ * until its turn (#223) - and data-try-paid, set on a Try download; and `selectFile`, the picker's value its file's index.
  * A paid version answers the download URL
- * with 401/403 until it is bought on Civitai, so it is offered only when
+ * with 401/403 until it is bought on Civitai, so its Download is offered when
  * Civitai says the API key's account bought it (`paid_access.owned`, see
- * civitai/ownership.py); otherwise its label, saying why. While
+ * civitai/ownership.py); otherwise the button is Try download, saying why,
+ * with its Paid or Early Access label beside it (#436): pressed, the server
+ * asks Civitai for the file whatever that check says. While
  * the file is downloading - from the click until it is in the library - the
  * button says so and takes no clicks: a second click started it again. It is
  * the file's alone: another file of the version is a download of its own (#374).
@@ -159,6 +180,7 @@ export function renderDownloadControls({ controls, modelId, version, fileIndex, 
     const files = version?.files || [];
     const file = files[fileIndex];
     const paidLabel = paidAccessLabel(version);
+    const notBought = paidLabel ? whyNotBought(version) : '';
 
     let button = '';
     if (owned) {
@@ -167,28 +189,26 @@ export function renderDownloadControls({ controls, modelId, version, fileIndex, 
         // Civitai refuses its download; its page, beside this, generates with it.
         const why = `${ON_SITE_ONLY} Generate with it on its page: View on Civitai, beside this.`;
         button = `<button class="mm-btn secondary" disabled title="${escapeHtml(why)}">On-site only</button>`;
-    } else if (paidLabel && version?.paid_access?.owned !== true) {
-        const why = version?.paid_access?.owned === false
-            ? 'Civitai says your account has not bought it. Just bought it? Its API takes some minutes to know: '
-              + 'open this version again shortly'
-            : apiKeyIsMissing()
-                ? 'Set a Civitai API key in the settings: a version you have bought then downloads here'
-                : 'Civitai could not say whether your account has bought it';
-        // Its page is the panel's View on Civitai, beside this.
-        button = `<button class="mm-btn secondary" disabled title="${escapeHtml(why)}">${escapeHtml(paidLabel)}</button>`;
+    } else if (notBought && !file) {
+        // Nothing to ask for. Its page is the panel's View on Civitai.
+        button = `<button class="mm-btn secondary" disabled title="${escapeHtml(notBought)}">${escapeHtml(paidLabel)}</button>`;
     } else if (file) {
-        const state = downloadButtonState(file?.id);
+        const state = downloadButtonState(file?.id, Boolean(notBought));
         // Another file of the version held is no reason not to fetch this one
         // (#189), nor is a copy in a folder this WebUI does not load (#195).
-        const title = ownedOther ? ' title="You have another file of this version."'
+        const title = notBought
+            ? ` title="${escapeHtml(`${notBought}. Try download asks Civitai for the file anyway.`)}"`
+            : ownedOther ? ' title="You have another file of this version."'
             : ignoredBecause ? ` title="${escapeHtml(ignoredTag(ignoredBecause).download)}"`
             : paidLabel ? ' title="Paid on Civitai - your account has bought it"' : '';
         button = `<button class="mm-btn primary" id="${prefix}_download_btn"${title} `
             + `data-download-file="${safeId(file?.id)}" ${state.disabled ? 'disabled' : ''} `
             + `data-action="${escapeHtml(download)}"`
             + `${dataAttributes({ modelId: safeId(modelId), versionId: safeId(version?.id), fileId: safeId(file?.id),
-                                  fileName: file?.name, sizeKb: file?.sizeKB })}>`
-            + `${state.label}</button>`;
+                                  fileName: file?.name, sizeKb: file?.sizeKB })}`
+            + `${notBought ? dataAttributes({ tryPaid: 'true' }) : ''}>`
+            + `${state.label}</button>`
+            + `${notBought ? `<span class="mm-paid-label">${escapeHtml(paidLabel)}</span>` : ''}`;
     }
 
     // Only worth a control when there is something to choose between.
@@ -231,7 +251,7 @@ export function showChosenFile(controls, modelId, version, file) {
         button.setAttribute('data-file-name', file.name || '');
         button.setAttribute('data-size-kb', String(Number(file.sizeKB) || ''));
         // Labelled by the new file's download, not the one picked before (#374).
-        const state = downloadButtonState(file.id);
+        const state = downloadButtonState(file.id, isTryPaid(button));
         button.disabled = state.disabled;
         setText(button, state.label);
     }
@@ -396,7 +416,7 @@ function createDownloads(scope) {
     /** Every Download button on the page, as its file's download stands. */
     function renderButtons() {
         for (const button of document.querySelectorAll('[data-download-file]')) {
-            const state = downloadButtonState(Number(button.getAttribute('data-download-file')));
+            const state = downloadButtonState(Number(button.getAttribute('data-download-file')), isTryPaid(button));
             button.disabled = state.disabled;
             button.textContent = state.label;
         }
@@ -521,8 +541,10 @@ function createDownloads(scope) {
          * Ask for a version, and follow it. Returns the server's answer, with
          * its HTTP status. `newerIfGone`: the model's newest version if this
          * one is gone from Civitai - what the Resources dialog asks for.
+         * `tryPaid`: a paid version not known to be bought, tried anyway (#436).
          */
-        start: async function start(modelId, versionId, fileId, { newerIfGone = false, fileName, sizeKb } = {}) {
+        start: async function start(modelId, versionId, fileId,
+                                    { newerIfGone = false, fileName, sizeKb, tryPaid = false } = {}) {
             // Without a file the server names it, and answers with any
             // download of it already on its way.
             const key = downloadKey(fileId);
@@ -536,6 +558,7 @@ function createDownloads(scope) {
                 // Omitted when unknown, which leaves the backend on the primary.
                 if (fileId !== undefined && fileId !== null) form.append('file_id', fileId);
                 if (newerIfGone) form.append('newer_if_gone', 'true');
+                if (tryPaid) form.append('try_paid', 'true');
                 // Named by model and version, it is queued at once, and Civitai
                 // asked at its turn (#223): until then the row shows these.
                 if (fileName) form.append('file_name', fileName);

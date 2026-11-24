@@ -702,6 +702,7 @@ def register(app: FastAPI):
         newer_if_gone: bool = Form(default=False),
         file_name: Optional[str] = Form(default=None),
         size_kb: Optional[float] = Form(default=None),
+        try_paid: bool = Form(default=False),
     ):
         """
         Start downloading a model version from Civitai.
@@ -736,6 +737,9 @@ def register(app: FastAPI):
         any file anywhere, a version only the other WebUI holds was never
         downloaded, and its chip asked again for ever (#111).
 
+        try_paid asks Civitai for a paid version's file without first asking
+        whether the account bought it (#436): the press of Try download.
+
         Returns:
             progress, and version_id / version_name - the version being
             downloaded, which with newer_if_gone may not be the one asked
@@ -766,7 +770,7 @@ def register(app: FastAPI):
                                              "file_path": held_path, **asked})
                 progress = service.queue_download(version_id, None, None, file_index=file_index,
                                                   file_id=file_id, model_id=model_id,
-                                                  file_name=file_name, size_kb=size_kb)
+                                                  file_name=file_name, size_kb=size_kb, try_paid=try_paid)
                 return JSONResponse({"success": True, "message": "Download queued",
                                      "progress": progress.to_dict(), **asked})
 
@@ -835,7 +839,7 @@ def register(app: FastAPI):
 
             # Said now, not as an Error row at its turn (#223): a batch
             # counts the answer, and nothing joins the queue.
-            refused = service.paid_refusal(version_data.get("id"), version_data)
+            refused = None if try_paid else service.paid_refusal(version_data.get("id"), version_data)
             if refused:
                 return JSONResponse({"success": False, "paid": True, "error": refused, **chosen},
                                     status_code=403)
@@ -849,7 +853,8 @@ def register(app: FastAPI):
                 model_data=model_data,
                 version_data=version_data,
                 file_index=file_index,
-                file_id=file_id
+                file_id=file_id,
+                try_paid=try_paid
             )
 
             return JSONResponse({

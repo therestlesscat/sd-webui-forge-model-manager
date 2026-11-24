@@ -68,15 +68,23 @@ const MODELS = {
                            ignored_because: '--esrgan-models-path', files: [file(41, 'x.pth', { primary: true })] },
                          { id: 42, name: 'v2', images: [], paid_access: null, owned_locally: false, owned_files: [],
                            files: [file(43, 'y.pth', { primary: true })] }] },
+    // Paid, and not bought (#436).
+    5: { id: 5, name: 'Paid one', type: 'LORA', stats: {}, creator: {}, owned_locally: false, listed_locally: false,
+         owned_versions: [],
+         modelVersions: [{ id: 50, name: 'v1', images: [], owned_locally: false, owned_files: [],
+                           paid_access: { permanent: true, ends_at: null, owned: false },
+                           files: [file(51, 'z.safetensors', { primary: true })] }] },
 };
 
 const asked = [];
 let owned = null;           // the server's next answer about what is held
 let progress = [];          // the downloads list it answers
 let downloadAnswer = null;  // what a Download is answered, when not queued
-globalThis.fetch = async (url) => {
+const posted = [];          // what each Download sent
+globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
     asked.push(href);
+    if (href.endsWith('/civitai/download') && init.body) posted.push(Object.fromEntries(init.body.entries()));
     const answer = (body) => ({ ok: true, json: async () => body });
     if (href.includes('/ui-options')) return answer({ success: true, webui_short_name: 'Neo' });
     if (href.includes('/civitai/owned')) return answer(owned || { success: true, models: {}, versions: {} });
@@ -223,6 +231,20 @@ await waitFor('the answer to be drawn', () => alreadyOwned());
 check('already in the library: said so, nothing followed, and the button turns to Already Owned',
       [$('#cb_status')?.textContent.trim(), asked.some((u) => u.includes('/download/progress')), alreadyOwned()],
       ['Already in your library', false, true]);
+downloadAnswer = null;
+check('a free version\'s Download does not say it is tried anyway', posted.at(-1)?.try_paid ?? null, null);
+
+// --------------------------------------------- paid, not bought (#436)
+owned = null;
+await show(5);
+check('a paid version: Try download, its label beside it',
+      [downloadButton()?.textContent.trim(), details().querySelector('.detail-actions .mm-paid-label')?.textContent],
+      ['Try download', 'Paid']);
+const before = posted.length;
+downloadAnswer = { success: false, error: 'for this check' };
+if (downloadButton()) press(downloadButton());
+await waitFor('Try download to ask', () => posted.length > before);
+check('and pressed, it says so to the server', [posted.at(-1)?.version_id, posted.at(-1)?.try_paid], ['50', 'true']);
 downloadAnswer = null;
 
 done();

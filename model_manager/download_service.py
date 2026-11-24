@@ -900,6 +900,8 @@ class DownloadService:
                                "model_id": job.get("model_id"), "file_id": job.get("file_id"),
                                "file_index": job.get("file_index"),
                                "model_data": None, "version_data": None}
+            if job.get("try_paid"):
+                self._jobs[key]["try_paid"] = True
             del self._active_downloads[key]
             self._active_downloads[key] = DownloadProgress(
                 version_id=failed.version_id, file_id=key, file_name=failed.file_name,
@@ -1248,6 +1250,9 @@ class DownloadService:
                         pbar = None
 
                     try:
+                        # Made only now that Civitai sends the file (#436): a
+                        # refused download leaves no empty folder behind.
+                        os.makedirs(os.path.dirname(target_path), exist_ok=True)
                         with open(target_path, 'ab' if offset else 'wb') as f:
                             for chunk in response.iter_content(chunk_size=chunk_size):
                                 if self._is_paused(progress.file_id):
@@ -1452,6 +1457,12 @@ class DownloadService:
             total, parts = 0, 1
         bounds = _split(total, parts) if total else [(0, None)]
         paths = [_part_path(partial_path, i) for i in range(parts)]
+        # Made only now that Civitai sends the file (#436).
+        try:
+            os.makedirs(os.path.dirname(partial_path), exist_ok=True)
+        except OSError:
+            first.close()
+            raise
         for path in paths:
             if not os.path.exists(path):
                 open(path, "wb").close()             # the split, kept on disk from the start
@@ -1860,9 +1871,9 @@ class DownloadService:
             kept = self._kept_partial(job) if resume else None
             # A paid version downloads when the API key's account bought it.
             # One it did not is refused before anything is created: its
-            # download answers 403, and _download_file would burn three
-            # retries on it. Unknown - Civitai not asked - it is tried.
-            refused = self.paid_refusal(version_id, version_data)
+            # download answers 403. Unknown - Civitai not asked - it is
+            # tried, as is one Try download asked for (#436).
+            refused = None if job.get("try_paid") else self.paid_refusal(version_id, version_data)
             if refused:
                 return self._refused(key, job, progress, refused, kept)
 
@@ -1909,8 +1920,6 @@ class DownloadService:
                 # Absolute, with no "..": the path a scan finds the file by, which
                 # is how the library knows it is the same file.
                 target_dir = os.path.abspath(os.path.join(base_path, subfolder) if subfolder else base_path)
-
-            os.makedirs(target_dir, exist_ok=True)
 
             progress.file_name = file_name
             target_path = os.path.join(target_dir, file_name)
@@ -2097,7 +2106,8 @@ class DownloadService:
         file_id: Optional[int] = None,
         model_id: Optional[int] = None,
         file_name: Optional[str] = None,
-        size_kb: Optional[float] = None
+        size_kb: Optional[float] = None,
+        try_paid: bool = False
     ) -> DownloadProgress:
         """
         Queue a download for parallel processing. Without the version's data,
@@ -2105,7 +2115,9 @@ class DownloadService:
         is asked at its turn (#223), and the row shows the name and size the
         page sent until then. Found by its file: the one asked for, else the
         one chosen from the version's files (download_key) - the route names
-        it whenever the version's data is not handed in.
+        it whenever the version's data is not handed in. With `try_paid`, its
+        turn does not ask whether the account bought it (#436): kept by a
+        Retry, not across a restart.
         """
         progress = DownloadProgress(version_id=version_id)
         if version_data is None:
@@ -2140,6 +2152,8 @@ class DownloadService:
             self._jobs[key] = {"version_id": version_id, "model_data": model_data, "version_data": version_data,
                                "file_index": file_index, "file_id": key if key >= 0 else None,
                                "model_id": (model_data or {}).get("id") or model_id}
+            if try_paid:
+                self._jobs[key]["try_paid"] = True
         self._save()
         self._pump()
         return progress

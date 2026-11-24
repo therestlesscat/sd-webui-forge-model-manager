@@ -1063,10 +1063,10 @@ class FakeDownloads:
     paid_refusal = getattr(ds.DownloadService, "paid_refusal", None)
 
     def queue_download(self, version_id, model_data, version_data,
-                       file_index=None, file_id=None, model_id=None, file_name=None, size_kb=None):
+                       file_index=None, file_id=None, model_id=None, file_name=None, size_kb=None, try_paid=False):
         # The version's data, or None when queued by its ids alone (#223).
         self.queued.append((version_id, (version_data or {}).get('id'), file_index, file_id))
-        self.asked.append({'model_id': model_id, 'file_name': file_name, 'size_kb': size_kb})
+        self.asked.append({'model_id': model_id, 'file_name': file_name, 'size_kb': size_kb, 'try_paid': try_paid})
         # Found by its file, as the service finds it (#374).
         key = ds.download_key(version_id, version_data, file_index, file_id)
         record = ds.DownloadProgress(version_id=version_id, file_id=key, file_name='m.safetensors')
@@ -1106,6 +1106,10 @@ check('with the name and size the page sent, the row\'s until its turn',
 check('and the UI is handed something to poll, found by its file (#374)',
       [body['progress']['version_id'], body['progress']['file_id'], body.get('file_id')], [90141, 631, 631])
 
+check('not a Try download unless it says so', downloads.asked[-1].get('try_paid'), False)
+post('/model-manager/civitai/download', version_id=90141, model_id=90140, file_id=631, try_paid='true')
+check('Try download (#436): told to the queue', downloads.asked[-1].get('try_paid'), True)
+
 # With no file named - the Resources dialog's Download, no file found by its
 # hash - the route names it before queuing (#374): the primary, from the
 # version's files the library has stored, Civitai not asked.
@@ -1134,6 +1138,15 @@ check('the row is found by that file', body['progress']['file_id'], 90141 * 7)
 
 post('/model-manager/civitai/download', version_id=90141, model_id=90140, file_id=7)
 check('the file the picker chose is passed along', downloads.queued[-1][3], 7)
+
+# Asked first, the route refuses a paid version itself - not one tried anyway (#436).
+civitai(model=remote(90140, 90142, paidAccess={'permanent': True}))
+status, body = post('/model-manager/civitai/download', version_id=90142, model_id=90140)
+check('asked first: a paid version is refused, nothing queued',
+      (status, body.get('paid'), downloads.queued[-1][0]), (403, True, 90141))
+status, body = post('/model-manager/civitai/download', version_id=90142, model_id=90140, try_paid='true')
+check('asked first, with Try download: queued, told so',
+      (status, downloads.queued[-1][0], downloads.asked[-1].get('try_paid')), (200, 90142, True))
 
 # Without its model - an image's resource may not say - Civitai is asked
 # first, as before: whose version it is, then the model.

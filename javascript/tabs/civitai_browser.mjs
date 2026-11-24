@@ -2356,8 +2356,9 @@ work.provide('civitaiBrowser.nextPage', () => nextPage());
 work.provide('civitaiBrowser.nsfwMode', (data, box) => setNsfwMode(box.value));
 work.provide('civitaiBrowser.showPromptless', (data, box) => toggleShowPromptless(box.checked));
 work.provide('civitaiBrowser.loadMoreImages', () => loadMoreImages());
-work.provide('civitaiBrowser.download', ({ modelId, versionId, fileId, fileName, sizeKb }) =>
-    startDownload(safeId(modelId), safeId(versionId), safeId(fileId), { fileName, sizeKb }));
+work.provide('civitaiBrowser.download', ({ modelId, versionId, fileId, fileName, sizeKb, tryPaid }) =>
+    startDownload(safeId(modelId), safeId(versionId), safeId(fileId),
+                  { fileName, sizeKb, tryPaid: tryPaid === 'true' }));
 work.provide('civitaiBrowser.selectFile', (data, picker) => selectFile(picker.value));
 work.provide('civitaiBrowser.showImageMeta', ({ index }) => showImageMetaAt(Number(index)));
 work.provide('civitaiBrowser.showResources', ({ index }) => showResources(Number(index)));

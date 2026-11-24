@@ -3681,8 +3681,9 @@ work.provide('modelManager.deletePickedGenerations', () => deletePickedGeneratio
 work.provide('modelManager.rateInViewer', ({ level }) => rateInViewer(Number(level)));
 work.provide('modelManager.rateGeneration', ({ generation, level, image }) =>
     rateGeneration(Number(generation), Number(level), image ? Number(image) : null));
-work.provide('modelManager.download', ({ modelId, versionId, fileId, fileName, sizeKb }) =>
-    startDownload(safeId(modelId), safeId(versionId), safeId(fileId), { fileName, sizeKb }));
+work.provide('modelManager.download', ({ modelId, versionId, fileId, fileName, sizeKb, tryPaid }) =>
+    startDownload(safeId(modelId), safeId(versionId), safeId(fileId),
+                  { fileName, sizeKb, tryPaid: tryPaid === 'true' }));
 work.provide('modelManager.selectFile', (data, picker) => selectFile(picker.value));
 work.provide('modelManager.sendImage', ({ index }) => sendToTxt2img(Number(index)));
 work.provide('modelManager.sendImageAs', ({ index }) => sendToTxt2img(Number(index), { choose: true }));

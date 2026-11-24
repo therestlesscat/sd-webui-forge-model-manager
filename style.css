@@ -3523,13 +3523,20 @@ body.mm-modal-open {
     position: absolute;
     top: 8px;
     left: 8px;
+    z-index: 1;
+}
+
+#civitai_browser_app .cb-paid-badge,
+.mm-settings-card-row .cb-paid-badge,
+#civitai_browser_app .cb-onsite-badge,
+.mm-settings-card-row .cb-onsite-badge,
+.detail-actions .mm-paid-label {
     background: #b45309;
     color: #fff7ed;
     padding: 4px 8px;
     border-radius: 4px;
     font-size: 0.75em;
     font-weight: 600;
-    z-index: 1;
 }
 
 /* View, while Select is on (#280): the corner the tick leaves free, on a
@@ -3556,6 +3563,13 @@ body.mm-modal-open {
 
 #civitai_browser_app .cb-view-btn:hover {
     background: rgba(0, 0, 0, 0.85) !important;
+}
+
+/* Beside Try download (#436): the paid badge's box, in the line of the
+   panel's buttons, the same in both modes. */
+.detail-actions .mm-paid-label {
+    align-self: center;
+    color: #fff7ed !important;
 }
 
 #model_manager_app .mm-paid-cell,

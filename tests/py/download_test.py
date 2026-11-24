@@ -2498,6 +2498,96 @@ for version_id, refusal, said in ((1229, {'files': []}, 'No files available for 
            os.path.exists(target + '.partial'), len(TurnClient.asked)], ['paused', True, True, 2])
     turns.cancel(F(version_id))
 
+# Try download (#436): a paid version not bought is asked of Civitai's
+# download anyway; Civitai's word is the row's, and Retry tries again so.
+EARLY = '{"error":"Early Access","message":"This asset is in Early Access."}'
+SAID = 'Civitai refused the download: This asset is in Early Access.'
+# What Civitai answers a paid version's download without a key (4 of 4, 2026-11-24).
+LOGIN = '{"error":"Unauthorized","message":"The creator of this asset requires you to be logged in to download it"}'
+SAID_LOGIN = ('Civitai refused the download: The creator of this asset requires you to be logged in to download it. '
+              'An API key logs you in. ' + ds._ADD_A_KEY)
+
+
+def tried(q, version_id, **extra):
+    try:
+        q.queue_download(version_id, None, None, file_id=F(version_id), model_id=42, **extra)
+    except TypeError:               # a queue that cannot be told: the checks below say so
+        q.queue_download(version_id, None, None, file_id=F(version_id), model_id=42)
+    q.wait()
+    found = q.get_progress(F(version_id))
+    return [getattr(found, 'status', None), getattr(found, 'error', None)]
+
+
+TurnClient.fails, TurnClient.asked = None, []
+for version_id, key, label, refusal, said in (
+        (1233, 'test-key', 'not bought, by Civitai\'s check', (403, EARLY), SAID),
+        (1234, '', 'with no API key', (401, LOGIN), SAID_LOGIN)):
+    opts.model_manager_civitai_api_key = key
+    owned_says({version_id: False})
+    asked_owned.clear()
+    TurnClient.model = dict(CHECKPOINT, modelVersions=[whole_version(version_id, paidAccess={'permanent': True})])
+    turns = fresh()
+    civitai_says()
+    plain = tried(turns, version_id)
+    check('a paid version, %s: refused as ever where Try download was not pressed, the file not asked for' % label,
+          [plain[0], plain[1] != said, len(FakeSession.asked)], ['error', True, 0])
+    asked_owned.clear()
+    civitai_says(FakeResponse(error=http_error(*refusal)))
+    check('Try download, %s: Civitai is asked for the file once, and its own words are the error' % label,
+          [tried(turns, version_id, try_paid=True), len(FakeSession.asked), asked_owned],
+          [['error', said], 1, []])
+    civitai_says(FakeResponse([BODY]))
+    turns.retry(F(version_id))
+    turns.wait()
+    check('its Retry asks Civitai for the file again, and what Civitai sends is downloaded, %s' % label,
+          [getattr(turns.get_progress(F(version_id)), 'status', None), len(FakeSession.asked),
+           bytes_of(whole_path(version_id)), asked_owned], ['complete', 1, BODY, []])
+
+# Not kept across a restart: one still waiting comes back unmarked, and is refused.
+opts.model_manager_civitai_api_key = 'test-key'
+owned_says({1235: False})
+TurnClient.model = dict(CHECKPOINT, modelVersions=[whole_version(1235, paidAccess={'permanent': True})])
+waiting = DownloadService(max_concurrent=0)
+try:
+    waiting.queue_download(1235, None, None, file_id=F(1235), model_id=42, try_paid=True)
+except TypeError:
+    waiting.queue_download(1235, None, None, file_id=F(1235), model_id=42)
+waits = [row['file_id'] for row in kept['rows']]
+turns = fresh()
+turns.restore()
+civitai_says()
+turns.resume(F(1235))
+turns.wait()
+back = turns.get_progress(F(1235))
+check('a Try download still waiting at a restart: kept, then refused as not bought, the file not asked for',
+      [waits, getattr(back, 'status', None), 'has not bought it' in (getattr(back, 'error', '') or ''),
+       len(FakeSession.asked)], [[F(1235)], 'error', True, 0])
+
+# The folder is made once Civitai sends the file: a refusal leaves none. The
+# one on the way to it, made of a plain file here, is no folder to make it in.
+MADE_ABOVE = os.path.join(CKPT_DIR, 'made_42')
+MADE_IN = os.path.join(MADE_ABOVE, 'inner')
+real_template, opts.model_manager_civitai_folder_template = opts.model_manager_civitai_folder_template, 'made_{modelId}/inner'
+for code, body in ((403, EARLY), (401, LOGIN), (404, '')):
+    civitai_says(FakeResponse(error=http_error(code, body)), FakeResponse(error=http_error(code, body)),
+                 FakeResponse(error=http_error(code, body)))
+    refused = service.download_version(1236, CHECKPOINT, whole_version(1236))
+    check('refused with a %d: no folder is left' % code, [refused.status, os.path.isdir(MADE_ABOVE)], ['error', False])
+civitai_says(FakeResponse([BODY]))
+sent = service.download_version(1237, CHECKPOINT, whole_version(1237))
+check('sent: its folder is made, and the file is in it',
+      [sent.status, bytes_of(os.path.join(MADE_IN, 'whole_1237.safetensors'))], ['complete', BODY])
+shutil.rmtree(MADE_ABOVE, ignore_errors=True)
+io.open(MADE_ABOVE, 'wb').write(b'not a folder')
+civitai_says(FakeResponse([BODY]), FakeResponse([BODY]), FakeResponse([BODY]))
+barred = service.download_version(1238, CHECKPOINT, whole_version(1238))
+check('a folder that cannot be made: an error row saying so, nothing written',
+      [barred.status, bool(barred.error), bytes_of(MADE_ABOVE)], ['error', True, b'not a folder'])
+os.remove(MADE_ABOVE)
+opts.model_manager_civitai_folder_template = real_template
+ds.owned_versions = real_owned
+opts.model_manager_civitai_api_key = ''
+
 TurnClient.model = dict(CHECKPOINT, modelVersions=[whole_version(1230, files=[])])
 target = whole_path(1230)
 io.open(target + '.partial', 'wb').write(BODY[:5])
@@ -2769,6 +2859,33 @@ check('in parts: the second, of the same name, is refused, and the paused one\'s
       [parts_first.status, parts_second.status, part_sizes() == kept_sizes, PartsSession.asked],
       ['paused', 'error', True, []])
 service.cancel(F(1321))
+
+# In parts, the folder is made once Civitai sends the file too (#436).
+opts.model_manager_civitai_folder_template = 'made_{modelId}/inner'
+
+
+def parts_once(version_id):
+    return service.download_version(version_id, CHECKPOINT, named_version(
+        version_id, 'made_parts.safetensors', BIG, url=PARTS_URL, size_kb=len(BIG) / 1024))
+
+
+for code in (403, 401):
+    storage_says(BIG, script=lambda *_: http_error(code, EARLY))
+    refused = parts_once(1324)
+    check('in parts, refused with a %d: no folder is left' % code,
+          [refused.status, len(PartsSession.asked), os.path.isdir(MADE_ABOVE)], ['error', 1, False])
+storage_says(BIG)
+sent = parts_once(1325)
+check('in parts, sent: its folder is made, and the file is in it',
+      [sent.status, bytes_of(os.path.join(MADE_IN, 'made_parts.safetensors'))], ['complete', BIG])
+shutil.rmtree(MADE_ABOVE, ignore_errors=True)
+io.open(MADE_ABOVE, 'wb').write(b'not a folder')
+storage_says(BIG)
+barred = parts_once(1326)
+check('in parts, a folder that cannot be made: an error row, nothing written, no connection left open',
+      [barred.status, bool(barred.error), bytes_of(MADE_ABOVE), PartsSession.open_now], ['error', True, b'not a folder', 0])
+os.remove(MADE_ABOVE)
+opts.model_manager_civitai_folder_template = real_template
 ds.requests = types.SimpleNamespace(Session=FakeSession, exceptions=real_requests.exceptions)
 if real_part_min is not None:
     ds.PART_MIN = real_part_min
