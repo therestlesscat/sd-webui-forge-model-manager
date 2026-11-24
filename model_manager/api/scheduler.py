@@ -220,7 +220,10 @@ def register(app: FastAPI):
         pressed now (#406): Change's window shows it. The body is what the
         press hands over, {names, source}, read as the press reads it
         (several.read_asked); a body that is not JSON is FastAPI's own 422,
-        where the press takes text that is not JSON as no names. Reads the
+        where the press takes text that is not JSON as no names. `against`,
+        beside them, is the checkpoint the Resources dialog's Send will load
+        (#407), which families are compared with; left out, Forge's selected
+        one. It counts for a list from an image alone. Reads the
         library and Forge's lists, and no checkpoint of the list. From an
         image, the files of the image's own checkpoint may be read: each whose
         header was not read at its modified time now is read and stored, as
@@ -232,8 +235,9 @@ def register(app: FastAPI):
         from ..scheduler import several
         try:
             names, source = several.read_asked(body)
-            return JSONResponse({"success": True,
-                                 **several.runs_preview(get_models_db(), names, source, selected_models())})
+            against = body.get("against") if isinstance(body, dict) else None
+            return JSONResponse({"success": True, **several.runs_preview(get_models_db(), names, source,
+                                                                         selected_models(), against)})
         except Exception as e:
             return failed(e, "Several checkpoints' runs error")
 

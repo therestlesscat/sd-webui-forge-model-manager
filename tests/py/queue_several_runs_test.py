@@ -331,6 +331,15 @@ check('the route answers what runs_preview does, names that are not text taken a
       (got.status_code, body.get('success'), list(body.get('runs', {})),
        body.get('runs', {}).get('photo.safetensors', {}).get('usual')),
       (200, True, ['photo.safetensors', 'changed.safetensors'], {'steps': 30, 'cfg': 5}))
+told = client.post(URL, json={'names': ['flux.safetensors', 'photo.safetensors'], 'source': {'image': IMAGE},
+                              'against': 'flux.safetensors'}).json()
+check('#407: the route hands on what families are compared with, for a list from an image',
+      (told.get('selected'), [told['runs'][n]['another_family'] for n in ('flux.safetensors', 'photo.safetensors')]),
+      ({'name': 'flux.safetensors', 'state': 'read'}, [False, True]))
+check('#407: one that is not text: compared with Forge\'s selected checkpoint',
+      client.post(URL, json={'names': ['photo.safetensors'], 'source': {'image': IMAGE},
+                             'against': ['flux.safetensors']}).json().get('selected'),
+      {'name': 'anime.safetensors', 'state': 'read'})
 check('the route writes nothing: no commit by another connection, every file row\'s family and read time as before',
       (data_version(), files_rows()), (before_version, before_rows))
 check('a body that is not an object is taken as no names, as the press takes it',

@@ -43,6 +43,18 @@ check('a dict in any case reads as kinds and values in lower case',
 check('so does the JSON text a row holds', read_hashes('{"SHA256": "%s"}' % SHA), {'sha256': SHA.lower()})
 check('and nothing, or something unreadable, is no hashes',
       [read_hashes(None), read_hashes(''), read_hashes('not json'), read_hashes([1])], [{}, {}, {}, {}])
+
+
+def read_deep(depth):
+    """JSON nested `depth` deep, read; what it raised, so the code before fails the check, not the suite."""
+    try:
+        return read_hashes('[' * depth + ']' * depth)
+    except RecursionError:
+        return 'RecursionError'
+
+
+check('JSON nested too deep for the running Python is no hashes: it failed every lookup by hash',
+      read_deep(100_000), {})
 check('a single hash is kept as it is compared', hash_key('  AbCdEf0123 '), 'abcdef0123')
 
 # ------------------------------------------------------------ every reader, the other case
@@ -59,6 +71,23 @@ check('hashes_from_local_models finds it by a lower-case AutoV2, under an upper-
       list(db.hashes_from_local_models([SHA[:10].lower()])), [SHA[:10].lower()])
 check('versions_named_by finds it by a lower-case SHA-256',
       [v['id'] for v in db.versions_named_by([], [SHA.lower()])], [7001])
+deep = os.path.join(WORK, 'deep.safetensors')
+db.upsert_version({'file_path': deep, 'file_name': 'deep.safetensors', 'file_extension': '.safetensors',
+                   'id': 7002, 'model_id': 7000, 'has_civitai_data': True, 'file_hashes': {'SHA256': 'x'}})
+with db._cursor() as cursor:
+    cursor.execute('UPDATE files SET file_hashes = ? WHERE file_path = ?', ('[' * 100_000 + ']' * 100_000, deep))
+
+
+def named_beside_deep():
+    try:
+        return [v['id'] for v in db.versions_named_by([], [SHA.lower()])]
+    except RecursionError:
+        return 'RecursionError'
+
+
+check('and finds it beside a row whose JSON no Python here can read', named_beside_deep(), [7001])
+with db._cursor() as cursor:
+    cursor.execute('DELETE FROM files WHERE file_path = ?', (deep,))
 check('local_versions_by_key too, keyed by the hash as compared',
       list(db.local_versions_by_key([], [SHA[:10]])[1]), [SHA[:10].lower()])
 

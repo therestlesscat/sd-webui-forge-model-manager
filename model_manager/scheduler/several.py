@@ -31,7 +31,11 @@ A refusal names what is wrong and saves nothing: Refused.
 Change's window asks the same of a list before it is pressed (#406,
 runs_preview): each name decided as the press decides it (_Plan, _decide),
 its family read from the library's row alone, so no checkpoint of the list
-is read; what the press would refuse is said on the name, not raised.
+is read; what the press would refuse is said on the name, not raised. The
+Resources dialog's ask is told the checkpoint its Send will load (#407).
+
+What the image's own files are is the same for every name, and finding them
+reads every file row: each press and each ask looks them up once (AskedOnce).
 """
 import json
 import os
@@ -41,8 +45,38 @@ from typing import Any, Dict, List, Optional, Tuple
 from .. import forge_host
 
 
+# What a checkpoint runs_preview is told to compare with is, where Forge gives no
+# file for that name: beside send_plan's READ, NOT_READ and UNRECOGNISED.
+NOT_LISTED = "not_listed"
+
+
 class Refused(Exception):
     """The press cannot be queued as asked: the text says why."""
+
+
+class AskedOnce:
+    """
+    The database, as a press's usual settings ask it (#433): a lookup of the
+    files an image names is answered once per set of arguments, whichever name
+    of the list asks. It reads every file row and parses its hashes, and was
+    asked up to twice a checkpoint: a press of 365 took 6.7 s, 0.2 s asked so.
+    Each row is handed as a copy, what it holds shared; a lookup that fails is
+    not kept; every other call is the database's. Made for one press or one ask
+    and dropped with it, so the next one sees what changed since.
+    """
+
+    def __init__(self, db):
+        self._db = db
+        self._kept: Dict[Tuple, List[Dict[str, Any]]] = {}
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._db, name)
+
+    def versions_named_by(self, version_ids: List[int], hashes: List[str]) -> List[Dict[str, Any]]:
+        key = (tuple(version_ids), tuple(hashes))
+        if key not in self._kept:
+            self._kept[key] = self._db.versions_named_by(version_ids, hashes)
+        return [dict(row) for row in self._kept[key]]
 
 
 def read_asked(raw: Any) -> Tuple[List[Any], Any]:
@@ -124,6 +158,8 @@ class _Plan:
     held: Dict[str, Optional[Dict[str, Any]]]
     held_files: Dict[str, Optional[Dict[str, Any]]]
     has_task: bool
+    # The database for the usual settings alone: the image's files found once.
+    asked: AskedOnce
     selected_path: str = ""
     selected_modules: List[str] = field(default_factory=list)
     # No image and no task behind the list: the selected checkpoint is the one
@@ -140,7 +176,8 @@ class _Plan:
             if held_path:
                 held_files.setdefault(os.path.normcase(held_path), held_settings)
         image: Dict[str, Any] = source["image"] if isinstance(source.get("image"), dict) else {}
-        return cls(image=image, held=held, held_files=held_files, has_task=source.get("task") is not None)
+        return cls(image=image, held=held, held_files=held_files, has_task=source.get("task") is not None,
+                   asked=AskedOnce(db))
 
     def selecting(self, selected: Dict[str, Any]) -> "_Plan":
         """This plan with what Forge has selected now (forge_host.selected_models)."""
@@ -162,7 +199,7 @@ def _decide(db, plan: _Plan, name: str, path: str, family: Optional[str],
     `found`: what the file is, read already (a send_plan.SendModel), for
     family_pick to take; without it, family_pick reads it as it always has.
     `ask`: what asks for the usual settings, usual_settings.chosen's way;
-    Change's window passes its own, to tell why none came (runs_preview).
+    runs_preview passes its own, to tell why none came.
     Imported here, not at the top, so a suite's stand-ins for them are the
     ones called.
     """
@@ -188,11 +225,11 @@ def _decide(db, plan: _Plan, name: str, path: str, family: Optional[str],
     elif file_key in plan.held_files:
         usual, kept = (plan.held_files[file_key] or {}).get("usual"), "held"
     else:
-        usual = (ask or chosen)(db, {**plan.image, "usual": True, "use_checkpoint": name})
+        usual = (ask or chosen)(plan.asked, {**plan.image, "usual": True, "use_checkpoint": name})
     return {"modules": modules, "same": same, "usual": usual, "kept": kept}
 
 
-def runs_preview(db, names: List[Any], source: Any, selected: Dict[str, Any]) -> Dict[str, Any]:
+def runs_preview(db, names: List[Any], source: Any, selected: Dict[str, Any], against: Any = None) -> Dict[str, Any]:
     """
     What each checkpoint of a list would run with, were it pressed now: what
     Change's window shows (#406). The press's own decision (_Plan, _decide),
@@ -203,6 +240,11 @@ def runs_preview(db, names: List[Any], source: Any, selected: Dict[str, Any]) ->
     stored (usual_settings.usual -> send_plan.local_checkpoint); nothing else
     is written. What the press would refuse is said on the name, in the press's
     own words; nothing is raised.
+
+    `against`: for a list from an image, the name Send will load before the
+    press (#407) - the Resources dialog's first ticked. Families are judged
+    against it, as the press will against what Forge has selected by then.
+    Without it, not text, or for any other list: against `selected`.
 
     Returns:
         runs: {name: {how, usual, family, family_state, another_family,
@@ -221,7 +263,9 @@ def runs_preview(db, names: List[Any], source: Any, selected: Dict[str, Any]) ->
             not READ.
         selected: {name, state} - Forge's selected checkpoint, and what its
             row says: READ, NOT_READ, UNRECOGNISED, or None where Forge has
-            none selected, or does not list it.
+            none selected, or does not list it. Or the `against` told: named
+            always, NOT_LISTED where Forge gives no file for that name - no
+            family is judged then.
         gone_task: the task a list from Load to UI came from, when deleted
             since; else None.
     """
@@ -229,9 +273,16 @@ def runs_preview(db, names: List[Any], source: Any, selected: Dict[str, Any]) ->
     from ..usual_settings import applied, usual
 
     names = [n for n in dict.fromkeys(names or []) if isinstance(n, str) and n]
-    plan = _Plan.of(db, source).selecting(selected)
+    plan = _Plan.of(db, source)
+    told = bool(plan.image and not plan.has_task and against and isinstance(against, str))
+    if told:
+        # Its VAE / text encoders are what Send will pick: no name's answer holds them.
+        selected = {"checkpoint": against, "modules": []}
+    plan = plan.selecting(selected)
     chosen_name = selected.get("checkpoint") or None
     selected_model, selected_state = row_model(db, plan.selected_path) if plan.selected_path else (None, None)
+    if told and not plan.selected_path:
+        selected_state = NOT_LISTED
     selected_family = selected_model.preset if selected_state == READ else None
 
     runs: Dict[str, Dict[str, Any]] = {}
@@ -271,7 +322,7 @@ def runs_preview(db, names: List[Any], source: Any, selected: Dict[str, Any]) ->
             except Exception as e:
                 # As chosen() does: the press runs it with your settings.
                 from ..console import say_failure
-                say_failure(f"Change's window: the usual settings could not be read: {e}")
+                say_failure(f"The usual settings could not be read: {e}")
                 asked["how"] = "error"
                 return None
             values = applied(answer)
@@ -288,7 +339,8 @@ def runs_preview(db, names: List[Any], source: Any, selected: Dict[str, Any]) ->
             continue
         entry["usual"] = run["usual"]
         entry["how"] = run["kept"] or asked.get("how")
-    return {"runs": runs, "selected": {"name": chosen_name if plan.selected_path else None, "state": selected_state},
+    return {"runs": runs,
+            "selected": {"name": chosen_name if told or plan.selected_path else None, "state": selected_state},
             "gone_task": gone_task(db, source)}
 
 

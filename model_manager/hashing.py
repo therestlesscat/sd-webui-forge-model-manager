@@ -285,12 +285,14 @@ def changed_since_read(mark: Optional[str], path: str) -> bool:
 def read_hashes(stored: Any) -> Dict[str, str]:
     """
     A file's stored hashes - a dict, the JSON text a row holds, or nothing -
-    as {kind: value}, both lower case, empty values left out.
+    as {kind: value}, both lower case, empty values left out. JSON the running
+    Python cannot read is nothing: nested too deep for it, one row failed every
+    lookup by hash (RecursionError: about 1,000 deep under 3.10, 3,000 under 3.13).
     """
     if isinstance(stored, str):
         try:
             stored = json.loads(stored)
-        except ValueError:
+        except (ValueError, RecursionError):
             return {}
     if not isinstance(stored, dict):
         return {}
