@@ -127,6 +127,11 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   with no FAIL line. After a check whose failure would stall what follows,
   the suite puts the state back itself (the boxes ticked by hand), or ends
   with `done()` when it cannot (a window Esc closed).
+  And a break runner that lists FAIL lines alone reads a crash as nothing
+  failing: #433's showed 0 for a break that had crashed its suite with a
+  `TypeError`. It says also where a suite did not end with "All checks
+  passed", and gives each the runner's own time: its 22 s cut short two
+  suites that fail in 24 and 34 s, and they were reported as hangs.
 - **A break that fails nothing is a finding.** Of 0.58.3's breaks, two failed
   nothing: one removed a line that turned out redundant - the line went -
   and one hit a guard a second layer covers (the walk never hands a recorded

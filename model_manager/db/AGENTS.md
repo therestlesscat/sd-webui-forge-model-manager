@@ -74,6 +74,13 @@ pages too: 7880's file kept 27,044 pages and came out at 26,208.
 
 ### The library: files, versions and rows
 
+**A lookup by hash reads every file's row and parses its hashes, and stays
+so** (#433, the owner's decision, 2026-11-24): about 10 ms live at 2,610
+files, 4 to 6% of the Resources dialog's opening. Columns with indexes (0.03
+to 0.15 ms, a migration) and each text parsed once in memory (2.3 ms for 7.2)
+were both measured and left. What asks it for every item of a list asks it
+once: `several.AskedOnce`.
+
 **A version is one row; its files are rows of their own** (#133).
 `versions` holds a Civitai version once - its details, its gallery's cursor
 - and `files` each file, naming its version by `version_id`, NULL for a file

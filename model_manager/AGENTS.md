@@ -486,6 +486,14 @@ LoRAs from); anything that shows one says whose it is (a whole path).
 - **`checkpointType` is only known for models Civitai still serves.** Anything
   delisted stays Unknown; nothing can recover it.
 - Usage history and manual collections are unimplemented.
+- **A several press does not check the files of a checkpoint of the selected
+  family** (#400). Ticked first, a Z-Image checkpoint whose text encoder and
+  VAE a WebUI lacks is queued and its run fails ("You do not have Qwen3 state
+  dict!", 7880, 2026-11-24); Send names them missing. A refusal was planned
+  and left out, the owner's decision: a family told from layer names alone is
+  checked against its preset's default model, and a module selected by a path
+  Forge no longer lists still loads, so presses that work would be refused
+  (read from the code, not run).
 - **Sort by "Scanned At" means first found or last synced.** Scan Disk stamped
   every row at each scan (`scanned_at`); the walk stamps nothing.
 

@@ -300,6 +300,17 @@ the code (2026-10-16).
   three were moved into helpers Single pass shared; a side agent caught it,
   and the owner had them put back - a fault in shared code would have broken
   the fallback too (2026-10-14).
+- **An issue whose gain another open issue takes is planned with it.**
+  Before a plan's first draft, the open issues on the same path are read, the
+  issue's own "Related issues" first. Each part's gain is weighed with the
+  agreed follow-ups done, and the smallest change is tried on a prototype
+  before a larger one is designed. #433's plan agreed #407 next in question
+  1, and went 13 rounds, six reviews and 1,134,565 tokens on hash columns, an
+  object for the image's side and a kept list that #407 mostly made
+  unnecessary. A side agent said so, and the owner: "this has been a huge
+  waste of time. i feel like we should have combined 433 and 407 together".
+  One lookup wrapped around unchanged code took a press of 365 checkpoints
+  from 7.6 s to 0.2 s (2026-11-24).
 - **A plan that moves an existing function's steps into a shared helper
   names the checks that already cover each path it moves**, and adds a
   guard, run on the old code, for a path none covers. #357's commit 4 moved
@@ -900,6 +911,13 @@ is the commit's place in the history and is never written down; the rest is.
 - **Neither**: tests, docs, refactoring - nothing a user sees, and no bug
   fixed. No bump; the build moves on by itself, and the changelog does not
   list it.
+- **A change of several commits**: the first and the last carry a version;
+  one between may. The owner: "there can be versions in between if those have
+  functional content" (2026-11-24). A commit between that only moves code
+  carries none; the first carries one even when it only moves code (#357).
+  #433's plan said "those between none", from a note that had paraphrased
+  "doesnt have to be": "i didnt say such thing ever". Quote the owner's
+  words, not a note of them.
 - **A major version** is the owner's call, when the extension is ready.
 
 Then, in the same commit:
@@ -1163,6 +1181,11 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   button, not Send, which writes; the owner then hit a Send crash and asked
   "did you test this". It was old (#266), but the report had not said Send
   went untested.
+  And a check of a refusal needs something refused: #407's on 7870
+  ticked 366 checkpoints, none of which the press refuses, and compared
+  settings and marks alone; a side agent caught it after the report. 7880
+  lacks one checkpoint's files: the refusal showed there, and went away with
+  that checkpoint ticked first. A refusal is tried in each order.
 - **Opening a model's gallery can write to the database.** Its page is
   fetched from Civitai and stored first when fewer than a page of images are
   stored and Civitai has more (`gallery_page`, `api/images.py`). A read-only
