@@ -20,6 +20,7 @@ const { openMetaModal, closeMetaModal, closeViewer } = await shared('viewer.mjs'
 const { available, open } = await shared('loading.mjs');
 const { familyName, fetchUiOptions } = await shared('ui_options.mjs');
 const { afterRefreshes } = await shared('forge.mjs');
+const { USUAL_NAMES, severalEachHtml, shownValue, usualValuesText } = await shared('several_runs.mjs');
 
 // ------------------------------------------- an image's resources, looked up
 // Which Civitai versions an image's resource hashes are, and the downloads of
@@ -1240,21 +1241,11 @@ function dialogListRedrawn() {
 // The block as last drawn, so an answer that changes nothing writes nothing.
 let drawnUsual = { block: null, html: '' };
 
-// The settings the several view gives by value alone: "Euler a", "Karras" say what they are.
-const UNNAMED_IN_SEVERAL = new Set(['sampler', 'schedule_type']);
-
-// Each setting's name, as the block and Forge's controls name it.
-const USUAL_NAMES = { sampler: 'Sampler', schedule_type: 'Schedule type', steps: 'Steps', cfg: 'CFG scale',
-                      distilled_cfg: 'Distilled CFG Scale', shift: 'Shift' };
-
 /** Whether an answer has anything the tick would send: a value 5 or more uses record that this WebUI lists. */
 function usualApplies(answer) {
     return Boolean(answer?.applies && answer.source
                    && (answer.settings || []).some((r) => r.value !== null && r.value !== undefined && !r.thin && !r.missing));
 }
-
-/** A value as the block shows it; a dash for none. */
-const shownValue = (value) => (value === null || value === undefined || value === '' ? '–' : String(value));
 
 // The block's column before a pick, and for an as-made one; on a dialog too
 // narrow for the column, the block under the rows, which keeps its height (style.css).
@@ -1336,38 +1327,6 @@ function severalUsualHtml(line) {
     const note = family ? `Of another family than ${pickRowName(family.first)}: the size, the prompt and its LoRAs, `
                           + 'ADetailer, ControlNet and Diffusion in Low Bits stay as you set them.' : '';
     return severalEachHtml({ entries: each, note });
-}
-
-/**
- * A pick's usual settings as a line of the several view says them, by key in
- * their order: "DPM++ 2M · Karras · Steps 30 · CFG scale 5". Change's window
- * (#406) says them so too.
- */
-export function usualValuesText(values) {
-    return Object.entries(values || {})
-        // A sampler and a schedule type read as themselves; a number needs its name.
-        .map(([key, value]) => `${UNNAMED_IN_SEVERAL.has(key) ? '' : `${USUAL_NAMES[key] || key} `}${shownValue(value)}`)
-        .join(' · ');
-}
-
-/**
- * The several view's markup from the lines it is handed: the heading, a line
- * per ticked checkpoint - `{name, another, what}`, marked when of another
- * family - then `after`, lines of its own under them, the family note, and
- * what stays as you set it. The Resources dialog's and Change's window's
- * (#406) alike.
- */
-export function severalEachHtml({ entries = [], note = '', after = [] } = {}) {
-    const each = entries.map(({ name, another, what }) => {
-        const mark = another ? '<span class="mm-usual-each-family"> · another family</span>' : '';
-        return `<div class="mm-usual-each"><span class="mm-usual-each-name">${escapeHtml(name)}${mark}</span>`
-            + `<span class="mm-usual-each-what">${escapeHtml(what)}</span></div>`;
-    }).join('');
-    const below = after.map((text) => `<div class="mm-usual-note">${escapeHtml(text)}</div>`).join('');
-    return `<div class="mm-usual-head">What each runs with</div>${each}${below}${
-        note ? `<div class="mm-usual-note mm-usual-family" data-family-note>${escapeHtml(note)}</div>` : ''}`
-        + '<div class="mm-usual-from">A setting too few uses record, or one this WebUI lacks, stays as you set it. '
-        + 'Hires fix follows each run\'s sampler, schedule type, CFG, and Distilled CFG or Shift.</div>';
 }
 
 /** The block again, in place: the list's rows, their scroll and the search box are left as they are. */

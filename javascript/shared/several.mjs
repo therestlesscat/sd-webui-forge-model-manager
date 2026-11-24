@@ -42,8 +42,8 @@
 const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).search}`, import.meta.url).href);
 const { apiCall, setText, setTitle } = await shared('core.mjs');
 const { tabShowing } = await shared('tabs.mjs');
-const { addPickList, pickListHtml, pickRowName, pickRows, severalEachHtml, usualValuesText, withUnlisted } =
-    await shared('resources.mjs');
+const { addPickList, pickListHtml, pickRowName, pickRows, withUnlisted } = await shared('resources.mjs');
+const { askRuns, runsHtml } = await shared('several_runs.mjs');
 const { openDialog } = await shared('dialog.mjs');
 
 // What this uses that has a start(): the actions' listener, ui-options, and
@@ -194,7 +194,7 @@ async function openChange() {
     if (changing) return;
     // Outside the mode, Forge's loaded checkpoint ticked once the list says which.
     const outside = !list;
-    // `runs`: the server's answer of what each runs with, its request numbered (askRuns).
+    // `runs`: the server's answer of what each runs with, its request numbered (several_runs.mjs, askRuns).
     const holder = { pickList: { loading: true, search: '', tab: null }, ticked: outside ? [] : [...list.names],
                      source: list?.source ?? null, runs: null, asking: 0, waiting: false, drawn: '' };
     const element = document.createElement('dialog');
@@ -224,7 +224,7 @@ async function openChange() {
     drawTicked();
     drawRuns();
     // In the mode the ticks are known: asked beside the list. Outside it, once the list says which is loaded.
-    if (!outside) askRuns(holder);
+    if (!outside) askColumn(holder);
     let data = null;
     let error = '';
     try {
@@ -239,7 +239,7 @@ async function openChange() {
         : { loading: false, error: '', data: withUnlisted(data, holder.ticked), search: '', tab: 'all' };
     element.querySelector('[data-pick-list="several"]')?.replaceWith(listElement(holder));
     drawTicked();
-    if (outside) askRuns(holder);
+    if (outside) askColumn(holder);
     else drawRuns();
 }
 
@@ -281,46 +281,22 @@ function tickedInChange(ticked) {
     if (!holder) return;
     holder.ticked = ticked;
     drawTicked();
-    askRuns(holder);
+    askColumn(holder);
 }
 
 // ------------------------------------------- what each ticked one runs with (#406)
 
-/**
- * Ask the server what each ticked checkpoint would run with, were it pressed
- * now: the whole list at once, so one answer says it all alike - which
- * checkpoint Forge has selected, whether the task is gone, the marks. Each
- * request is numbered, and an older answer, or one for a window since
- * closed, is dropped; a failure is drawn and not kept - the next tick asks
- * again. The press's own {names, source}, as a JSON body: apiCall sends GETs.
- */
-async function askRuns(holder) {
-    const asking = ++holder.asking;
-    const names = [...holder.ticked];
-    holder.waiting = names.length > 0;
-    drawRuns();
-    if (!names.length) return;
-    let answer;
-    try {
-        const response = await fetch('/model-manager/queue/several/runs', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ names, source: holder.source }) });
-        answer = await response.json();
-        if (!answer?.success) throw new Error(answer?.error || 'the server did not answer');
-    } catch (failure) {
-        answer = { failed: String(failure?.message || failure) };
-    }
-    if (changing?.holder !== holder || asking !== holder.asking) return;
-    holder.waiting = false;
-    holder.runs = answer;
-    drawRuns();
+/** What each ticked one would run with, asked of the server: the press's own names and source. */
+function askColumn(holder) {
+    return askRuns(holder, { body: { names: [...holder.ticked], source: holder.source },
+                             open: () => changing?.holder === holder, drawn: drawRuns });
 }
 
 /** The column again, in place, only where it differs: the rows, their scroll and the search box are not touched. */
 function drawRuns() {
     if (!changing) return;
     const block = changing.element.querySelector('[data-several-runs]');
-    const html = runsHtml(changing.holder);
+    const html = columnHtml(changing.holder);
     if (block && html !== changing.holder.drawn) {
         block.innerHTML = html;
         changing.holder.drawn = html;
@@ -333,58 +309,15 @@ function runName(holder, name) {
     return row && !row.unlisted ? pickRowName(row) : list?.labels?.[name] || checkpointLabel(name);
 }
 
-/** What one ticked checkpoint's line says, from its entry in the answer (several.runs_preview). */
-function runWhat(entry, task) {
-    if (entry.problem) return `Queuing stops on it: ${entry.problem}`;
-    const values = entry.usual ? usualValuesText(entry.usual) : '';
-    let what = {
-        yours: 'Runs with your settings: Forge\'s selected checkpoint.',
-        as_made: 'Runs as made, with the image\'s settings.',
-        held: values ? `${values} · as in task #${task}` : `Runs with your settings, as in task #${task}.`,
-        usual: values,
-        thin: 'Runs with your settings: too few uses record its own.',
-        plain: 'Runs with your settings.',
-        error: 'Could not read its usual settings: it runs with your settings.',
-    }[entry.how] ?? 'Runs with your settings.';
-    if (entry.family_state === 'not_read') what += ' Its family is read when you queue.';
-    if (entry.family_state === 'unrecognised') {
-        what += ' Its family was not recognised when last read: it is read again when you queue.';
-    }
-    return what;
-}
-
-/** The column: a line per ticked checkpoint, in tick order, the lines under them, and the family note. */
-function runsHtml(holder) {
-    const answer = holder.runs;
-    if (!holder.ticked.length) return severalEachHtml({ after: ['Tick a checkpoint to see what it runs with.'] });
-    const task = holder.source?.task;
-    const entries = holder.ticked.map((name) => {
-        const entry = answer?.runs?.[name];
-        let what;
-        if (entry) what = runWhat(entry, task);
-        else if (answer?.failed && !holder.waiting) {
-            what = `Could not read what it runs with: ${answer.failed.replace(/[.\s]+$/, '')}.`;
-        }
-        else what = 'Reading its usual settings…';
-        return { name: runName(holder, name), another: entry?.another_family === true, what };
-    });
-    const after = [];
-    if (answer?.gone_task) after.push(`Task #${answer.gone_task} is gone: each takes its usual settings.`);
-    const selected = answer?.selected;
-    if (selected?.state === 'not_read') {
-        after.push('Forge\'s selected checkpoint is not read yet: a checkpoint of another family is told when you queue.');
-    } else if (selected?.state === 'unrecognised') {
-        after.push('Forge\'s selected checkpoint was not recognised when last read: a checkpoint of another family '
-                   + 'is told when you queue.');
-    }
-    const stay = 'the size, the prompt and its LoRAs, ADetailer, ControlNet and Diffusion in Low Bits stay as you set them.';
+/** The column's markup, as Change's window names a checkpoint and what Forge has selected. */
+function columnHtml(holder) {
+    const selected = holder.runs?.selected;
     // Forge's option names the selected one as Forge spells it; the list's `loaded` is the same file by its row.
     const listed = pickRows(holder).some((r) => r.name === selected?.name);
     const selectedName = listed ? selected?.name : holder.pickList?.data?.loaded || selected?.name;
-    const note = !entries.some((e) => e.another) ? ''
-        : selected?.name ? `Of another family than Forge's selected checkpoint, ${runName(holder, selectedName)}: ${stay}`
-            : `Forge has no checkpoint selected that it lists, so each is of another family: ${stay}`;
-    return severalEachHtml({ entries, note, after });
+    return runsHtml(holder, { nameOf: (name) => runName(holder, name), task: holder.source?.task,
+                              subject: 'Forge\'s selected checkpoint',
+                              than: selected?.name ? `Forge's selected checkpoint, ${runName(holder, selectedName)}` : '' });
 }
 
 /** Use these: the mode holds the ticks, named as the list names them - entered, outside it; nothing is sent. */
