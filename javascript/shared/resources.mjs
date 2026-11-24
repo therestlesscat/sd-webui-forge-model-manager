@@ -20,7 +20,7 @@ const { openMetaModal, closeMetaModal, closeViewer } = await shared('viewer.mjs'
 const { available, open } = await shared('loading.mjs');
 const { familyName, fetchUiOptions } = await shared('ui_options.mjs');
 const { afterRefreshes } = await shared('forge.mjs');
-const { USUAL_NAMES, severalEachHtml, shownValue, usualValuesText } = await shared('several_runs.mjs');
+const { USUAL_NAMES, askRuns, dropAsk, newAsk, runsHtml, shownValue } = await shared('several_runs.mjs');
 
 // ------------------------------------------- an image's resources, looked up
 // Which Civitai versions an image's resource hashes are, and the downloads of
@@ -379,7 +379,10 @@ let resourcesLeaving = null;
 // while the dialog is open; `usual`: its tick, as the setting says at each
 // pick (`usualOn`, read as the dialog opens); `usualPressed`: the tick
 // pressed for this pick. `picksSet`: the ticks set in the dialog, after which
-// no answer of the list picks for the person (#417).
+// no answer of the list picks for the person (#417). With several ticked, what
+// each runs with, as it is asked (several_runs.mjs, askRuns), and the first
+// ticked it was asked against (`askedFirst`, #407). `among`: the names ticked
+// among several, whose usual settings a Send of one alone waits for.
 let resourcesSend = null;
 // The dialog's resources, as last drawn: Send's line finds the checkpoint's row in them.
 let resourcesRows = [];
@@ -483,7 +486,7 @@ function startSendLine(send) {
     // Opened with the Resources button, `ready` stays unknown until the library has said (startBox).
     const line = { ...send, ready: send.opened === 'resources' ? undefined : send.ready ?? false,
                    choosing: send.opened !== 'resources',
-                   chosen: null, touched: false, pickList: null, usualAnswers: new Map(),
+                   chosen: null, touched: false, pickList: null, usualAnswers: new Map(), ...newAsk(), askedFirst: null, among: new Set(),
                    usualOn: true, usual: true, usualPressed: false };
     // The settings asked afresh as the dialog opens: Forge's Settings page
     // does not refresh the page's copy (#377).
@@ -1220,6 +1223,8 @@ async function askPickList({ again = false } = {}) {
         Object.assign(list, { loading: false, error: `Could not read your checkpoints: ${error.message || error}` });
     }
     redrawSendBar();
+    // What each ticked one runs with, by the list as it is now: after the bar, whose baseline a draw of the block renews.
+    if (line.ticked?.length > 1 && !list.error) askSeveral(line);
 }
 
 /** After the dialog's rows are drawn again: what its Send line says, and what a full redraw would draw. */
@@ -1259,7 +1264,7 @@ const usualHint = (text) => `<div class="mm-usual-note mm-usual-hint">${escapeHt
 function usualHtml() {
     const line = resourcesSend;
     if (!line) return '';
-    if (line.ticked?.length > 1) return severalUsualHtml(line);
+    if (line.ticked?.length > 1) return severalHtml(line);
     const row = line.chosen && pickRows(line).find((r) => r.name === line.chosen);
     if (!row) return usualHint(USUAL_HINT.none);
     const answer = line.usualAnswers.get(line.chosen);
@@ -1299,34 +1304,35 @@ function usualHtml() {
 }
 
 /**
- * Two or more ticked (#400): what each runs with - its usual settings, as made,
- * or yours - one after another, and no tick: each takes its own when the task
- * is queued, and Hires fix follows each run's.
+ * Two or more ticked (#400): what each runs with, one after another, as the
+ * press will decide it - its usual settings, as made, or yours, or what stops
+ * the press - and no tick: each takes its own when the task is queued, and
+ * Hires fix follows each run's. Families are compared with the first ticked.
  */
-function severalUsualHtml(line) {
+function severalHtml(line) {
     const rows = new Map(pickRows(line).map((row) => [row.name, row]));
-    const family = otherFamily(line);
-    const each = line.ticked.map((name) => {
-        const row = rows.get(name);
-        const answer = line.usualAnswers.get(name);
-        let what;
-        if (row && (row.why || []).some((why) => AS_MADE.includes(why))) what = 'Runs as made, with the image\'s settings.';
-        else if (!answer || answer.loading) what = 'Reading its usual settings…';
-        else if (answer.error) what = 'Runs with your settings: its usual settings could not be read.';
-        else if (!answer.applies) what = 'Runs as made, with the image\'s settings.';
-        else if (!usualApplies(answer)) what = 'Runs with your settings: too few uses record its own.';
-        else {
-            what = usualValuesText(Object.fromEntries((answer.settings || [])
-                .filter((r) => r.value !== null && r.value !== undefined && !r.thin && !r.missing)
-                .map((r) => [r.key, r.value])));
-        }
-        // A file no sync has read: its family, which decides its VAE and text encoders, is read then.
-        if (row && !row.read) what += ' Its family is read when you queue.';
-        return { name: row ? pickRowName(row) : name, another: Boolean(family?.names.has(name)), what };
-    });
-    const note = family ? `Of another family than ${pickRowName(family.first)}: the size, the prompt and its LoRAs, `
-                          + 'ADetailer, ControlNet and Diffusion in Low Bits stay as you set them.' : '';
-    return severalEachHtml({ entries: each, note });
+    const nameOf = (name) => (rows.has(name) ? pickRowName(rows.get(name)) : name);
+    const first = nameOf(line.ticked[0]);
+    return runsHtml(line, { nameOf, task: null, subject: first, than: first });
+}
+
+/** Where a list ticked in the dialog comes from, as Queue for N is handed it: the image, as send/usual is asked. */
+const severalSource = (line) => ({ image: { ...line.usualSource, image_model: imageModel() || '' } });
+
+/**
+ * Ask what each ticked one runs with (#407), and draw the block: with two or
+ * more ticked, against the first, which Send loads before the press. A new
+ * first leaves no line drawn from the old one's answer, which would mark the
+ * checkpoint Send loads as of another family; one ticked or none, nothing is
+ * asked, and an answer out is dropped.
+ */
+function askSeveral(line) {
+    const names = () => (line.ticked?.length > 1 ? [...line.ticked] : []);
+    const [first = null] = names();
+    if (first && first !== line.askedFirst) Object.assign(line, { runs: null, askedFirst: first });
+    return askRuns(line, { body: () => ({ names: names(), source: severalSource(line), against: names()[0] }),
+                           open: () => resourcesSend === line && Boolean(document.querySelector('.mm-resources-modal')),
+                           drawn: redrawUsual });
 }
 
 /** The block again, in place: the list's rows, their scroll and the search box are left as they are. */
@@ -1350,19 +1356,24 @@ function redrawUsual() {
  * pick picked now: one asked for an earlier pick draws that pick's, and none
  * once the dialog has closed.
  */
-async function askUsual(line, name) {
+function askUsual(line, name) {
     if (!line?.usualSource || !name || line.usualAnswers.has(name)) return;
-    line.usualAnswers.set(name, { loading: true });
-    const params = { ...line.usualSource, checkpoint: name, image_model: imageModel() || '' };
-    let answer;
-    try {
-        const data = await apiCall({ endpoint: '/model-manager/send/usual', params });
-        answer = data?.success ? data : { error: data?.error || 'the server did not answer' };
-    } catch (error) {
-        answer = { error: String(error?.message || error) };
-    }
-    line.usualAnswers.set(name, answer);
-    redrawUsual();
+    const ask = async () => {
+        const params = { ...line.usualSource, checkpoint: name, image_model: imageModel() || '' };
+        let answer;
+        try {
+            const data = await apiCall({ endpoint: '/model-manager/send/usual', params });
+            answer = data?.success ? data : { error: data?.error || 'the server did not answer' };
+        } catch (error) {
+            answer = { error: String(error?.message || error) };
+        }
+        line.usualAnswers.set(name, answer);
+        redrawUsual();
+    };
+    // `loading`: settled once the answer is kept, for a Send that waits for it.
+    const answered = {};
+    line.usualAnswers.set(name, answered);
+    answered.loading = ask();
 }
 
 /**
@@ -1437,8 +1448,9 @@ function pickInDialog(name, input) {
 
 /**
  * A tick in the dialog's list (#400): the first ticked is the one Send loads,
- * each ticked one's usual settings asked; the rows are not drawn again -
- * their scroll stays - only what each ticked one says, and the Send line.
+ * its usual settings asked, and with two or more what each runs with; the
+ * rows are not drawn again - their scroll stays - only the block, and the
+ * Send line.
  */
 function tickInDialog(name, input) {
     const ticked = resourcesSend.ticked.filter((n) => n !== name);
@@ -1461,30 +1473,16 @@ function tickedInDialog(ticked) {
         line.usualPressed = false;
     }
     line.chosen = first;
-    ticked.forEach((n) => askUsual(line, n));
+    if (ticked.length > 1) ticked.forEach((name) => line.among.add(name));
+    // The first's alone, what Send loads: back to it as the one tick, its usual settings are there for Send (#407).
+    if (first) askUsual(line, first);
     const button = document.querySelector('.mm-resources-modal [data-action="resources.sendAgain"]');
     if (button) {
         button.disabled = !line.chosen;
         if (line.chosen) button.removeAttribute('title');
         else button.title = 'Tick a checkpoint to send with.';
     }
-    redrawUsual();
-}
-
-/**
- * With ticks of more than one family: the first ticked, which Send loads, and
- * the names of those of another family, for which the size, the prompt and the
- * rest stay as you set them - usual settings record none of it. The block's
- * several view marks each, and says so once, above its last line: a sentence
- * naming each grew with every tick. Null for ticks of one family.
- */
-function otherFamily(line) {
-    if (!(line.ticked?.length > 1)) return null;
-    const rows = new Map(pickRows(line).map((row) => [row.name, row]));
-    const first = rows.get(line.ticked[0]);
-    const others = line.ticked.slice(1).map((name) => rows.get(name))
-        .filter((row) => row?.family && first?.family && row.family !== first.family);
-    return others.length ? { first, names: new Set(others.map((row) => row.name)) } : null;
+    askSeveral(line);
 }
 
 // The dialog's Send: closed, and the image sent - with the checkpoint picked,
@@ -1496,17 +1494,33 @@ function sendAgain() {
     if (send.choosing) {
         if (!send.chosen) return undefined;
         if (send.ticked?.length > 1) return sendSeveral(send);
-        const row = pickRows(send).find((r) => r.name === send.chosen);
-        const usual = send.usual && usualApplies(send.usualAnswers.get(send.chosen)) && row
-            ? { name: pickRowName(row) } : null;
-        closeMetaModal();
-        resourcesSend = null;
-        return send.pick(send.chosen, imageModel(), usual);
+        // One ticked among several is asked only as it becomes the first: left alone, its usual settings are waited
+        // for (#407) - each was asked as it was ticked, and there.
+        const name = send.chosen;
+        const asked = send.usual && send.among.has(name) && send.usualAnswers.get(name)?.loading;
+        return asked ? asked.then(() => sendWaited(send, name)) : sendPick(send);
     }
     if (!send.ready && !send.goesOn) return undefined;
     closeMetaModal();
     resourcesSend = null;
     return send.run();
+}
+
+/** Send's one pick, closing the dialog: with its usual settings, ticked, where they have something to send. */
+function sendPick(send) {
+    const row = pickRows(send).find((r) => r.name === send.chosen);
+    const usual = send.usual && usualApplies(send.usualAnswers.get(send.chosen)) && row
+        ? { name: pickRowName(row) } : null;
+    closeMetaModal();
+    resourcesSend = null;
+    return send.pick(send.chosen, imageModel(), usual);
+}
+
+/** A Send that waited for its pick's usual settings: sent if the dialog is still open on that one pick, and not sent already. */
+function sendWaited(send, name) {
+    const still = resourcesSend === send && send.choosing && !(send.ticked?.length > 1) && send.chosen === name
+        && document.querySelector('.mm-resources-modal');
+    return still ? sendPick(send) : undefined;
 }
 
 /**
@@ -1522,7 +1536,7 @@ async function sendSeveral(send) {
     const labels = Object.fromEntries(names.filter((name) => rows.has(name))
         .map((name) => [name, pickRowName(rows.get(name))]));
     const model = imageModel();
-    const source = { image: { ...send.usualSource, image_model: model || '' } };
+    const source = severalSource(send);
     const listParams = pickListParams(send);
     closeMetaModal();
     resourcesSend = null;
@@ -2000,6 +2014,7 @@ export function start(scope) {
         if (!line?.severalBox || line.severalWhy) return;
         severalPressed = Boolean(box?.checked);
         setSeveral(line, severalPressed);
+        dropAsk(line);
         const rows = document.querySelector('.mm-resources-modal [data-pick-list="dialog"] .mm-pick-rows');
         const top = rows?.scrollTop || 0;
         redrawSendBar();

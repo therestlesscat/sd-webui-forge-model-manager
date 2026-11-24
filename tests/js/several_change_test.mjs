@@ -69,6 +69,9 @@ let runsFail = false;
 let holdNext = null;
 let holdList = null;                    // holds the next answer of your checkpoints' list until released
 const runsAsked = [];
+// How many are asked and not answered yet, and how many were ever asked.
+let runsOut = 0;
+let runsEver = 0;
 const plainRun = { how: 'usual', usual: { steps: 20 }, family: 'xl', family_state: 'read', another_family: false,
                    problem: null };
 globalThis.fetch = async (url, init = {}) => {
@@ -78,6 +81,8 @@ globalThis.fetch = async (url, init = {}) => {
     if (href.includes('/model-manager/queue/several/runs')) {
         const body = JSON.parse(init.body || '{}');
         runsAsked.push(body);
+        runsOut += 1;
+        runsEver += 1;
         // Worked out as asked, then held: a held answer says what was so when it was asked.
         const answer = runsFail ? { success: false, error: 'the library is busy' }
             : { success: true, runs: Object.fromEntries(body.names.map((n) => [n, RUN[n] || plainRun])),
@@ -85,6 +90,7 @@ globalThis.fetch = async (url, init = {}) => {
         const hold = holdNext;
         holdNext = null;
         if (hold) await hold;
+        runsOut -= 1;
         return reply(answer);
     }
     if (href.includes('/model-manager/ui-options')) {
@@ -155,9 +161,11 @@ const STAY = 'the size, the prompt and its LoRAs, ADetailer, ControlNet and Diff
 async function answered(runs, extra = {}) {
     Object.assign(RUN, runs);
     ANSWER = extra;
+    const asks = runsEver;
     tick(DREAM, true);
     tick(DREAM, false);
-    await waitFor('the column answered afresh', () => settled() && lines().length === 3);
+    // The tick's own answer, for an older list by then, and the untick's: one out at a time (#433).
+    await waitFor('the column answered afresh', () => runsEver >= asks + 2 && !runsOut && settled() && lines().length === 3);
 }
 RUN[ANIME] = { ...plainRun, how: 'held', usual: { steps: 12 } };
 RUN[PHOTO] = { ...plainRun, how: 'held', usual: null };
@@ -221,37 +229,52 @@ const rowsAfter = [...win().querySelectorAll('.mm-pick-row')];
 check('the rows are the same elements, and the search box keeps its focus',
       [rowsBefore.length > 0, rowsAfter.length === rowsBefore.length, rowsAfter.every((r, i) => r === rowsBefore[i]),
        document.activeElement === searchBox], [true, true, true, true]);
-// An older answer arriving after a newer one is dropped.
+// One request out at a time (#433): changes made meanwhile wait for it, and the newest list is asked once then.
 let release;
 holdNext = new Promise((resolve) => { release = resolve; });
 const heldAnime = RUN[ANIME];
 const heldPhoto = RUN[PHOTO];
+runsAsked.length = 0;
 RUN[ANIME] = { ...plainRun, how: 'thin', usual: null };
 tick(DREAM, false);
 RUN[ANIME] = heldAnime;
 // The newer answer says something of its own, so the wait for it cannot be met by an older one.
 RUN[PHOTO] = { ...plainRun, how: 'plain', usual: null };
+for (let n = 0; n < 5; n += 1) {
+    tick(DREAM, true);
+    tick(DREAM, false);
+}
 tick(FLUX, false);
-await waitFor('the newer answer', () => settled() && lines().length === 2 && lines()[1][2] === 'Runs with your settings.');
-RUN[PHOTO] = heldPhoto;
-// While a newer answer is asked, the lines drawn stay, and the new name reads as being asked.
+tick(DREAM, true);
+check('#433: twelve changes while one is out: none asked beside it', runsAsked.map((b) => b.names), [[ANIME, PHOTO, FLUX]]);
+check('while asked: the lines drawn stay, the new name reads as being asked', lines().map(([name, , what]) => [name, what]),
+      [['Anime Mix v12', 'Steps 12 · as in task #30'], ['Real Photo v5', 'Runs with your settings, as in task #30.'],
+       ['Dream v8', 'Steps 20']]);
 let releaseNext;
 holdNext = new Promise((resolve) => { releaseNext = resolve; });
-tick(DREAM, true);
-await waitFor('the new name asked', () => lines().length === 3);
-check('while asked: the lines drawn stay, the new name reads as being asked', lines().map(([name, , what]) => [name, what]),
-      [['Anime Mix v12', 'Steps 12 · as in task #30'], ['Real Photo v5', 'Runs with your settings.'],
-       ['Dream v8', 'Reading its usual settings…']]);
-releaseNext();
-await waitFor('its line', settled);
-tick(DREAM, false);
-await waitFor('two again', () => settled() && lines().length === 2
-                                 && lines()[1][2] === 'Runs with your settings, as in task #30.');
 release();
+await waitFor('the newest list asked', () => runsAsked.length > 1);
 await new Promise((resolve) => setTimeout(resolve, 30));
-check('an older answer arriving last is dropped: the newer one stays drawn',
-      lines().map(([name, , what]) => [name, what]),
-      [['Anime Mix v12', 'Steps 12 · as in task #30'], ['Real Photo v5', 'Runs with your settings, as in task #30.']]);
+check('    then one ask, for the newest list', runsAsked.slice(1).map((b) => b.names), [[ANIME, PHOTO, DREAM]]);
+check('an answer for an older list is dropped: it draws nothing', lines().map(([name, , what]) => [name, what])[0],
+      ['Anime Mix v12', 'Steps 12 · as in task #30']);
+releaseNext();
+await waitFor('the newer answer', () => lines()[1]?.[2] === 'Runs with your settings.');
+check('    and the newest list\'s answer is drawn', lines().map(([name, , what]) => [name, what]),
+      [['Anime Mix v12', 'Steps 12 · as in task #30'], ['Real Photo v5', 'Runs with your settings.'], ['Dream v8', 'Steps 20']]);
+RUN[PHOTO] = heldPhoto;
+// A name the drawn answer does not say reads as being asked, the others' lines staying.
+let releaseFlux;
+holdNext = new Promise((resolve) => { releaseFlux = resolve; });
+tick(FLUX, true);
+check('a name no answer has said reads as being asked', lines().map(([, , what]) => what),
+      ['Steps 12 · as in task #30', 'Runs with your settings.', 'Steps 20', 'Reading its usual settings…']);
+releaseFlux();
+await waitFor('its line', settled);
+tick(FLUX, false);
+tick(DREAM, false);
+await waitFor('two again', () => !runsOut && lines().length === 2
+                                 && lines()[1][2] === 'Runs with your settings, as in task #30.');
 // A failure is shown, not kept: the next tick asks again.
 runsFail = true;
 tick(FLUX, true);

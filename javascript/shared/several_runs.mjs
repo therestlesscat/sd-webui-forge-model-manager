@@ -1,10 +1,11 @@
 /**
  * What each runs with (#400, #406): the column beside a list of ticked
  * checkpoints, a line per checkpoint. The Resources dialog and Change's window
- * draw it alike. Change's window asks for it here - POST
- * /model-manager/queue/several/runs, answered by the press's own decision
- * (scheduler/several.py) - and hands how it names a checkpoint, what the
- * families are compared with, and whether it is still open. Also the settings'
+ * ask for it and draw it alike - POST /model-manager/queue/several/runs,
+ * answered by the press's own decision (scheduler/several.py) - and each hands
+ * how it names a checkpoint, what the families are compared with (#407: the
+ * dialog's first ticked, which its Send loads; Change's, what Forge has
+ * selected), and whether it is still open. Also the settings'
  * names and how a value is written, which the dialog's usual settings of one
  * pick (resources.mjs, #378) take too.
  *
@@ -33,7 +34,7 @@ export const shownValue = (value) => (value === null || value === undefined || v
  * A checkpoint's usual settings as its line says them, by key in their order:
  * "DPM++ 2M · Karras · Steps 30 · CFG scale 5".
  */
-export function usualValuesText(values) {
+function usualValuesText(values) {
     return Object.entries(values || {})
         // A sampler and a schedule type read as themselves; a number needs its name.
         .map(([key, value]) => `${UNNAMED_IN_SEVERAL.has(key) ? '' : `${USUAL_NAMES[key] || key} `}${shownValue(value)}`)
@@ -47,7 +48,7 @@ export function usualValuesText(values) {
  * what stays as you set it. The Resources dialog's and Change's window's
  * (#406) alike.
  */
-export function severalEachHtml({ entries = [], note = '', after = [] } = {}) {
+function severalEachHtml({ entries = [], note = '', after = [] } = {}) {
     const each = entries.map(({ name, another, what }) => {
         const mark = another ? '<span class="mm-usual-each-family"> · another family</span>' : '';
         return `<div class="mm-usual-each"><span class="mm-usual-each-name">${escapeHtml(name)}${mark}</span>`
@@ -60,35 +61,61 @@ export function severalEachHtml({ entries = [], note = '', after = [] } = {}) {
         + 'Hires fix follows each run\'s sampler, schedule type, CFG, and Distilled CFG or Shift.</div>';
 }
 
+/** What a holder keeps of its asking (askRuns): the ticks' number, one out, one awaited, and the answer. */
+export const newAsk = () => ({ asking: 0, out: false, waiting: false, runs: null });
+
+/** A holder's ticks changed: an answer out is for an older list, and is dropped; none is awaited until asked again. */
+export function dropAsk(holder) {
+    holder.asking += 1;
+    holder.waiting = false;
+}
+
 /**
  * Ask the server what each ticked checkpoint of a list would run with, were it
  * pressed now: the whole list at once, so one answer says it all alike - which
  * checkpoint the families are compared with, whether the task is gone, the
- * marks. Each request is numbered, and an older answer, or one for a window
- * since closed, is dropped; a failure is drawn and not kept - the next tick
- * asks again. `body`: what the press would hand over, {names, source}, as
- * JSON: apiCall sends GETs. `open`: whether the window that asked is still
- * the one open. `drawn`: draws the column. The holder keeps `asking`, the
- * request's number, `waiting`, and `runs`, the answer.
+ * marks. Asked at each change of ticks, and of the list they are in, one
+ * request out at a time: a change
+ * while one is out waits for it, and the newest list is asked once then - ten
+ * boxes unticked in a row are two requests, where ten over hundreds of
+ * checkpoints kept the server busy for answers no one saw (#433). An answer
+ * for an older list, or for a window since closed, is dropped; a failure is
+ * drawn and not kept - the next tick asks again. `body`: gives what the press
+ * would hand over for the ticks now, {names, source}, sent as JSON: apiCall
+ * sends GETs; no names, nothing asked. `open`: whether the window that asked
+ * is still the one open. `drawn`: draws the column.
  */
 export async function askRuns(holder, { body, open, drawn }) {
-    const asking = ++holder.asking;
-    holder.waiting = body.names.length > 0;
+    dropAsk(holder);
+    holder.waiting = body().names.length > 0;
     drawn();
-    if (!body.names.length) return;
-    let answer;
+    if (holder.out) return;
+    holder.out = true;
+    try {
+        while (holder.waiting && open()) {
+            const asking = holder.asking;
+            const answer = await askedOf(body());
+            if (asking !== holder.asking || !open()) continue;
+            holder.waiting = false;
+            holder.runs = answer;
+            drawn();
+        }
+    } finally {
+        holder.out = false;
+    }
+}
+
+/** The server's answer to one ask, or why there is none. */
+async function askedOf(body) {
     try {
         const response = await fetch('/model-manager/queue/several/runs', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-        answer = await response.json();
+        const answer = await response.json();
         if (!answer?.success) throw new Error(answer?.error || 'the server did not answer');
+        return answer;
     } catch (failure) {
-        answer = { failed: String(failure?.message || failure) };
+        return { failed: String(failure?.message || failure) };
     }
-    if (!open() || asking !== holder.asking) return;
-    holder.waiting = false;
-    holder.runs = answer;
-    drawn();
 }
 
 /** What one ticked checkpoint's line says, from its entry in the answer (several.runs_preview). */

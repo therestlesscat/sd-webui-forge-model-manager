@@ -4,10 +4,11 @@
 // of your checkpoints is a tick box, the image's own ticked as it opens. One
 // ticked works as one pick did: its usual settings, their tick, its Send.
 // Two or more: the Send line says it sends with the first, then queues them;
-// each ticked row says how it runs - with its usual settings, with yours, or
-// as made - and a file no sync read that its family is read when you queue;
-// a line under the list says what stays yours for a checkpoint of another
-// family than the first; the usual settings block lists each, with no tick.
+// the usual settings block lists each, with no tick - as the press will decide
+// it, asked of the server for the whole list at once (#407): its usual
+// settings, yours, as made, or what stops the press, with what stays yours
+// for a checkpoint of another family than the first. One ask out at a time,
+// for the newest list (#433); an older list's answer draws nothing.
 // Send hands the line's several send the names, the image they came from,
 // how each is named and what the list was asked with. A ticked name the
 // list asked again no longer holds stays in sight. With the Queue off, or on
@@ -50,8 +51,27 @@ const USUAL = {
     [UNREAD.name]: { success: true, applies: true, kind: 'file', source: null, uses: 0, image: IMAGE_OWN, settings: [] },
 };
 const usualAsked = [];
+// Holds the next answer of one pick's usual settings until it resolves.
+let usualHold = null;
+// What each runs with, as the server answers the route (several.runs_preview, #407): for each name
+// asked, its usual settings above and its family against the first's, with what RUN and ANSWER say
+// over them. `runsHold` holds the next answer until it resolves; `runsRefuse` is what is answered instead.
+const RUN = {};
+let ANSWER = {};
+let runsHold = null;
+let runsRefuse = null;
+const runsAsked = [];
+const rowNamed = (name) => [...list.checkpoints, ...(shownList.checkpoints || [])].find((c) => c.name === name);
+function runEntry(name, against) {
+    const [mine, first] = [rowNamed(name), rowNamed(against)];
+    const values = Object.fromEntries((USUAL[name]?.settings || []).map((s) => [s.key, s.value]));
+    const some = Object.keys(values).length > 0;
+    return { how: !USUAL[name]?.applies ? 'as_made' : some ? 'usual' : 'thin', usual: some ? values : null,
+             family: mine?.family ?? null, family_state: mine?.read ? 'read' : 'not_read', problem: null,
+             another_family: mine?.read && first?.read ? mine.family !== first.family : null, ...RUN[name] };
+}
 // ui-options as the server says them: the setting, the Queue's switch, and whether this start built it.
-const options = { several: true, queueOn: true, built: true, choose: true };
+const options = { several: true, queueOn: true, built: true, choose: true, usual: true };
 let listHold = null;
 globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
@@ -59,7 +79,23 @@ globalThis.fetch = async (url, init = {}) => {
     if (href.includes('/model-manager/send/usual')) {
         const params = new URL(href, 'http://x').searchParams;
         usualAsked.push(params.get('checkpoint'));
+        const hold = usualHold;
+        usualHold = null;
+        if (hold) await hold;
         return reply(USUAL[params.get('checkpoint')]);
+    }
+    if (href.includes('/model-manager/queue/several/runs')) {
+        const body = JSON.parse(init.body || '{}');
+        runsAsked.push(body);
+        // Worked out as asked, then held: a held answer says what was so when it was asked.
+        const answer = { success: true, runs: Object.fromEntries(body.names.map((n) => [n, runEntry(n, body.against)])),
+                         selected: { name: body.against, state: rowNamed(body.against)?.read ? 'read' : 'not_read' },
+                         gone_task: null, ...ANSWER };
+        const refuse = runsRefuse;
+        const hold = runsHold;
+        runsHold = null;
+        if (hold) await hold;
+        return refuse ? reply(refuse.body, refuse.status) : reply(answer);
     }
     if (href.includes('/model-manager/send/checkpoints')) {
         // Held by the check that reads the list's line while it is read (#415).
@@ -81,7 +117,7 @@ globalThis.fetch = async (url, init = {}) => {
     }
     if (href.includes('/ui-options')) {
         return reply({ success: true, samplers: [], schedulers: [], has_api_key: true, choose_checkpoint: options.choose,
-                       usual_settings: true, family_names: { xl: 'SDXL', flux: 'Flux', qwen: 'Qwen-Image' },
+                       usual_settings: options.usual, family_names: { xl: 'SDXL', flux: 'Flux', qwen: 'Qwen-Image' },
                        queue_several: options.several, queue_enabled: options.queueOn,
                        tabs: { queue: { on: options.queueOn, built: options.built } } });
     }
@@ -139,6 +175,12 @@ const line = (tab = 'txt2img', extra = {}) => ({
 const image = { id: 7002, url: 'https://image.civitai.com/x/a.jpeg', meta: { prompt: 'a lighthouse', civitaiResources: [
     { type: 'checkpoint', modelVersionId: 8002, modelId: 81, name: 'A Checkpoint', modelVersionName: 'v1' }] } };
 const settle = () => new Promise((resolve) => setTimeout(resolve, 30));
+const search = (text) => {
+    const input = modal()?.querySelector('.mm-pick-search');
+    if (!input) return;
+    input.value = text;
+    input.dispatchEvent(new window.Event('input', { bubbles: true }));
+};
 async function shown() {
     await waitFor('the list', () => modal()?.querySelector('.mm-pick-row'));
     await settle();
@@ -207,7 +249,7 @@ check('and the block says each the same way, in whole sentences',
 check('and still no ticked row takes a line more', [OWN.name, LEAN.name, UNREAD.name].map(rowParts), [4, 4, 4]);
 check('all of one family, or not known: nothing under the list', note(), '');
 tick(FLUX.name);
-await waitFor('its answer', () => answered(FLUX.name));
+await waitFor('its answer', () => answered(FLUX.name) && note());
 const familyNote = () => block()?.querySelector('[data-family-note]');
 check('a checkpoint of another family than the first: a note in its own grey, after the entries, above the last line',
       [familyNote()?.matches('.mm-usual-note'), familyNote()?.previousElementSibling?.classList.contains('mm-usual-each'),
@@ -222,16 +264,22 @@ const marks = () => [...(block()?.querySelectorAll('.mm-usual-each') || [])]
 check('the entry of another family is marked after its name; the others are not',
       marks(), [['Anime Mix v12', ''], ['Real v2', ''], ['Own v1', ''], ['Lean v1', ''], ['newMerge.safetensors', ''],
                 ['Flux Dev fp8', ' · another family']]);
-check('every ticked one\'s usual settings asked once', usualAsked.slice().sort(),
-      [MIX.name, REAL.name, FLUX.name, OWN.name, LEAN.name, UNREAD.name].sort());
+check('#407: the usual settings of the first ticked alone asked of send/usual, and of the one picked as it opened',
+      usualAsked, [OWN.name, MIX.name]);
+check('    what each runs with asked for the whole list at once, in tick order, from the image as Send hands it to the '
+      + 'press, against the first ticked', runsAsked.at(-1),
+      { names: [MIX.name, REAL.name, OWN.name, LEAN.name, UNREAD.name, FLUX.name],
+        source: { image: { kind: 'civitai', image: 7002, version_ids: '8002', hashes: '', image_model: 81 } }, against: MIX.name });
 for (const name of [MIX.name, REAL.name, OWN.name, LEAN.name, UNREAD.name]) tick(name, false);
 tick(MIX.name);
+await waitFor('its mark', () => note());
 check('the family judged against the first ticked, not the image\'s: Flux first, Anime Mix is the other family',
       [note(), marks()], ['Of another family than Flux Dev fp8: the size, the prompt and its LoRAs, ADetailer, ControlNet '
                           + 'and Diffusion in Low Bits stay as you set them.',
                           [['Flux Dev fp8', ''], ['Anime Mix v12', ' · another family']]]);
 tick(FLUX.name, false);
 tick(REAL.name);
+await waitFor('their answers', () => answered(MIX.name) && answered(REAL.name));
 check('back to two of one family: their notes and the line as they should be, the Send line counting two',
       [runs(FLUX.name), note(), status()], ['', '', 'Sends with Anime Mix v12, then Generate or Queue for 2 checkpoints in txt2img queues them all.']);
 
@@ -287,6 +335,258 @@ await send.sendGalleryImage({ img: image, model: gallery, version: shownVersion,
 await shown();
 check('and into img2img: round buttons', kinds(), ['radio']);
 close();
+
+// ------------------------------- what each runs with, as the press decides it (#407)
+const whats = () => [...(block()?.querySelectorAll('.mm-usual-each') || [])].map((e) => e.querySelector('.mm-usual-each-what')?.textContent);
+const under = () => [...(block()?.querySelectorAll('.mm-usual-note:not([data-family-note])') || [])].map((e) => e.textContent);
+const settled = () => whats().length > 0 && !whats().some((w) => w.startsWith('Reading'));
+/** A dialog with these ticked, and what each runs with said. */
+async function ticking(names, extra = {}) {
+    await open('txt2img', extra);
+    tick(OWN.name, false);
+    for (const name of names) tick(name);
+    if (names.length > 1) await waitFor('what each runs with', settled);
+    else await settle();
+}
+// Pressed only where drawn: on the code before, a Send that waits has closed the dialog at once.
+const pressSend = () => { if (sendButton()) press(sendButton()); };
+const hold = () => { let go; const held = new Promise((resolve) => { go = resolve; }); return [held, go]; };
+// Every way an answer reads, as the press would do it.
+RUN[MIX.name] = { how: 'error', usual: null };
+RUN[REAL.name] = { how: 'plain', usual: null };
+RUN[FLUX.name] = { how: null, usual: null, problem: `${FLUX.name} needs T5-XXL, which this WebUI does not have.` };
+RUN[OWN.name] = { how: 'usual', usual: { steps: 12 } };
+RUN[LEAN.name] = { family_state: 'unrecognised', family: null, another_family: null };
+RUN[UNREAD.name] = { how: 'as_made', usual: null };
+await ticking([MIX.name, REAL.name, FLUX.name, OWN.name, LEAN.name, UNREAD.name]);
+check('#407: unreadable; none applying; one the press would refuse; one the list says is as made and the press does not; '
+      + 'not recognised; as made with its family not read', whats(),
+      ['Could not read its usual settings: it runs with your settings.', 'Runs with your settings.',
+       `Queuing stops on it: ${FLUX.name} needs T5-XXL, which this WebUI does not have.`, 'Steps 12',
+       'Runs with your settings: too few uses record its own. Its family was not recognised when last read: it is read '
+       + 'again when you queue.', 'Runs as made, with the image\'s settings. Its family is read when you queue.']);
+for (const name of Object.keys(RUN)) delete RUN[name];
+close();
+// The first ticked is what families are compared with: not read, not recognised, or no longer listed.
+await ticking([UNREAD.name, FLUX.name]);
+check('the first not read: no marks, and said under the lines by its own name', [marks().map(([, m]) => m), note(), under()],
+      [['', ''], '', ['newMerge.safetensors is not read yet: a checkpoint of another family is told when you queue.']]);
+close();
+ANSWER = { selected: { name: MIX.name, state: 'unrecognised' } };
+RUN[FLUX.name] = { another_family: null };
+await ticking([MIX.name, FLUX.name]);
+check('the first read and not recognised: no marks, and said so', [marks().map(([, m]) => m), note(), under()],
+      [['', ''], '', ['Anime Mix v12 was not recognised when last read: a checkpoint of another family is told when you queue.']]);
+close();
+ANSWER = { selected: { name: MIX.name, state: 'not_listed' } };
+RUN[MIX.name] = { how: null, usual: null, family_state: null,
+                  problem: `Forge does not list the checkpoint ${MIX.name}: refresh its list, or pick another.` };
+await ticking([MIX.name, FLUX.name]);
+check('the first no longer listed by Forge: its line says queuing stops, no marks, nothing more said',
+      [whats()[0], marks().map(([, m]) => m), note(), under()],
+      [`Queuing stops on it: Forge does not list the checkpoint ${MIX.name}: refresh its list, or pick another.`, ['', ''], '', []]);
+close();
+ANSWER = {};
+for (const name of Object.keys(RUN)) delete RUN[name];
+// The route refused - the Queue turned off with the dialog open - or failing: said on each line, the next tick asks again.
+await ticking([MIX.name, REAL.name]);
+runsRefuse = { status: 403, body: { success: false, error: 'The Queue is turned off.' } };
+tick(LEAN.name);
+await waitFor('the refusal', () => whats()[0]?.startsWith('Could not'));
+check('the Queue turned off with the dialog open: said on each line, in the server\'s words', whats(),
+      Array(3).fill('Could not read what it runs with: The Queue is turned off.'));
+runsRefuse = null;
+tick(LEAN.name, false);
+await waitFor('answered again', () => settled() && !whats()[0].startsWith('Could not'));
+check('    and the next tick asks again', whats(), ['DPM++ 2M · Karras · Steps 20 · CFG scale 7', 'Steps 25 · CFG scale 4']);
+// One out at a time, for the newest list.
+let [held, go] = hold();
+runsHold = held;
+const before = runsAsked.length;
+tick(FLUX.name);
+for (let n = 0; n < 5; n += 1) {
+    tick(LEAN.name);
+    tick(LEAN.name, false);
+}
+check('#433: ten ticks while an ask is out: none asked beside it', runsAsked.length - before, 1);
+check('    the lines drawn stay, the new name reads as being asked', whats(),
+      ['DPM++ 2M · Karras · Steps 20 · CFG scale 7', 'Steps 25 · CFG scale 4', 'Reading its usual settings…']);
+go();
+await waitFor('the newest list\'s answer', settled);
+check('    then one, for the newest list', runsAsked.slice(before).map((b) => b.names),
+      Array(2).fill([MIX.name, REAL.name, FLUX.name]));
+// A new first ticked: nothing of the old one's answer is drawn against it.
+[held, go] = hold();
+runsHold = held;
+tick(MIX.name, false);
+tick(REAL.name, false);
+tick(MIX.name);
+check('#407: a new first ticked: no mark, note or line from the old first\'s answer', [marks(), note(), whats()],
+      [[['Flux Dev fp8', ''], ['Anime Mix v12', '']], '', Array(2).fill('Reading its usual settings…')]);
+go();
+await waitFor('its answer', settled);
+check('    then as against it', [marks(), note().startsWith('Of another family than Flux Dev fp8: ')],
+      [[['Flux Dev fp8', ''], ['Anime Mix v12', ' · another family']], true]);
+// An answer out as the ticks go to one, to none: dropped.
+for (const [label, left] of [['one', [FLUX.name]], ['none', []]]) {
+    if (!ticked().includes(MIX.name)) tick(MIX.name);
+    if (!ticked().includes(FLUX.name)) tick(FLUX.name);
+    await waitFor('both', settled);
+    [held, go] = hold();
+    runsHold = held;
+    tick(LEAN.name);
+    for (const name of [MIX.name, FLUX.name, LEAN.name]) if (!left.includes(name)) tick(name, false);
+    await settle();
+    const html = block()?.innerHTML;
+    const asks = runsAsked.length;
+    go();
+    await settle();
+    check(`an answer out as the ticks go to ${label}: not drawn, and nothing asked after it`, [block()?.innerHTML === html,
+          Boolean(block()?.querySelector('.mm-usual-each')), runsAsked.length - asks], [true, false, 0]);
+}
+close();
+// The dialog closed, another opened: the first's answer draws nothing there.
+await ticking([MIX.name, REAL.name]);
+[held, go] = hold();
+runsHold = held;
+tick(FLUX.name);
+tick(LEAN.name);
+close();
+await ticking([MIX.name, LEAN.name]);
+const inSecond = whats();
+const asksThen = runsAsked.length;
+go();
+await settle();
+check('an answer for a dialog since closed draws nothing in the one open, and that dialog\'s newest list is not asked',
+      [whats(), runsAsked.length - asksThen], [inSecond, 0]);
+close();
+// Back to one: its usual settings are there for Send, or waited for.
+await open();
+tick(OWN.name, false);
+tick(MIX.name);
+tick(REAL.name);
+tick(REAL.name, false);
+await settle();
+pressSend();
+await settle();
+check('#407: the second unticked again: Send goes with the first\'s usual settings', sent.at(-1), [MIX.name, 81, { name: 'Anime Mix v12' }]);
+await open();
+tick(OWN.name, false);
+tick(MIX.name);
+tick(REAL.name);
+[held, go] = hold();
+usualHold = held;
+const sentBefore = sent.length;
+tick(MIX.name, false);
+pressSend();
+pressSend();
+check('the first unticked, the one left never asked: Send waits for its usual settings', [sent.length, Boolean(modal())],
+      [sentBefore, true]);
+go();
+await waitFor('the send', () => sent.length > sentBefore);
+await settle();
+check('    and goes with them, once though pressed twice', [sent.length - sentBefore, sent.at(-1), Boolean(modal())],
+      [1, [REAL.name, 81, { name: 'Real v2' }], false]);
+await open();
+tick(OWN.name, false);
+tick(MIX.name);
+tick(REAL.name);
+[held, go] = hold();
+usualHold = held;
+tick(MIX.name, false);
+pressSend();
+close();
+go();
+await settle();
+check('    closed while it waits: nothing is sent', sent.length, sentBefore + 1);
+await open();
+tick(OWN.name, false);
+tick(MIX.name);
+tick(REAL.name);
+[held, go] = hold();
+usualHold = held;
+tick(MIX.name, false);
+pressSend();
+close();
+await open();
+go();
+await settle();
+check('    closed while it waits, another dialog opened: nothing is sent, and it stays open', [sent.length, Boolean(modal())],
+      [sentBefore + 1, true]);
+close();
+// The list asked again - a download landed - asks what each runs with again.
+let listReady = false;
+await ticking([MIX.name, REAL.name], { check: async () => (listReady ? '' : 'missing') });
+const askedBefore = runsAsked.length;
+RUN[REAL.name] = { how: 'thin', usual: null };
+const LANDED = row('landed_v1.safetensors [h8]', 'xl', 'Landed', 'v1');
+shownList = { ...list, checkpoints: [...list.checkpoints, LANDED] };
+listReady = true;
+call('resources.checkAgain');
+await waitFor('asked again', () => whats()[1]?.startsWith('Runs with your settings'));
+check('the list asked again with several ticked: what each runs with asked again, the new list drawn',
+      [runsAsked.length - askedBefore, Boolean(rowOf(LANDED.name))], [1, true]);
+delete RUN[REAL.name];
+shownList = list;
+close();
+let failReady = false;
+await ticking([MIX.name, REAL.name], { check: async () => (failReady ? '' : 'missing') });
+const askedOk = runsAsked.length;
+shownList = { success: false, error: 'the library is busy' };
+failReady = true;
+call('resources.checkAgain');
+await waitFor('the list failing', () => modal()?.querySelector('.mm-pick-wait')?.textContent.includes('busy'));
+await settle();
+check('    asked again and failing: nothing asked of it', runsAsked.length - askedOk, 0);
+shownList = list;
+close();
+// An answer draws the block alone: the rows as they are, the focused tick focused.
+await ticking([MIX.name]);
+[held, go] = hold();
+runsHold = held;
+tick(REAL.name);
+const tickBox = rowOf(REAL.name)?.querySelector('input');
+const rowsThen = modal()?.querySelector('.mm-pick-rows');
+tickBox?.focus();
+go();
+await waitFor('the two lines', () => settled() && whats().length === 2);
+check('an answer keeps the focused tick and the rows as drawn (#292)',
+      [Boolean(tickBox), document.activeElement === tickBox, modal()?.querySelector('.mm-pick-rows') === rowsThen], [true, true, true]);
+close();
+
+// Select all over many (#433): one ask, the Send bar's markup built for each of its two answers and no more.
+const MANY = Array.from({ length: 300 }, (_, n) => row(`many_${n}.safetensors`, 'xl', `Many ${n}`, 'v1'));
+for (const c of MANY) USUAL[c.name] = USUAL[MIX.name];
+shownList = { ...list, checkpoints: [...list.checkpoints, ...MANY] };
+await open();
+tick(OWN.name, false);
+search('many');
+const [usualBefore, runsBefore] = [usualAsked.length, runsAsked.length];
+const realSort = Array.prototype.sort;
+let sorts = 0;
+Array.prototype.sort = function counted(...args) { if (this.length >= 300) sorts += 1; return realSort.apply(this, args); };
+[held, go] = hold();
+runsHold = held;
+const [usualHeld, goUsual] = hold();
+usualHold = usualHeld;
+const all = modal()?.querySelector('.mm-pick-line [data-action="resources.pickAll"]');
+if (all) press(all);
+await settle();
+const atTick = sorts;
+goUsual();
+await settle();
+const atUsual = sorts;
+go();
+await waitFor('the 300 lines', settled);
+await settle();
+Array.prototype.sort = realSort;
+check('#433: Select all over 300: one ask of what each runs with, one of usual settings',
+      [runsAsked.length - runsBefore, usualAsked.length - usualBefore, whats().length], [1, 1, 300]);
+// Building the bar's markup sorts the rows twice: for Select all's state, and for the rows.
+check('    the Send bar\'s markup built once at each of the two answers, not once a checkpoint', [atUsual - atTick, sorts - atUsual],
+      [2, 2]);
+close();
+shownList = list;
 
 // --------------------------------------------------- where it cannot tick
 options.built = false;
@@ -375,12 +675,6 @@ const pickTab = (family) => {
     const button = modal()?.querySelector(`[data-action="resources.pickTab"][data-family="${family}"]`);
     if (button) press(button);
 };
-const search = (text) => {
-    const input = modal()?.querySelector('.mm-pick-search');
-    if (!input) return;
-    input.value = text;
-    input.dispatchEvent(new window.Event('input', { bubbles: true }));
-};
 // While the list is read: the line's controls there already, Untick all off, saying why.
 await open();
 pressSeveral(true);
@@ -458,6 +752,7 @@ const selectAll = () => modal()?.querySelector('.mm-pick-line [data-action="reso
 const lineActions = () => [...(modal()?.querySelectorAll('.mm-pick-line [data-action]') || [])].map((e) => e.dataset.action);
 await open();
 const askedFrom = usualAsked.length;
+const runsFrom = runsAsked.length;
 check('#415: round buttons: no Select all', Boolean(selectAll()), false);
 pressSeveral(true);
 check('tick boxes: Select all on the line, before Untick all, saying how many it ticks - not the greyed, not the ticked',
@@ -469,14 +764,15 @@ check('    after a search: what it shows - Anime Mix v12, Lean v1, Own v1; Qwen,
       [rowNames(), selectAll()?.title], [[MIX.name, LEAN.name, OWN.name, GREY.name], 'Tick the 3 checkpoints shown.']);
 const rowsAtSelect = modal()?.querySelector('.mm-pick-rows');
 if (selectAll()) press(selectAll());
-await waitFor('their usual settings', () => answered(MIX.name) && answered(LEAN.name));
+await waitFor('what they run with', () => answered(MIX.name) && answered(LEAN.name));
 const askedHere = usualAsked.slice(askedFrom);
 check('    pressed, nothing ticked before: those three, top to bottom, the top one what Send loads; the rows not drawn again',
       [ticked(), status(), modal()?.querySelector('.mm-pick-rows') === rowsAtSelect],
       [[MIX.name, LEAN.name, OWN.name], 'Sends with Anime Mix v12, then Generate or Queue for 3 checkpoints in txt2img queues them all.',
        true]);
-check('    each newly ticked one\'s usual settings asked, none twice', [askedHere.includes(MIX.name), askedHere.includes(LEAN.name),
-       new Set(askedHere).size === askedHere.length], [true, true, true]);
+check('    what the three run with asked once, together; the usual settings of the first alone',
+      [runsAsked.slice(runsFrom).map((b) => b.names), askedHere.filter((n) => n !== OWN.name)],
+      [[[MIX.name, LEAN.name, OWN.name]], [MIX.name]]);
 check('    then off: nothing shown is left to tick', [selectAll()?.disabled, selectAll()?.title],
       [true, 'Every checkpoint shown that can be ticked is ticked.']);
 search('');
@@ -494,7 +790,19 @@ if (selectAll()) press(selectAll());
 pickTab('ticked');
 check('    All\'s rest ticked after the ticks there were - the run order; the greyed one never',
       [rowNames(), ticked().includes(GREY.name)], [[MIX.name, LEAN.name, OWN.name, FLUX.name, UNREAD.name, REAL.name], false]);
+[held, go] = hold();
+runsHold = held;
+tick(REAL.name, false);
+tick(UNREAD.name, false);
 pressSeveral(false);
+const asksOff = runsAsked.length;
+check('#407: Select several off, the first never ticked alone: its usual settings are there for Send', status(),
+      'Sends with Anime Mix v12. It will not come out exactly as made. With its usual settings.');
+const oneView = block()?.innerHTML;
+go();
+await settle();
+check('    and an answer out for the ticks draws nothing over it, nothing asked after it',
+      [Boolean(oneView), block()?.innerHTML === oneView, runsAsked.length - asksOff], [true, true, 0]);
 close();
 
 // A family's tab in two parts - the image's base model first - ticked top to bottom across them:
@@ -599,5 +907,80 @@ check('5. untouched, the list asked again once the checkpoint is ready: its pick
       [ticked(), sendButton()?.disabled, status()], [[OWN.name], false, 'Sends with Own v1. The image comes out as made.']);
 close();
 shownList = list;
+
+// ------------------------------------ a Send of the one left of several waits (#407)
+/** Anime Mix and Real ticked, Anime Mix unticked: Real alone, its usual settings asked and held; its release. */
+async function leftAlone() {
+    await open();
+    tick(OWN.name, false);
+    tick(MIX.name);
+    tick(REAL.name);
+    const [answer, release] = hold();
+    usualHold = answer;
+    tick(MIX.name, false);
+    return release;
+}
+/** Select several on or off for the dialogs opened after: a press lasts until the page is reloaded. */
+async function severalFrom(on) {
+    await open();
+    pressSeveral(on);
+    close();
+}
+await severalFrom(true);
+const sentOff = sent.length;
+go = await leftAlone();
+pressSeveral(false);
+pressSend();
+go();
+await settle();
+check('Select several turned off before it is answered: Send goes with its usual settings all the same', sent.at(-1),
+      [REAL.name, 81, { name: 'Real v2' }]);
+check('    once', sent.length - sentOff, 1);
+await severalFrom(true);
+for (const [label, change] of [
+    ['another ticked beside it', () => tick(LEAN.name)],
+    ['another ticked in its place', () => { tick(REAL.name, false); tick(LEAN.name); }],
+    ['Choose the checkpoint to send with unticked', () => {
+        const choose = modal()?.querySelector('[data-action="resources.chooseTick"]');
+        if (choose) { choose.checked = false; press(choose); }
+    }]]) {
+    const count = sent.length;
+    go = await leftAlone();
+    pressSend();
+    change();
+    go();
+    await settle();
+    check(`    ${label} while it waits: nothing is sent`, [sent.length - count, Boolean(modal())], [0, true]);
+    close();
+}
+// One pick that was never among several goes at once, as it always has: ticked alone, the image's own, a round button.
+for (const [label, several_, pick] of [['one ticked alone', true, () => { tick(OWN.name, false); tick(MIX.name); }],
+                                       ['the image\'s own, as it opens', true, () => {}],
+                                       ['a round button', false, () => tick(MIX.name)]]) {
+    const count = sent.length;
+    await severalFrom(several_);
+    const [answer, release] = hold();
+    if (label.startsWith('the image')) usualHold = answer;
+    await open();
+    if (!label.startsWith('the image')) usualHold = answer;
+    pick();
+    pressSend();
+    check(`${label}, its usual settings asked: Send goes at once`, sent.length - count, 1);
+    release();
+    usualHold = null;
+    await settle();
+    close();
+}
+await severalFrom(true);
+// Its usual settings not sent - the tick's setting off: nothing to wait for.
+options.usual = false;
+const countOff = sent.length;
+go = await leftAlone();
+pressSend();
+check('Send with usual settings off: the one left of several goes at once', [sent.length - countOff, sent.at(-1)?.[2]], [1, null]);
+go();
+await settle();
+options.usual = true;
+close();
 
 done();

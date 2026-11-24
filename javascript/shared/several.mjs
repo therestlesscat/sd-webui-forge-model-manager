@@ -43,7 +43,7 @@ const shared = (name) => import(new URL(`./${name}${new URL(import.meta.url).sea
 const { apiCall, setText, setTitle } = await shared('core.mjs');
 const { tabShowing } = await shared('tabs.mjs');
 const { addPickList, pickListHtml, pickRowName, pickRows, withUnlisted } = await shared('resources.mjs');
-const { askRuns, runsHtml } = await shared('several_runs.mjs');
+const { askRuns, newAsk, runsHtml } = await shared('several_runs.mjs');
 const { openDialog } = await shared('dialog.mjs');
 
 // What this uses that has a start(): the actions' listener, ui-options, and
@@ -194,9 +194,9 @@ async function openChange() {
     if (changing) return;
     // Outside the mode, Forge's loaded checkpoint ticked once the list says which.
     const outside = !list;
-    // `runs`: the server's answer of what each runs with, its request numbered (several_runs.mjs, askRuns).
+    // What each runs with, as it is asked (several_runs.mjs, askRuns).
     const holder = { pickList: { loading: true, search: '', tab: null }, ticked: outside ? [] : [...list.names],
-                     source: list?.source ?? null, runs: null, asking: 0, waiting: false, drawn: '' };
+                     source: list?.source ?? null, ...newAsk(), drawn: '' };
     const element = document.createElement('dialog');
     element.className = 'mm-question mm-several-change';
     element.setAttribute('aria-labelledby', 'mm_several_change_title');
@@ -288,7 +288,7 @@ function tickedInChange(ticked) {
 
 /** What each ticked one would run with, asked of the server: the press's own names and source. */
 function askColumn(holder) {
-    return askRuns(holder, { body: { names: [...holder.ticked], source: holder.source },
+    return askRuns(holder, { body: () => ({ names: [...holder.ticked], source: holder.source }),
                              open: () => changing?.holder === holder, drawn: drawRuns });
 }
 
