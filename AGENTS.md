@@ -339,7 +339,18 @@ the code (2026-10-16).
   covers this logic?". A successful save had five checks and the re-judging
   notice four; a refused one had none. The guard written then found an
   older fault: the "Not saved:" line drawn over at once, since the window's
-  first version (2026-11-17).
+  first version (2026-11-17). #3's 0.84.6 moved the steps that put a file
+  into the VAE / Text Encoder box into a helper its new branch shares, and
+  the plan said neither. A side agent flagged it, and the owner: "asking not
+  to change how do this, but explain, also make sure existing functionality
+  not impacted". Reading the move found the box's input looked up before the
+  removals, not after; it was put back, with a guard. Each moved step was
+  broken against the suites as they stood before the change, not the
+  change's own, whose new guards would mask a break: 3 of 16 breaks passed,
+  and guards were added for the two that could matter. Old and new code,
+  driven through 240 random Sends in the suite's stand-in, gave the same
+  results. Where a person's change came at the same moment, two runs of the
+  old code differed from each other as much (2026-11-25).
 - Honour the existing structure rather than reorganising in passing.
 - Keep everything generic. No module exists to serve one workflow.
 - **Stop guessing after the second try.** Ask for a screenshot, a console
@@ -1261,7 +1272,15 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   So does loading a fresh page (#322): Forge's saved preset went from `xl` to
   `krea`, the one the process started with, after 3 of the 5 runs that loaded
   fresh pages on 2026-10-20, and the page showed `krea`. Read `config.json`
-  after a check that loads pages, too. And the checkpoint each UI preset last
+  after a check that loads pages, too. And a fresh page opens on the preset
+  the WebUI started with, the one Forge had saved at its start. An image of
+  another preset makes Send switch first, and the switch draws that preset's
+  saved list, so the fresh-page case is never met: #3's 0.84.6 check on
+  7870, restarted on `flux`, met it 0 of 4 times with SDXL images. The test
+  browser alone gets the page opening on the image's preset by routing the
+  page's HTML (`page.route` on `/`, the UI Preset's `"value"` replaced): 3
+  of 3 met. Every page of the run is routed: a second page, unrouted, moved
+  Forge's preset back to `flux` as it loaded (2026-11-25). And the checkpoint each UI preset last
   loaded (`forge_checkpoint_sd`, `forge_checkpoint_xl`): #377's live run left
   `forge_checkpoint_sd` on another file, found only by comparing
   `config.json` key by key with a copy taken before. Putting it back by Send

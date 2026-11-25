@@ -309,6 +309,9 @@ showed:
   old list loads: on 7870 no "Model Selected:" line followed such a Send,
   the last still naming the VAE (#430, left as Neo's own). That line, or a
   Generate's "Loading Model:", is the only witness of what will load.
+  Since 0.84.6 a Send makes the box's request in the fresh page's case too:
+  a Generate after one, the checkpoint already loaded, loaded it again with
+  `'additional_modules': []` (2026-11-25).
 
 ## Kept elsewhere, and true here too
 
