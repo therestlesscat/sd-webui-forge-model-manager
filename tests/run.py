@@ -76,8 +76,11 @@ def have_linkedom():
 
 
 # A setting read once at import cannot be toggled mid-run, so these suites are
-# run once per value instead. The label says which run it was.
-VARIANTS = {}
+# run once per value instead - or a long suite in parts, side by side. The
+# label says which run it was.
+VARIANTS = {
+    'forge_preset_test.mjs': [(part, {'MM_PART': part}) for part in ('waits', 'sends', 'rest')],
+}
 
 
 # ---------------------------------------------------------------- the map

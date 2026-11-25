@@ -19,7 +19,11 @@ const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 window.mmTiming = { poll: 100, presetSettle: 60, presetQuiet: 40, presetMax: 3000, estimate: 10,
                     modulesCheck: 20, modulesCheckMax: 200, modulesPatch: 800, modulesStart: 400, sendRecheck: 20, sendRecheckMax: 200,
                     loadTask: 1000, pasteMax: 1000, frame: 5, presetFrame: 10 };
-const { check, waitFor, done } = checker();
+// The suite in parts, run side by side (tests/run.py, VARIANTS): its waits on
+// slow answers are most of its time. On its own it runs them all.
+const PART = process.env.MM_PART || '';
+const inPart = (part) => !PART || PART === part;
+const { check, waitFor, done } = checker(PART);
 
 // ------------------------------------------------ a stand-in for Forge's page
 const events = [];                       // what happened, in order
@@ -475,7 +479,20 @@ const realLog = console.log;
 const realWarn = console.warn;
 console.log = (...args) => { logged.push(args.join(' ')); realLog(...args); };
 console.warn = (...args) => { logged.push(args.join(' ')); realWarn(...args); };
+const generationSend = () => sendInfotext({ infotext: 'a lighthouse at dusk\nSteps: 20', mode: 'txt2img', meta: {},
+                                            generationId: 41 });
+const gallerySend = () => act('modelManager.sendImage', { index: 0 });
+const unfinished = () => Array.from(document.querySelectorAll('.mm-notice')).map((n) => n.textContent)
+    .filter((t) => t.startsWith('An earlier Send\'s VAE / Text Encoder changes were not finished: Forge holds ')).length;
+const replayedSend = () => {
+    loaderAnswer = (tab, request) => (request.source?.kind === 'generation' ? { replayed: true, pasted: true } : { pasted: true });
+    return generationSend();
+};
+let running;
+let patching;
+let logsFrom;
 
+if (inPart('waits')) {
 boxOf([CLIP, T5, AE]);
 needing([]);
 await send();
@@ -525,7 +542,7 @@ const handOn = (label) => () => {
     neoBox.now = false;
 };
 const dropped = (from) => logged.slice(from).filter((l) => l.includes('a change made no request of Forge')).length;
-let logsFrom = logged.length;
+logsFrom = logged.length;
 boxOf([CLIP, T5, AE, 'sdxl_vae.safetensors']);
 needing([]);
 neoBox.hand = handOn('sdxl_vae.safetensors');
@@ -547,7 +564,7 @@ check('and putting in', [[...neoBox.holds].sort(), dropped(logsFrom)], [[AE, CLI
 // put in is already so, and is left.
 boxOf([CLIP, T5, AE]);
 needing([CLIP]);
-let running = act('modelManager.sendImage', { index: 0 });
+running = act('modelManager.sendImage', { index: 0 });
 await waitFor('its first change', () => neoBox.sent.length === 1);
 logsFrom = logged.length;
 Array.from(modules.querySelectorAll('.token')).find((t) => t.textContent.startsWith(AE))?.querySelector('.token-remove').click();     // already out where nothing waits
@@ -617,16 +634,10 @@ check('a call that hangs as Send starts: nothing is pressed, and it ends at the 
       [1, [T5], true]);
 neoBox.release?.();
 
+}
+
+if (inPart('sends')) {
 // Two Sends: the older stops at its next wait, whichever the newer is.
-const generationSend = () => sendInfotext({ infotext: 'a lighthouse at dusk\nSteps: 20', mode: 'txt2img', meta: {},
-                                            generationId: 41 });
-const gallerySend = () => act('modelManager.sendImage', { index: 0 });
-const unfinished = () => Array.from(document.querySelectorAll('.mm-notice')).map((n) => n.textContent)
-    .filter((t) => t.startsWith('An earlier Send\'s VAE / Text Encoder changes were not finished: Forge holds ')).length;
-const replayedSend = () => {
-    loaderAnswer = (tab, request) => (request.source?.kind === 'generation' ? { replayed: true, pasted: true } : { pasted: true });
-    return generationSend();
-};
 const pairs = {
                 'a generation\'s replayed, then a gallery\'s': [replayedSend, gallerySend],
                 'a gallery\'s, then a generation\'s': [gallerySend, generationSend],
@@ -905,6 +916,9 @@ await whenSendSettled();
 loaderAnswer = () => ({ pasted: true });
 check('and one failing with nothing left undone says nothing of it', [neoBox.holds, unfinished()], [[], 0]);
 
+}
+
+if (inPart('waits')) {
 // A file that cannot be taken out alone: the whole control is cleared, and
 // that is a change waited for as any other.
 boxOf([CLIP, T5]);
@@ -924,7 +938,7 @@ clearAll.remove();
 boxOf([CLIP, T5]);
 neoBox.mute = 1;
 needing([]);
-let patching = Date.now();
+patching = Date.now();
 await send();
 check('3 h: a change that makes no request: on after modulesStart, the console saying so',
       [neoBox.holds, neoBox.sent, logged.some((l) => l.includes('a change made no request of Forge')),
@@ -975,6 +989,7 @@ needing([CLIP, 'gone.safetensors', T5]);
 await send();
 check('and after a file it does not offer', [selected(), blurs], [[CLIP, T5], 3]);
 modules.querySelector('input').blur = realBlur;
+}
 
 console.log = realLog;
 console.warn = realWarn;
@@ -983,6 +998,7 @@ delete window.gradio_config;
 modules.querySelectorAll('.token-remove').forEach((x) => x.click());
 forgeHolds = () => selected();
 document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+if (PART === 'waits' || PART === 'sends') done();
 
 // ------------------------------------------------------- the server failing
 // The server builds what is pasted (#302): with no plan, nothing is sent,
