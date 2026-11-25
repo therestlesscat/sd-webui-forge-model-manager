@@ -123,6 +123,41 @@ function boxChanged() {
     if (box.now) taken();
     else setTimeout(taken, 2);      // Gradio takes the event up a moment later
 }
+/**
+ * Neo's checkpoint change (#3): its click, and the step chained on success,
+ * which writes the control's list as it stood when the step began. Both are
+ * `once`: a press, or a step, while one is open is dropped. `click`, `step`:
+ * how long each takes - null never ends, until `letGo` - `clickFails`,
+ * `noClick`, `noStep`: what Gradio's page or Forge drops.
+ */
+function checkpointOf(box, { click = 5, step = 5, clickFails = false, noClick = false, noStep = false } = {}) {
+    const call = (fn, wait) => {
+        eventDelay[fn] = wait;
+        return globalThis.fetch('/run/predict', { method: 'POST', body: JSON.stringify({ fn_index: fn }) });
+    };
+    let open = 0;
+    box.steps ??= 0;
+    box.stepOpen ??= false;
+    box.checkpoint = (times = {}, name = null) => {
+        if (noClick || open) return;
+        open++;
+        setTimeout(async () => {
+            if (clickFails) eventFails.add(960);
+            const answer = await call(960, 'click' in times ? times.click : click);
+            eventFails.delete(960);
+            open--;
+            if (!answer.ok || noStep) return;
+            if (box.stepOpen) return;
+            const list = selected();
+            box.steps++;
+            box.stepOpen = true;
+            await call(961, 'step' in times ? times.step : step);
+            box.stepOpen = false;
+            box.holds = list;
+            if (name) box.held = name;
+        }, 2);
+    };
+}
 // Forge's server side of a preset change, when a section wants one: see
 // "a slow preset change" below.
 let forgeAnswersPreset = null;
@@ -167,7 +202,9 @@ const sourceText = (tab, { source }) => {
 };
 // What the loader answers: a paste, unless a section says otherwise.
 let loaderAnswer = () => ({ pasted: true });
+let loaderDelay = 0;                     // the loader's answer, so late
 const loaderAsked = sendLoaders(document, { sourceText, answer: (tab, request) => loaderAnswer(tab, request),
+                                            delay: () => loaderDelay,
                                             onAsk: (tab, request) => {
     // A Civitai image's Send hands the loader its source, which the server pastes (#302).
     if (request.paste !== undefined || request.source !== undefined) events.push(tab === 'txt2img' ? 'paste' : 'paste:img2img');
@@ -177,6 +214,7 @@ const checkpointModules = [];
 window.selectCheckpoint = globalThis.selectCheckpoint = (name, modules) => {
     events.push(`checkpoint:${name}`);
     checkpointModules.push(modules);
+    neoBox?.checkpoint?.({}, name);
 };
 // Each call's list since `from`: an earlier Send's cannot stand in for this one's.
 const modulesSince = (from) => checkpointModules.slice(from).map((m) => [Array.isArray(m), m?.length]);
@@ -202,6 +240,7 @@ let forgeHolds = () => selected();
 // A Gradio call's own wait and outcome, by its event (fn_index), where a section sets one.
 const eventDelay = {};
 const eventFails = new Set();
+let letGo = null;                        // ends a call whose delay is null
 let filesDelay = 0;                      // the answer about an image's files, so late
 globalThis.fetch = withGalleryPages(async (url, init) => {
     const href = String(url);
@@ -215,7 +254,8 @@ globalThis.fetch = withGalleryPages(async (url, init) => {
             await (box.delay === null ? new Promise((r) => { box.release = r; }) : new Promise((r) => setTimeout(r, box.delay)));
             return { ok: !fails, json: async () => ({ data: [] }) };
         }
-        await new Promise((r) => setTimeout(r, eventDelay[fn] ?? forgeDelay));
+        const wait = eventDelay[fn] ?? forgeDelay;
+        await (eventDelay[fn] === null ? new Promise((r) => { letGo = r; }) : new Promise((r) => setTimeout(r, wait)));
         return { ok: !eventFails.has(fn), json: async () => ({ data: [] }) };
     }
     if (filesDelay && href.includes('/model-manager/image-resources')) await new Promise((r) => setTimeout(r, filesDelay));
@@ -257,7 +297,7 @@ globalThis.fetch = withGalleryPages(async (url, init) => {
 
 await startTab('modelManager');
 // The last send's work after its paste, as the tab's copy of send.mjs keeps it.
-const { sendInfotext, loadTask, whenSendSettled } = await sharedModule('send.mjs');
+const { sendInfotext, loadTask, gallerySendLine, whenSendSettled } = await sharedModule('send.mjs');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 document.getElementById('mm_load_btn').dispatchEvent(new window.Event('click', { bubbles: true }));
 await waitFor('the grid', () => document.querySelectorAll('#mm_grid .model-card').length > 0);
@@ -830,16 +870,18 @@ neoBox.delay = 150;
 running = gallerySend();
 await waitFor('its first change', () => neoBox.sent.length === 1);
 generationPlan = plan;
-filesDelay = 700;
-const late = sendInfotext({ infotext: 'a lighthouse at dusk\nSteps: 20', mode: 'txt2img', meta: { prompt: 'a lighthouse' },
-                            generationId: 41 });
-await new Promise((r) => setTimeout(r, 30));
-filesDelay = 0;
+loaderDelay = 700;                       // its paste answered late, so it comes to the box late
+let askedFrom = loaderAsked.length;
+const late = generationSend();
+await waitFor('its paste', () => loaderAsked.length > askedFrom);
+loaderDelay = 0;
+logsFrom = logged.length;
 loaderAnswer = () => ({ error: 'no' });
 await gallerySend();
 loaderAnswer = () => ({ pasted: true });
 await Promise.all([running, late]);
 await whenSendSettled();
+await waitFor('both of them stopped', () => logged.slice(logsFrom).filter((l) => l.includes('left to a newer Send')).length === 2);
 await new Promise((r) => setTimeout(r, 330));
 check('and two older ones, the second coming to the box after: said once', unfinished(), 1);
 generationPlan = null;
@@ -886,17 +928,17 @@ document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
 boxOf([CLIP, T5]);
 needing([]);
 generationPlan = plan;
-filesDelay = 400;
-const slow = sendInfotext({ infotext: 'a lighthouse at dusk\nSteps: 20', mode: 'txt2img', meta: { prompt: 'a lighthouse' },
-                            generationId: 41 });
-await new Promise((r) => setTimeout(r, 60));
-filesDelay = 0;
+loaderDelay = 700;
+askedFrom = loaderAsked.length;
+const slow = generationSend();
+await waitFor('its paste', () => loaderAsked.length > askedFrom);
+loaderDelay = 0;
 needing([CLIP]);
+logsFrom = logged.length;
 await gallerySend();
 await whenSendSettled();
-loaderAnswer = () => ({ pasted: true });
 await slow;
-await whenSendSettled();
+await waitFor('the slow one at the box', () => logged.slice(logsFrom).some((l) => l.includes('left to a newer Send')));
 await new Promise((r) => setTimeout(r, 60));
 check('an older Send that comes to the box late makes no change', [selected(), neoBox.holds, unfinished()], [[CLIP], [CLIP], 0]);
 loaderAnswer = () => ({ error: 'no' });
@@ -905,6 +947,37 @@ await whenSendSettled();
 loaderAnswer = () => ({ pasted: true });
 await new Promise((r) => setTimeout(r, 260));
 check('and one that fails later says nothing of it', unfinished(), 0);
+
+// One whose image's files are looked up slowly, a newer come meanwhile: not
+// pasted after it.
+for (const [what, older] of Object.entries({ 'a gallery\'s': () => gallerySend(), 'a generation\'s': () => sendInfotext({
+    infotext: 'a lighthouse at dusk\nSteps: 20', mode: 'txt2img', meta: { prompt: 'a lighthouse' }, generationId: 41 }) })) {
+    boxOf([CLIP]);
+    needing([T5]);
+    generationPlan = plan;
+    filesDelay = 400;
+    askedFrom = loaderAsked.length;
+    running = older();
+    await new Promise((r) => setTimeout(r, 60));
+    filesDelay = 0;
+    needing([AE]);
+    await Promise.all([running, gallerySend()]);
+    await whenSendSettled();
+    check(`3 r: ${what} whose files are looked up slowly, a newer come: pasted once, the newer's`,
+          [loaderAsked.slice(askedFrom).map((r) => r.source?.kind), selected(), neoBox.holds], [['civitai'], [AE], [AE]]);
+}
+// Several ticked in its Resources dialog: it says it was not sent, so several
+// mode is not entered over the newer's image.
+boxOf([CLIP]);
+needing([T5]);
+filesDelay = 400;
+running = gallerySendLine({ img: IMAGE, model: MODEL, version: MODEL }).pickSeveral(['x', 'y'], null, {});
+await new Promise((r) => setTimeout(r, 60));
+filesDelay = 0;
+needing([AE]);
+await gallerySend();
+check('and one of several checkpoints answers that it was not sent', await running, false);
+await whenSendSettled();
 generationPlan = null;
 boxOf([CLIP]);
 needing([]);
@@ -991,6 +1064,253 @@ check('and after a file it does not offer', [selected(), blurs], [[CLIP, T5], 3]
 modules.querySelector('input').blur = realBlur;
 }
 
+if (inPart('checkpoint')) {
+// ------------------------------------------- the checkpoint's own step (#3)
+// Neo's checkpoint change runs a step after it that writes the same list, from
+// the control as it stood when the step began: landing after Send's changes,
+// it put the old list back, and nothing said so.
+const CHECKPOINT_EVENTS = [{ id: 960, targets: [[78, 'click']], backend_fn: true },
+                           { id: 961, targets: [], backend_fn: true, trigger_after: 960, trigger_only_on_success: true }];
+const checkpointConfig = { components: [...boxConfig.components, { id: 78, props: { elem_id: 'change_checkpoint' } }],
+                           dependencies: [...boxConfig.dependencies, ...CHECKPOINT_EVENTS] };
+const withCheckpoint = (from, target, how) => {
+    boxOf(from, { config: checkpointConfig });
+    neoBox.delay = 20;
+    checkpointOf(neoBox, how);
+    needing(target);
+    plan = { ...plan, checkpoint: 'flux1.safetensors [aa]' };
+    generationPlan = plan;
+};
+const noRequest = (start) => logged.slice(start).some((l) => l.includes('the step after it, made no request'));
+const senders = { 'a gallery\'s': () => gallerySend(), 'a generation\'s': () => generationSend(),
+                  'a generation\'s replayed': () => replayedSend(), 'a task\'s Load to UI': () => loadTask(7) };
+for (const [what, sendIt] of Object.entries(senders)) {
+    loaderAnswer = () => ({ pasted: true });
+    withCheckpoint([CLIP], [AE], { step: 250 });
+    await sendIt();
+    await whenSendSettled();
+    await new Promise((r) => setTimeout(r, 300));
+    check(`4 a: the step slow, ${what}: Forge ends with what the image needs`, [neoBox.holds, neoBox.steps, said()], [[AE], 1, []]);
+}
+loaderAnswer = () => ({ pasted: true });
+generationPlan = null;
+
+// A second Send while the first's step is open - its own is dropped by Gradio's
+// page - waits for the first's.
+withCheckpoint([CLIP], [T5], { click: 5, step: 650 });
+running = gallerySend();
+await waitFor('the first\'s step', () => neoBox.steps === 1);
+checkpointOf(neoBox, { click: 80, step: 300 });
+needing([AE]);
+plan = { ...plan, checkpoint: 'flux1.safetensors [aa]' };
+await Promise.all([running, gallerySend()]);
+await whenSendSettled();
+await new Promise((r) => setTimeout(r, 150));
+check('4 b: a second Send while the first\'s step is open waits for it, and its own checkpoint is taken',
+      [selected(), neoBox.holds, said(), neoBox.steps], [[AE], [AE], [], 2]);
+
+// A Send replaced as it waits to press its checkpoint leaves it, and its paste,
+// to the newer: pasted after it, the prompt would be one image's and the
+// checkpoint another's.
+for (const [what, older] of Object.entries({ 'a gallery\'s': () => gallerySend(), 'a generation\'s': () => generationSend(),
+                                             'a task\'s Load to UI': () => loadTask(7) })) {
+    withCheckpoint([CLIP], [T5], {});
+    neoBox.stepOpen = true;
+    eventDelay[961] = null;                  // open until both have come to it
+    const waitedOn = neoBox;
+    globalThis.fetch('/run/predict', { method: 'POST', body: JSON.stringify({ fn_index: 961 }) })
+        .then(() => { waitedOn.stepOpen = false; });
+    await new Promise((r) => setTimeout(r, 20));
+    eventDelay[961] = 5;
+    events.length = 0;
+    const from = loaderAsked.length;
+    plan = { ...plan, checkpoint: 'older.safetensors' };
+    generationPlan = plan;
+    running = older();
+    await new Promise((r) => setTimeout(r, 60));
+    plan = { ...plan, checkpoint: 'newer.safetensors', select: [AE], target: [AE] };
+    const newer = gallerySend();
+    await new Promise((r) => setTimeout(r, 150));
+    letGo();
+    await Promise.all([running, newer]);
+    await whenSendSettled();
+    await new Promise((r) => setTimeout(r, 100));
+    check(`4 b2: ${what} waiting to press its checkpoint, a newer come: its checkpoint and paste are the newer's`,
+          [events.filter((e) => e.startsWith('checkpoint:')), neoBox.holds,
+           loaderAsked.slice(from).map((r) => r.source?.kind)], [['checkpoint:newer.safetensors'], [AE], ['civitai']]);
+}
+generationPlan = null;
+
+// One that hangs does not keep a Send from pressing its own, saying so.
+withCheckpoint([CLIP], [AE], {});
+eventDelay[961] = null;
+globalThis.fetch('/run/predict', { method: 'POST', body: JSON.stringify({ fn_index: 961 }) });
+const hung = letGo;
+eventDelay[961] = 5;
+logsFrom = logged.length;
+events.length = 0;
+await act('modelManager.sendImage', { index: 0 });
+check('4 b4: an earlier change that hangs: pressed at the limit, the console saying so',
+      [events.filter((e) => e.startsWith('checkpoint:')).length, logged.slice(logsFrom).some((l) => l.includes('still open'))],
+      [1, true]);
+(letGo ?? hung)();
+await whenSendSettled();
+letGo = null;
+
+// A card's click the person pressed, still open: it, and the step after it.
+for (const own of [null, 'flux1.safetensors [aa]']) {
+    withCheckpoint([CLIP], [AE], {});
+    plan = { ...plan, checkpoint: own };
+    neoBox.checkpoint({ click: null, step: 60 }, 'card.safetensors');
+    await new Promise((r) => setTimeout(r, 20));
+    const clicked = letGo;
+    eventDelay[960] = 5;
+    events.length = 0;
+    running = send();
+    await new Promise((r) => setTimeout(r, 300));
+    const meanwhile = [neoBox.sent.length, events.filter((e) => e.startsWith('checkpoint:')).length];
+    clicked();
+    await running;
+    await new Promise((r) => setTimeout(r, 80));
+    check(`4 b3: a card's click open as Send starts, ${own ? 'a checkpoint of its own' : 'none of its own'}: it and its step are waited for`,
+          [meanwhile, neoBox.holds, neoBox.steps, neoBox.held ?? null, said()],
+          [[0, 0], [AE], own ? 2 : 1, own || 'card.safetensors', []]);
+}
+
+// The older's UI preset still switching as the newer comes: the newer waits for
+// it - its answers bring the preset's own checkpoint and defaults.
+const presetConfig = { components: [...checkpointConfig.components, { id: 11, props: { elem_id: 'forge_ui_preset' } }],
+                       dependencies: [...checkpointConfig.dependencies, { id: 970, targets: [[11, 'change']], backend_fn: true },
+                                      { id: 971, targets: [], backend_fn: true, trigger_after: 970, trigger_only_on_success: true }] };
+for (const [what, newerSend, plans, gaps] of [['the same image', () => gallerySend(), {}, [0, 120, 400]], ['another', () => generationSend(), {}, [0, 120, 400]],
+                                              ['a Load to UI', () => loadTask(7), {}, [120]],
+                                              ['one whose plan names no preset', () => gallerySend(), { preset: null }, [0, 120]],
+                                              ['a generation\'s of none', () => generationSend(), { preset: null }, [120]],
+                                              ['a Load to UI of none', () => loadTask(7), { preset: null }, [120]]]) {
+    for (const gap of gaps) {
+        withCheckpoint([CLIP], [AE], {});
+        const box = neoBox;
+        window.gradio_config = presetConfig;
+        preset.querySelector('input').value = 'sd';
+        Object.assign(eventDelay, { 970: 300, 971: 150 });
+        const post = (fn) => globalThis.fetch('/run/predict', { method: 'POST', body: JSON.stringify({ fn_index: fn }) });
+        forgeAnswersPreset = () => post(970).then(() => { events.push('forge:defaults'); return post(971); })
+            .then(() => { box.held = 'the preset\'s own'; });
+        events.length = 0;
+        const from = loaderAsked.length;
+        running = gallerySend();
+        await new Promise((r) => setTimeout(r, gap));
+        plan = { ...plan, checkpoint: 'newer.safetensors', ...plans };
+        generationPlan = plan;
+        await Promise.all([running, newerSend()]);
+        await whenSendSettled();
+        await new Promise((r) => setTimeout(r, 60));
+        check(`4 b5: ${what} sent ${gap} ms into the older's preset switch: the newer's checkpoint, its paste after the defaults`,
+              [box.held, loaderAsked.length - from, events.lastIndexOf('paste') > events.lastIndexOf('forge:defaults'), box.holds],
+              ['newer.safetensors', 1, true, [AE]]);
+        forgeAnswersPreset = null;
+        for (const fn of [970, 971]) delete eventDelay[fn];
+    }
+}
+preset.querySelector('input').value = 'flux';
+generationPlan = null;
+
+for (const [what, how, sendIt] of [['no click', { noClick: true }, () => gallerySend()], ['no step', { noStep: true }, () => gallerySend()],
+                                   ['no click, a generation\'s', { noClick: true }, () => generationSend()],
+                                   ['no click, replayed', { noClick: true }, () => replayedSend()],
+                                   ['no click, a Load to UI', { noClick: true }, () => loadTask(7)]]) {
+    logsFrom = logged.length;
+    loaderAnswer = () => ({ pasted: true });
+    withCheckpoint([CLIP], [AE], how);
+    await sendIt();
+    await whenSendSettled();
+    check(`4 c: a press Gradio drops, ${what}: on after modulesStart, the console saying so`,
+          [neoBox.holds, noRequest(logsFrom)], [[AE], true]);
+}
+loaderAnswer = () => ({ pasted: true });
+generationPlan = null;
+
+logsFrom = logged.length;
+withCheckpoint([CLIP], [AE], { clickFails: true });
+patching = Date.now();
+await send();
+check('4 d: the checkpoint\'s click failing: on at once',
+      [neoBox.holds, noRequest(logsFrom), Date.now() - patching < window.mmTiming.modulesStart], [[AE], false, true]);
+
+withCheckpoint([CLIP], [AE], { step: null });
+await send();
+check('4 e: the step never answering: no change after the limit, and the notice', [neoBox.sent, selected(), said().length],
+      [[], [CLIP], 1]);
+letGo();
+await new Promise((r) => setTimeout(r, 20));
+
+// Not waited for: a step the config does not name, and with no checkpoint picked.
+// The original Forge names the click - queued, so the watch sees it as another
+// kind of call - and chains nothing after it.
+withCheckpoint([CLIP], [AE], { step: 400 });
+window.gradio_config = { components: checkpointConfig.components,
+                         dependencies: [...boxConfig.dependencies, { id: 965, targets: [[78, 'click']], backend_fn: true }] };
+logsFrom = logged.length;
+patching = Date.now();
+await send();
+check('4 f: no step named: no wait', [Date.now() - patching < window.mmTiming.modulesStart, noRequest(logsFrom)], [true, false]);
+await new Promise((r) => setTimeout(r, 420));
+withCheckpoint([CLIP], [AE], {});
+plan = { ...plan, checkpoint: null };
+// Its click never made in this page, and a call of another event open all the while.
+window.gradio_config = { components: checkpointConfig.components,
+                         dependencies: [...boxConfig.dependencies, { id: 965, targets: [[78, 'click']], backend_fn: true },
+                                        { id: 966, targets: [], backend_fn: true, trigger_after: 965 },
+                                        { id: 902, targets: [], backend_fn: true }] };
+globalThis.fetch('/run/predict', { method: 'POST', body: JSON.stringify({ fn_index: 902 }) });
+patching = Date.now();
+await send();
+check('and with no checkpoint picked', [neoBox.holds, Date.now() - patching < window.mmTiming.modulesStart], [[AE], true]);
+besideOpen.splice(0).forEach((release) => release());
+
+// A step after a change of the preset's the person made, still open: waited for too.
+withCheckpoint([CLIP], [AE], {});
+plan = { ...plan, checkpoint: null };
+window.gradio_config = { components: [...checkpointConfig.components, { id: 11, props: { elem_id: 'forge_ui_preset' } }],
+                         dependencies: [...checkpointConfig.dependencies, { id: 970, targets: [[11, 'change']], backend_fn: true },
+                                        { id: 971, targets: [], backend_fn: true, trigger_after: 970 }] };
+eventDelay[971] = 300;
+const byHand = neoBox;
+globalThis.fetch('/run/predict', { method: 'POST', body: JSON.stringify({ fn_index: 971 }) }).then(() => { byHand.holds = [CLIP]; });
+await send();
+await new Promise((r) => setTimeout(r, 320));
+check('4 g: the step after the preset\'s change, open as Send starts: waited for', [neoBox.holds, said()], [[AE], []]);
+withCheckpoint([CLIP], [AE], {});
+plan = { ...plan, checkpoint: null };
+eventDelay[961] = 300;
+const byCard = neoBox;
+globalThis.fetch('/run/predict', { method: 'POST', body: JSON.stringify({ fn_index: 961 }) }).then(() => { byCard.holds = [CLIP]; });
+await send();
+await new Promise((r) => setTimeout(r, 320));
+check('and the checkpoint\'s, of a card the person pressed', [neoBox.holds, said()], [[AE], []]);
+for (const fn of [960, 961, 971]) delete eventDelay[fn];
+
+// An error thrown at the press is a Send that failed: the older's check is owed.
+for (const [what, sendIt] of Object.entries({ 'a generation\'s': () => generationSend(), 'a task\'s Load to UI': () => loadTask(7) })) {
+    boxOf([CLIP, T5, AE]);
+    neoBox.delay = 100;
+    needing([]);
+    running = gallerySend();
+    await waitFor('the first change', () => neoBox.sent.length === 1);
+    plan = { ...plan, checkpoint: 'x.safetensors' };
+    generationPlan = plan;
+    const select = window.selectCheckpoint;
+    window.selectCheckpoint = globalThis.selectCheckpoint = () => { throw new Error('gone'); };
+    const threw = await sendIt().then(() => false, () => true);
+    window.selectCheckpoint = globalThis.selectCheckpoint = select;
+    await running;
+    await whenSendSettled();
+    await new Promise((r) => setTimeout(r, 400));
+    check(`4 h: ${what} throwing at its checkpoint: the older's unfinished changes are said`, [threw, unfinished()], [true, 1]);
+}
+generationPlan = null;
+}
+
 console.log = realLog;
 console.warn = realWarn;
 neoBox = null;
@@ -998,7 +1318,7 @@ delete window.gradio_config;
 modules.querySelectorAll('.token-remove').forEach((x) => x.click());
 forgeHolds = () => selected();
 document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
-if (PART === 'waits' || PART === 'sends') done();
+if (PART && PART !== 'rest') done();
 
 // ------------------------------------------------------- the server failing
 // The server builds what is pasted (#302): with no plan, nothing is sent,

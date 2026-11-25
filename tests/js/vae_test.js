@@ -173,10 +173,10 @@ function lift(name, src) {
 vm.runInContext("const NEO_MODULES_ID = 'setting_sd_modules'; const MODULES_LABEL = 'VAE / Text Encoder'; let forgeTurn = 0, settingTurn = 0, owed = null;", sandbox);
 for (const fn of ['getModulesControl', 'nextFrame', 'readModuleOptions', 'matchVAEName',
                   'pressOption', 'clearModules', 'tokenLabel', 'selectedModuleLabels', 'applyForgeModules',
-                  'applyVaeSelection', 'turnOver', 'patchForgeModules']) {
+                  'applyVaeSelection', 'turnOver', 'checkpointCalls', 'checkpointLanded', 'patchForgeModules']) {
     sandbox[fn] = lift(fn, src);
 }
-for (const fn of ['eventsOf', 'dependencies', 'idle', 'answered']) sandbox[fn] = lift(fn, forgeSrc);
+for (const fn of ['eventsOf', 'dependencies', 'chainedAfter', 'stepsAfter', 'idle', 'answered']) sandbox[fn] = lift(fn, forgeSrc);
 
 let failures = 0;
 const check = (label, cond, extra) => {

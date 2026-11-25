@@ -51,7 +51,8 @@ function watchForgeCalls(scope) {
         const begun = { fn, open: true };
         if (fn !== null) forgeCalls.begun.push(begun);
         const settle = (ok) => {
-            begun.open = false;
+            // `ended`: how many calls had begun by its answer, so what Gradio chains after it begins at that place or later.
+            Object.assign(begun, { open: false, ok, ended: forgeCalls.begun.length });
             forgeCalls.inFlight--;
             forgeCalls.last = Date.now();
             if (fn !== null) forgeCalls.done.push({ fn, ok });
@@ -126,6 +127,12 @@ export function eventsOf(elemId, trigger = 'click') {
 
 function chainedAfter(fns) {
     return dependencies().filter((d) => fns.includes(d.trigger_after)).map((d) => d.fn);
+}
+
+/** The steps of Forge's own, on the server, chained after these events. */
+export function stepsAfter(fns) {
+    const steps = chainedAfter(fns);
+    return dependencies().filter((d) => d.backend_fn && steps.includes(d.fn)).map((d) => d.fn);
 }
 
 function dependencies() {

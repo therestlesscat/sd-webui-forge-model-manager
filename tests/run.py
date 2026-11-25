@@ -79,7 +79,7 @@ def have_linkedom():
 # run once per value instead - or a long suite in parts, side by side. The
 # label says which run it was.
 VARIANTS = {
-    'forge_preset_test.mjs': [(part, {'MM_PART': part}) for part in ('waits', 'sends', 'rest')],
+    'forge_preset_test.mjs': [(part, {'MM_PART': part}) for part in ('waits', 'sends', 'checkpoint', 'rest')],
 }
 
 

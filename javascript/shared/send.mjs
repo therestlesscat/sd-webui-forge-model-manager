@@ -31,7 +31,7 @@ const {
 } = await shared('chips.mjs');
 const { videoFrames } = await shared('wan.mjs');
 const { showImageResources, isAway } = await shared('resources.mjs');
-const { refreshWebUiModelList, forgeCalls, eventsOf, idle, answered } = await shared('forge.mjs');
+const { refreshWebUiModelList, forgeCalls, eventsOf, stepsAfter, idle, answered } = await shared('forge.mjs');
 const { showProgress } = await shared('dialog.mjs');
 const { ready, call } = await shared('calls.mjs');
 const { showNotice } = await shared('notices.mjs');
@@ -138,15 +138,9 @@ export async function sendInfotext({ infotext, mode, meta = {}, generationId = n
     const loras = workflow ? workflowLoraNotice(meta) : '';
     if (loras) showNotice(loras, { info: true });
     const turn = takeTurn();
-    if (plan.preset) await switchForgePreset(plan.preset);
-    if (plan.checkpoint && typeof selectCheckpoint === 'function') {
-        console.log('[ModelManager] Setting checkpoint:', plan.checkpoint);
-        // Neo from its 30 October update takes a list of VAE / text encoders
-        // second, and changes no checkpoint without one (#430): an empty list
-        // leaves its VAE / Text Encoder box as it is, and Send sets the
-        // modules after. The original Forge and older Neo take the name alone.
-        selectCheckpoint(plan.checkpoint, []);
-    }
+    await switchForgePreset(plan.preset, turn);
+    const pressed = await pressCheckpoint(plan, turn);
+    if (replacedBeforePaste(turn)) return false;
     const tab = sending ? 'img2img' : sendTab({ mode });
     // An earlier send's chips would stay; this one's come from its own record.
     showResourceChips(tab, []);
@@ -184,7 +178,7 @@ export async function sendInfotext({ infotext, mode, meta = {}, generationId = n
     // through the mode's own button - the picture sent in (#299), or the
     // press's own (#34) - and what kept what was on screen.
     const whenReplayed = async (answer) => {
-        await applyModules(plan, { turn });
+        await applyModules(plan, { turn, pressed });
         // The send left several mode as it went (below): a list entered since stays.
         showGenerationTab(tab, answer.mode, { leave: false });
         if (sending) await putPicture(sending);
@@ -197,8 +191,9 @@ export async function sendInfotext({ infotext, mode, meta = {}, generationId = n
     // Pasted: its modules, and a word where img2img has no picture.
     const afterPaste = () => {
         sourceNotice();
-        return applyModules(plan, { turn });
+        return applyModules(plan, { turn, pressed });
     };
+    if (replacedBeforePaste(turn)) return false;
     if (!pasteInfotext(tab, { source, into: sending, afterPaste, whenReplayed, usual: pick?.usual, turn })) return false;
     showGenerationTab(tab, sending?.mode);
     showChips();
@@ -413,9 +408,10 @@ function selectedModuleLabels(container) {
  * @param {string[]} target - the labels, exactly as Forge lists them.
  * @param {number|null} turn - the Send's (takeTurn): replaced by a newer one,
  *     it makes no more changes.
+ * @param {number|null} pressed - its checkpoint's press (pressCheckpoint).
  * @returns {Promise<boolean>} false when the control is absent (not Forge).
  */
-async function patchForgeModules(target, turn = null) {
+async function patchForgeModules(target, turn = null, pressed = null) {
     const container = getModulesControl();
     if (!container) return false;
 
@@ -445,6 +441,12 @@ async function patchForgeModules(target, turn = null) {
         owed = null;                    // whatever an older Send left, this one sets it, and checks
         settingTurn = turn;
     }
+    // Neo's checkpoint step writes this list too, from the control as it stood
+    // when the step began: a late one put the old list back after the last
+    // change, with no notice, as the check had agreed (#3).
+    // Its click is in the wait too: a card's the person pressed, still open, is followed by that step.
+    const steps = [...checkpointCalls(), ...stepsAfter(eventsOf('forge_ui_preset', 'change'))];
+    if (stopped(!await checkpointLanded(pressed, limit) || !await idle(steps, limit))) return true;
     if (await held()) return true;
     const current = selectedModuleLabels(container);
     const extra = current.filter((label) => !target.includes(label));
@@ -495,6 +497,73 @@ async function patchForgeModules(target, turn = null) {
     console.log('[ModelManager] VAE / Text Encoder: removed', extra, 'added', missing,
                 'now', selectedModuleLabels(container));
     return true;
+}
+
+/**
+ * Press the plan's checkpoint, by the name Forge lists it under: where in
+ * forgeCalls.begun its call begins, for patchForgeModules; null with none.
+ *
+ * Neo from its 30 October update takes a list of VAE / text encoders second,
+ * and changes no checkpoint without one (#430): an empty list leaves its VAE /
+ * Text Encoder box as it is, and Send sets the modules after. The original
+ * Forge and older Neo take the name alone.
+ *
+ * Pressed once none is open: Gradio's page drops a click, or the step after
+ * it, made while another is, and Forge kept an older Send's checkpoint under a
+ * box that showed this one's. Not pressed for a Send a newer one replaced.
+ */
+async function pressCheckpoint(plan, turn) {
+    if (!plan.checkpoint || typeof selectCheckpoint !== 'function') return null;
+    if (!await idle(checkpointCalls(), Date.now() + TIMING.modulesPatch)) {
+        console.warn('[ModelManager] An earlier checkpoint change is still open; this one may not be taken');
+    }
+    if (turnOver(turn)) return null;
+    console.log('[ModelManager] Setting checkpoint:', plan.checkpoint);
+    const from = forgeCalls.begun.length;
+    try {
+        selectCheckpoint(plan.checkpoint, []);
+    } catch (error) {
+        turnFailed(turn);       // its changes will not come: an older Send's check is owed
+        throw error;
+    }
+    return from;
+}
+
+/**
+ * Whether a newer Send came while this one waited - for its UI preset, to
+ * press its checkpoint, for the image's files. Pasted now, its prompt and settings could land after
+ * the newer's, beside the newer's checkpoint.
+ */
+function replacedBeforePaste(turn) {
+    if (!turnOver(turn)) return false;
+    console.log('[ModelManager] Not sent: a newer Send came first');
+    return true;
+}
+
+/** The events of a checkpoint's change: its click, and the step Neo chains after it - none in the original Forge. */
+function checkpointCalls() {
+    const click = eventsOf('change_checkpoint');
+    const step = stepsAfter(click);
+    return step.length ? [...click, ...step] : [];
+}
+
+/**
+ * Once the checkpoint pressed and the step Neo chains after it have come back:
+ * true, or false at `limit`. A press that makes no call - Gradio's page drops
+ * one made while another is open - and a click that failed are not waited for.
+ */
+async function checkpointLanded(pressed, limit) {
+    const click = eventsOf('change_checkpoint');
+    const step = stepsAfter(click);
+    if (pressed === null || !step.length) return true;
+    let came = await answered(click, pressed, limit);
+    if (came === 'came') {
+        const call = forgeCalls.begun.slice(pressed).filter(({ fn }) => click.includes(fn)).pop();
+        if (!call.ok) return true;
+        came = await answered(step, call.ended, limit);      // its own step, not an older Send's
+    }
+    if (came === 'none') console.log('[ModelManager] VAE / Text Encoder: the checkpoint\'s change, or the step after it, made no request of Forge');
+    return came !== 'late';
 }
 
 // Which Send is setting Forge up: each takes a turn as it starts to change
@@ -838,6 +907,8 @@ function currentForgePreset() {
     return container.querySelector('input')?.value || null;
 }
 
+let presetSwitch = Promise.resolve();       // the last switch asked for: the next waits for it
+
 /**
  * Switch Forge Neo's UI preset, and wait for it to take.
  *
@@ -847,10 +918,22 @@ function currentForgePreset() {
  * scripts read the preset from this control's input, so that is what is
  * waited on, then a moment for the rest of the change to land.
  *
+ * One at a time: a newer Send that found its preset already shown, the older's
+ * switch still on its way, pasted before the switch's answers came, and they
+ * put the preset's own checkpoint and settings over it (#3). So a Send whose
+ * plan names no preset waits too. A Send replaced as it waits in line (`turn`)
+ * switches nothing.
+ *
  * Returns whether Forge is now on `preset`. False where this is not Forge
  * Neo, or the preset is not offered - and then the send goes on as before.
  */
-async function switchForgePreset(preset) {
+function switchForgePreset(preset, turn) {
+    const switched = presetSwitch.then(() => (turnOver(turn) ? false : switchPresetNow(preset)));
+    presetSwitch = switched.catch(() => {});
+    return switched;
+}
+
+async function switchPresetNow(preset) {
     const container = gradioApp().querySelector('#forge_ui_preset');
     const input = container?.querySelector('input');
     if (!input || !preset) return false;
@@ -965,11 +1048,12 @@ const FORGE_PRESET_MAX_MS = TIMING.presetMax;
  * Forge has no VAE / Text Encoder control; `what`: how a generation's or a
  * task's missing modules are introduced; `sends`: whether the rest is sent -
  * a task's Load to UI sends nothing. `turn`: the Send's, which a newer one
- * replaces (takeTurn).
+ * replaces (takeTurn); `pressed`: pressCheckpoint's answer.
  */
-async function applyModules(plan, { vaeName, what = 'This generation was made with', sends = true, turn = null } = {}) {
+async function applyModules(plan, { vaeName, what = 'This generation was made with', sends = true, turn = null,
+                                    pressed = null } = {}) {
     const target = plan.target || plan.select || [];
-    if (await patchForgeModules(target, turn)) {
+    if (await patchForgeModules(target, turn, pressed)) {
         await checkForgeModules(target, turn);
     } else if (vaeName !== undefined && !plan.manage_modules) {
         await applyVaeSelection(vaeName);      // no Forge control: the A1111 way
@@ -1062,9 +1146,9 @@ export async function loadTask(taskId) {
     }
     const tab = plan.mode === 'img2img' ? 'img2img' : 'txt2img';
     const turn = takeTurn();
-    if (plan.preset) await switchForgePreset(plan.preset);
-    // With an empty list of modules, as sendInfotext says why (#430).
-    if (plan.checkpoint && typeof selectCheckpoint === 'function') selectCheckpoint(plan.checkpoint, []);
+    await switchForgePreset(plan.preset, turn);
+    const pressed = await pressCheckpoint(plan, turn);
+    if (replacedBeforePaste(turn)) return null;
     // An earlier send's chips would stay; a task has none.
     showResourceChips(tab, []);
     const answer = await pressLoader(tab, { source: { kind: 'task', task: Number(taskId) } });
@@ -1073,7 +1157,7 @@ export async function loadTask(taskId) {
         turnFailed(turn);
         return answer;
     }
-    await applyModules(plan, { what: `Task #${Number(taskId)} was queued with`, sends: false, turn });
+    await applyModules(plan, { what: `Task #${Number(taskId)} was queued with`, sends: false, turn, pressed });
     if (plan.checkpoint_missing) {
         showNotice(`Task #${Number(taskId)} was queued with ${plan.checkpoint_missing}, which this WebUI does not `
                    + 'list: it is loaded with the checkpoint loaded now.', { info: true });
@@ -1878,15 +1962,12 @@ async function sendGalleryImageTo({ img, model, version, into = null, pick = nul
         const framing = tab === 'img2img' && !sending ? startFrame(img, isVideo) : null;
 
         turn = takeTurn();
-        if (plan.preset) await switchForgePreset(plan.preset);
+        await switchForgePreset(plan.preset, turn);
 
         // After the preset, which brings back a checkpoint of its own: the
         // gallery's or the image's, by the name Forge lists it under.
-        if (plan.checkpoint && typeof selectCheckpoint === 'function') {
-            console.log('[ModelManager] Setting checkpoint:', plan.checkpoint);
-            // With an empty list of modules, as sendInfotext says why (#430).
-            selectCheckpoint(plan.checkpoint, []);
-        }
+        const pressed = await pressCheckpoint(plan, turn);
+        if (replacedBeforePaste(turn)) return false;
 
         // A video model makes a still unless it is told how many frames:
         // Neo reads Batch size as Frames on the Wan preset. The server makes
@@ -1921,6 +2002,7 @@ async function sendGalleryImageTo({ img, model, version, into = null, pick = nul
             source.negative_prompt = rename(meta.negativePrompt);
         }
 
+        if (replacedBeforePaste(turn)) return false;
         pasted = pasteInfotext(tab, {
             source,
             into: sending,
@@ -1933,7 +2015,7 @@ async function sendGalleryImageTo({ img, model, version, into = null, pick = nul
                 // from an infotext, not the "VAE:" line we write. A model whose
                 // text encoders and VAE are separate gets the ones it needs; an
                 // SD or SDXL one, the image's own VAE.
-                return applyModules(plan, { vaeName: plan.named_vae, turn });
+                return applyModules(plan, { vaeName: plan.named_vae, turn, pressed });
             },
         });
         if (!pasted) return;

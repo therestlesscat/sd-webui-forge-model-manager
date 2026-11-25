@@ -277,11 +277,18 @@ showed:
   10 s in all, past which it makes no more; and then asks the server what
   Forge's setting (`forge_additional_modules`) actually holds. Of
   two Sends the older stops changing the box: a new way to send takes a turn
-  (`takeTurn`) after its own stops and before the UI preset, passes it to
-  `pasteInfotext` and `applyModules`, and calls `turnFailed` where it fails before the paste, as
+  (`takeTurn`) after its own stops and before the UI preset, stops where
+  `replacedBeforePaste` says so - after its checkpoint's press and right
+  before its paste - passes the turn to `switchForgePreset`, `pasteInfotext` and `applyModules`, and calls `turnFailed` where it fails before the paste, as
   the check the older Send skipped is then made. The original Forge binds
   `change`, which is `always_last`, read in its code: it keeps the last
-  change. The control can also be stale
+  change. Neo's checkpoint step (below) is another event that writes the same
+  list, from the control as it stood as the step began: held 2 s, it put the
+  old list back after Send's changes, 3 of 3, and with no notice; at its own
+  speed it was never seen to (2026-11-25). So a checkpoint is pressed through
+  `pressCheckpoint`, its answer passed to `applyModules` as `pressed`, and
+  waited on before the first change (0.84.5). The
+  control can also be stale
   before Send acts, so a patch with nothing to change leaves Forge holding
   something else: a page loaded fresh draws it as the UI was built, while
   Forge keeps the last selection, and a switch to the flux preset brings
