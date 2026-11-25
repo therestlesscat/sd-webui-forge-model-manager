@@ -475,12 +475,18 @@ owner had it moved (R6).
   failure was caught as "not recognised", and every checkpoint scanned in the
   original Forge was stored as unknown - for Neo too, since they share a
   database. `forge_host.diffusers_converter` tries both.
-- **Neo adds UI presets, and three tables here hold them:** `PRESET_BY_CLASS`,
-  `PRESET_BY_BASE_MODEL` and `FAMILY_NAMES`. Before saying Forge has no preset
+- **Neo adds UI presets, and a family is named here in many places:**
+  `PRESET_BY_CLASS` and `PRESET_BY_BASE_MODEL` (`architecture.py`); `_layout`
+  and the module kinds, `classify` (`file_identity.py`); `FILES`,
+  `CLASS_FILES`, `CLASS_LABELS`, `FAMILY_NAMES`, `MODULE_PRESETS`,
+  `CLASS_FOR_PRESET` and, for a shared VAE, `NAME_HINTS` (`forge_modules.py`);
+  `DEFAULTS` (`forge_host.py`); `_PROPER` (`settings_registry.py`); and the
+  page's `MODULE_KIND_NAMES` (`send.mjs`). Before saying Forge has no preset
   for a model, read each WebUI's own: Neo's `modules_forge/presets.py`
   (`PresetArch`) and the `models` list of its `huggingface_guess`. #439's plan
   said so of most of 40 base models from the extension's table alone; Neo had
-  had `qwen21` since 7 October and `moss` since 21 October 2026 (#441).
+  had `qwen21` since 7 October and `moss` since 21 October 2026. Both are here
+  since 0.84.2 (#441).
 
 **A shared library holds the other WebUI's files.** Its sync files them in
 the same `files`; this WebUI may not have been given their folders and

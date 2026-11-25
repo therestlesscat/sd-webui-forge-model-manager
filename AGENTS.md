@@ -236,7 +236,10 @@ the code (2026-10-16).
   carry it. An issue on Civitai's `nsfw` parameter listed three of the
   library's LoRAs by id, one by name, as ones Civitai marks `minor`. The
   owner deleted it and it was written again without them. An edit is no
-  removal: GitHub shows an issue's edits to anyone (2026-10-14).
+  removal: GitHub shows an issue's edits to anyone (2026-10-14). Test data is
+  public text too: #441's headers file was staged with links to published
+  LoRAs whose titles are explicit, seen and kept until a side agent said so.
+  A fixture's sources have neutral names.
 - **User data is deleted only where the user decides.** A fix of rows an
   earlier version wrote wrong never runs as a migration or a startup tidy:
   #241's plan removed 13 early copies (104 image rows) in a migration to
@@ -515,6 +518,8 @@ the code (2026-10-16).
   written), or copied first. The live database, which the WebUI holds open
   with its own `-wal`, is still read with `mode=ro`: `immutable=1` would skip
   what the WAL holds.
+- **`config.json` holds the Civitai API key.** Read it by key, never its
+  first lines: a `head` of it printed the key into a session (#441).
 - **The owner restarts the WebUI on the working tree, mid-task.** Neo loads
   this folder, and the database is the live one, shared: a migration not yet
   committed runs on it at the next restart (v32 did, three times, in #133).
@@ -939,7 +944,11 @@ is the commit's place in the history and is never written down; the rest is.
   carries none; the first carries one even when it only moves code (#357).
   #433's plan said "those between none", from a note that had paraphrased
   "doesnt have to be": "i didnt say such thing ever". Quote the owner's
-  words, not a note of them.
+  words, not a note of them. A change that is a minor starts at 0.x.0 with
+  its first commit, then 0.x.1, 0.x.2: decide minor or patch for the whole
+  change before numbering any. #441's plan gave 0.83.2, 0.83.3 and 0.84.0;
+  commit 1 was remade as 0.84.0: "you missed the rule where new minior
+  version commit sets start with 0.x.0 and then go from there" (2026-11-24).
 - **A major version** is the owner's call, when the extension is ready.
 
 Then, in the same commit:
@@ -1024,7 +1033,11 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   ADetailer lines, and it was a control by accident. After the fix only the
   new rows were read, until the owner asked "did you verify that bug not
   happens in 7880"; the whole library's count of files held twice (0) came
-  then.
+  then. A fix of a race says in the console when it acted, and a run counts
+  only with that line: #441's first live-check plan would have passed on the
+  old code whenever the checkpoint came first, and set the preset's saved
+  checkpoint "empty", where an empty name does not fail and null does. The
+  plan's reviewer found both (2026-11-25).
 - **A fault behind another is seen with the first one fixed alone.** #396's
   renamed copies could reach a queued run's prompt only once the run stopped
   failing on `.name`: Generate's prompt set beside the copy's name showed the

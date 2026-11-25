@@ -289,7 +289,14 @@ one; the root `AGENTS.md` says how a change is proven beyond a check.
   the next check meets a held file (#390). And a part of a check can pass on
   any code inside a tuple that fails on the old: #422's "added to the
   library" read `synced[-1:]`, which an earlier check had left at that path.
-  Count from the length before.
+  Count from the length before. And a stand-in that never reads what the fault
+  is in cannot fail: the infotext reader of `generation_replay_test` did not
+  look at the selected checkpoint, so #441's "fails first" checks on a None
+  would have passed on the old code. It raises on None now, as Neo's does.
+- **A wait's check counts its looks and times both ends.** Asserting the
+  constants' values says nothing of their use: with #441's limit and step
+  asserted, removing the sleep, sleeping 1 s and a fixed 12 s limit all
+  passed. A count of 4 to 12 looks and a ceiling on the time caught them.
 - **A suite's subject is in its docstring, not its name.** #363's plan put
   NSFW checks in `generations_switch_test` (the Your generations on/off
   switch, #27) and `gallery_count_test` (a refresh's size, #103), going by
