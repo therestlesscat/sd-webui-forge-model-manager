@@ -71,7 +71,9 @@ is reset only by its Send or by the dialog opening for another image, so an
 ask waiting in `askPickList` still goes out after Esc, its answer drawn
 nowhere. #425's plan said a closed dialog asks nothing, and the build
 review's suggested check was built on that; a check of "replaced during the
-wait" opens a second dialog.
+wait" opens a second dialog, which shares a version with the first and gives
+it other row data: with no version shared, a redraw from the late request's
+own row passed (0.83.1).
 
 **While the list shows, it is asked again only by a download landing or
 Send's timed check** (#417). Check again is drawn only with Choose the

@@ -141,6 +141,11 @@ the code (2026-10-16).
   reviewer for both commits"; the owner: "dont you have to run code review
   on 2 commits?" A fresh agent then read both together and found that the
   gain had been told too widely (2026-11-24).
+  The reviewer runs breaks as well as reading, in a scratch copy. Both of
+  #439's first build reviews were reading only ("inspection-only"), and
+  passed a suite whose label could be taken off every checkpoint found by its
+  hash with no check failing. 0.83.1's reviewer, told it could break code,
+  found by a break that its late-answer guard missed one (2026-11-24).
 - **A plan doc says what before it says where.** Technical, but not
   overdone: what a part does in plain words first, its code name after - or
   in a closing "Code:" line. More than a few
@@ -1314,7 +1319,10 @@ data"; `model_manager/civitai/AGENTS.md`, "The data".
   matches found" and runs nothing. Quote it: `--include='*.md'`. A word of
   the form `${h:+-H "$h"}` is one argument: S1's check 2 handed `curl.exe`
   `-H Origin: ...` as one word, no header was sent, and 0.77.2's "200"s
-  tested nothing. Pass a flag and its value as two words.
+  tested nothing. Pass a flag and its value as two words. A function named
+  as an alias is a parse error (`b()` and `get()` here: "defining function
+  based on alias"), and nothing of the call runs: a runner goes in a file,
+  run with `bash`.
 - **7880's copy of the extension is its own**: a git clone with files copied
   over it - not a link to this working tree - so its version is the last
   copy's (0.61.0 on 2026-10-16, its database at v43). A change reaches it

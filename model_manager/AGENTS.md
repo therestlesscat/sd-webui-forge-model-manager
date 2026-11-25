@@ -163,6 +163,14 @@ Not `os.path.isfile` alone, which called every absent file deleted and told
 the user to sync; nor every library folder, one of which may be a share
 asleep - 42 s for its first question.
 
+**`files.architecture` empty says two things:** not read yet, or read with no
+preset found - and the checkpoint list puts the second under All alone.
+`architecture_checked` tells them apart, and so does `file_type`: null until
+read, "Unknown" for a file that could not be read. The files
+`image-resources` answers with carry no `architecture_checked`. #439's first
+plan took empty for "not read", and would have named a tab for a file under
+none (2026-11-24).
+
 ### Civitai: sync and downloads
 
 **Civitai is the source; a sidecar is written, not read.** A sync and a
@@ -467,6 +475,12 @@ owner had it moved (R6).
   failure was caught as "not recognised", and every checkpoint scanned in the
   original Forge was stored as unknown - for Neo too, since they share a
   database. `forge_host.diffusers_converter` tries both.
+- **Neo adds UI presets, and three tables here hold them:** `PRESET_BY_CLASS`,
+  `PRESET_BY_BASE_MODEL` and `FAMILY_NAMES`. Before saying Forge has no preset
+  for a model, read each WebUI's own: Neo's `modules_forge/presets.py`
+  (`PresetArch`) and the `models` list of its `huggingface_guess`. #439's plan
+  said so of most of 40 base models from the extension's table alone; Neo had
+  had `qwen21` since 7 October and `moss` since 21 October 2026 (#441).
 
 **A shared library holds the other WebUI's files.** Its sync files them in
 the same `files`; this WebUI may not have been given their folders and
