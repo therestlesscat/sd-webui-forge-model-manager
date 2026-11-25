@@ -405,6 +405,12 @@ function selectedModuleLabels(container) {
  * and the control would look right to the next Send. The whole control is
  * cleared only if one file cannot be taken out alone.
  *
+ * Nothing to change, Forge is asked what it holds: a page loaded fresh draws
+ * the control empty, its value and Forge still the last selection, and nothing
+ * here would send the list (#3). Where the two differ one file is taken out and
+ * put back, or - none needed - one Forge holds is put in and taken out: the
+ * last of the two makes the request. Once; the check says what is left.
+ *
  * @param {string[]} target - the labels, exactly as Forge lists them.
  * @param {number|null} turn - the Send's (takeTurn): replaced by a newer one,
  *     it makes no more changes.
@@ -451,8 +457,62 @@ async function patchForgeModules(target, turn = null, pressed = null) {
     const current = selectedModuleLabels(container);
     const extra = current.filter((label) => !target.includes(label));
     let missing = target.filter((label) => !current.includes(label));
+    let input = container.querySelector('input');
+    let ours = false;                   // a change by putIn or takeOut, not the person's
+    const openList = async () => {
+        input.focus();
+        input.value = '';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        await nextFrame();
+    };
+    // One file put in: whether to stop.
+    const putIn = async (label) => {
+        await openList();
+        const stop = await held();
+        const inAlready = selectedModuleLabels(container).includes(label);      // by hand: a press takes it out again
+        const option = readModuleOptions(container).find((o) => o.label === label);
+        if (stop || inAlready || !option) {
+            input.blur();
+            if (!stop && !inAlready) console.warn(`[ModelManager] "${label}" is not offered by the control; left out`);
+            return stop;
+        }
+        ours = true;
+        const late = await change(() => pressOption(option.element));
+        if (late) input.blur();
+        return late;
+    };
+    const takeOut = async (label) => {
+        if (await held()) return true;
+        const remove = Array.from(container.querySelectorAll('.wrap-inner .token'))
+            .find((t) => tokenLabel(t) === label)?.querySelector('.token-remove');
+        if (!remove) return false;
+        ours = true;
+        return change(() => remove.click());
+    };
+
     if (!extra.length && !missing.length) {
-        console.log('[ModelManager] VAE / Text Encoder already as needed:', current);
+        const forgeHas = events.length && input ? await heldByForge().catch(() => null) : null;
+        if (!Array.isArray(forgeHas) || sameFiles(forgeHas, target)) {
+            console.log('[ModelManager] VAE / Text Encoder already as needed:', current);
+            return true;
+        }
+        if (stopped(false)) return true;          // a newer Send's list stays open, its own
+        await openList();
+        const offered = readModuleOptions(container).map((o) => o.label);
+        input.blur();
+        // Nothing is taken out that cannot be put back; what the person did meanwhile stays.
+        const label = (current.length ? current.slice(-1) : forgeHas).find((l) => offered.includes(l));
+        if (!label || !sameFiles(selectedModuleLabels(container), current)) return true;
+        const [first, second] = current.length ? [takeOut, putIn] : [putIn, takeOut];
+        if (await first(label) || !ours) return true;
+        // The file the person put in, or took out, as the first went: theirs.
+        const now = current.length ? current.filter((l) => l !== label) : [...current, label];
+        if (!sameFiles(selectedModuleLabels(container), now)) return true;
+        input = container.querySelector('input');
+        ours = false;
+        if (await second(label) || !ours) return true;
+        input.blur();
+        console.log('[ModelManager] VAE / Text Encoder: Forge held', forgeHas, 'where the box shows', current, '- sent again');
         return true;
     }
 
@@ -471,27 +531,10 @@ async function patchForgeModules(target, turn = null, pressed = null) {
         if (await change(() => remove.click())) return true;
     }
 
-    const input = container.querySelector('input');
+    input = container.querySelector('input');
     for (const label of missing) {
         if (!input) break;
-        input.focus();
-        input.value = '';
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-        await nextFrame();
-
-        const stop = await held();
-        const inAlready = selectedModuleLabels(container).includes(label);      // by hand: a press takes it out again
-        const option = readModuleOptions(container).find((o) => o.label === label);
-        if (stop || inAlready || !option) {
-            input.blur();
-            if (stop) return true;
-            if (!inAlready) console.warn(`[ModelManager] "${label}" is not offered by the control; left out`);
-            continue;
-        }
-        if (await change(() => pressOption(option.element))) {
-            input.blur();
-            return true;
-        }
+        if (await putIn(label)) return true;
     }
     input?.blur();
     console.log('[ModelManager] VAE / Text Encoder: removed', extra, 'added', missing,
@@ -531,8 +574,8 @@ async function pressCheckpoint(plan, turn) {
 
 /**
  * Whether a newer Send came while this one waited - for its UI preset, to
- * press its checkpoint, for the image's files. Pasted now, its prompt and settings could land after
- * the newer's, beside the newer's checkpoint.
+ * press its checkpoint, for the image's files. Pasted now, its prompt and
+ * settings could land after the newer's, beside the newer's checkpoint.
  */
 function replacedBeforePaste(turn) {
     if (!turnOver(turn)) return false;
@@ -607,6 +650,18 @@ function payOwed() {
     checkForgeModules(target, forgeTurn, 'An earlier Send\'s VAE / Text Encoder changes were not finished: Forge');
 }
 
+/** The files Forge holds now, as it lists them; null where it is not there to ask. */
+async function heldByForge() {
+    const answer = await (await fetch('/model-manager/forge-modules/current')).json();
+    return answer && answer.modules;
+}
+
+/** Whether two lists of files are the same, in any order. */
+function sameFiles(a, b) {
+    const sorted = [...b].sort();
+    return a.length === b.length && [...a].sort().every((label, i) => label === sorted[i]);
+}
+
 /**
  * Ask Forge what it holds now, and say so if it is not `target`: the control
  * can show one thing while Forge's setting - what it loads - holds another.
@@ -621,14 +676,13 @@ async function checkForgeModules(target, turn = null, what = 'Forge did not take
     let held = null;
     for (;;) {
         try {
-            const answer = await (await fetch('/model-manager/forge-modules/current')).json();
-            held = answer && answer.modules;
+            held = await heldByForge();
         } catch (e) {
             return;
         }
         if (turnOver(turn)) return void owe(target, turn);
         if (!Array.isArray(held)) return;                 // not Forge: nothing to compare
-        if (held.length === wanted.length && held.every((label, i) => label === wanted[i])) return;
+        if (sameFiles(held, wanted)) return;
         if (Date.now() >= deadline) break;
         await nextFrame(TIMING.modulesCheck);
     }

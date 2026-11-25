@@ -279,8 +279,9 @@ showed:
   two Sends the older stops changing the box: a new way to send takes a turn
   (`takeTurn`) after its own stops and before the UI preset, stops where
   `replacedBeforePaste` says so - after its checkpoint's press and right
-  before its paste - passes the turn to `switchForgePreset`, `pasteInfotext` and `applyModules`, and calls `turnFailed` where it fails before the paste, as
-  the check the older Send skipped is then made. The original Forge binds
+  before its paste - passes the turn to `switchForgePreset`, `pasteInfotext`
+  and `applyModules`, and calls `turnFailed` where it fails before the paste,
+  as the check the older Send skipped is then made. The original Forge binds
   `change`, which is `always_last`, read in its code: it keeps the last
   change. Neo's checkpoint step (below) is another event that writes the same
   list, from the control as it stood as the step began: held 2 s, it put the
@@ -294,8 +295,12 @@ showed:
   Forge keeps the last selection, and a switch to the flux preset brings
   back that preset's saved list (`forge_additional_modules_flux`). Over 397
   Sends on Neo (2026-10-21), 9 ended so: 4 after a fresh page, 4 after the
-  flux switch, 1 of two changes. On a Neo with its 30 October change each
-  Send runs Neo's whole checkpoint step (`_load_presets`): it first copies
+  flux switch, 1 of two changes. So with nothing to change Send asks Forge
+  (`heldByForge`), and where the two differ takes the box's last file out and
+  puts it back, or - none needed - puts one Forge holds in and takes it out
+  (0.84.6, Neo only). Putting in the file the fresh box hides as its only
+  value makes no request; taking it out does, 6 of 6 (2026-11-25). On a Neo
+  with its 30 October change each Send runs Neo's whole checkpoint step (`_load_presets`): it first copies
   the page's box, and its Diffusion in Low Bits value, into Forge's settings
   without saving, and refreshes what Forge will load only when the
   checkpoint changes. So with the checkpoint already loaded and the box

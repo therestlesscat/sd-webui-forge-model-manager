@@ -242,6 +242,7 @@ const eventDelay = {};
 const eventFails = new Set();
 let letGo = null;                        // ends a call whose delay is null
 let filesDelay = 0;                      // the answer about an image's files, so late
+let questionDelay = 0;                   // what Forge holds, so late
 globalThis.fetch = withGalleryPages(async (url, init) => {
     const href = String(url);
     if (href.includes('/run/')) {
@@ -260,6 +261,7 @@ globalThis.fetch = withGalleryPages(async (url, init) => {
     }
     if (filesDelay && href.includes('/model-manager/image-resources')) await new Promise((r) => setTimeout(r, filesDelay));
     if (href.includes('/model-manager/forge-modules/current')) {
+        if (questionDelay) await new Promise((r) => setTimeout(r, questionDelay));
         return { ok: true, json: async () => ({ success: true, modules: [...forgeHolds()].sort() }) };
     }
     if (href.includes('/model-manager/send/plan') && href.includes('text=1')) {
@@ -1061,7 +1063,182 @@ boxOf([CLIP]);
 needing([CLIP, 'gone.safetensors', T5]);
 await send();
 check('and after a file it does not offer', [selected(), blurs], [[CLIP, T5], 3]);
+check('which is said', logged.some((l) => l.includes('"gone.safetensors" is not offered by the control')), true);
 modules.querySelector('input').blur = realBlur;
+// Forge's list opens on the focus, in a browser; here on the text alone.
+let focused = 0;
+const realFocus = modules.querySelector('input').focus;
+modules.querySelector('input').focus = () => { focused++; };
+boxOf([]);
+needing([CLIP, T5]);
+await send();
+check('the box takes the focus for each file put in', [focused, selected()], [2, [CLIP, T5]]);
+modules.querySelector('input').focus = realFocus;
+// Drawn again as a file is taken out: the next is put in through the input there now.
+boxOf([CLIP]);
+needing([AE]);
+const inputBefore = modules.querySelector('input');
+let redrawn = null;
+tokenOf(CLIP).querySelector('.token-remove').addEventListener('click', () => {
+    redrawn = document.createElement('input');
+    redrawn.addEventListener('input', () => inputBefore.dispatchEvent(new window.Event('input', { bubbles: true })));
+    inputBefore.replaceWith(redrawn);
+});
+focused = 0;
+inputBefore.focus = () => { focused++; };
+await send();
+check('and the input drawn again meanwhile is the one used', [focused, selected(), neoBox.holds], [0, [AE], [AE]]);
+redrawn.replaceWith(inputBefore);
+inputBefore.focus = realFocus;
+
+// ------------------------------------------ a page out of step with Forge (#3)
+// A page loaded fresh draws the box empty, over the list it hides as its value:
+// with nothing to change no request was made, and Forge kept that list.
+const outOfStep = (shown, holds, target = shown) => {
+    boxOf(shown);
+    neoBox.delay = 20;
+    neoBox.holds = holds;
+    needing(target);
+    generationPlan = plan;
+};
+for (const [what, sendIt] of Object.entries({ 'a gallery\'s': () => gallerySend(), 'a generation\'s': () => generationSend(),
+                                             'a generation\'s replayed': () => replayedSend(),
+                                             'a task\'s Load to UI': () => loadTask(7) })) {
+    loaderAnswer = () => ({ pasted: true });
+    outOfStep([], [AE]);
+    neoBox.mute = 1;                     // the box's hidden value already: no request
+    await sendIt();
+    await whenSendSettled();
+    check(`5 a: a fresh page, nothing needed, ${what}: the file Forge holds put in and taken out, and Forge holds none`,
+          [neoBox.holds, selected(), neoBox.sent, said()], [[], [], [[]], []]);
+}
+loaderAnswer = () => ({ pasted: true });
+
+outOfStep([], [T5, AE]);
+await send();
+check('5 b: Forge holding two: one of them, and Forge holds none', [neoBox.holds, selected(), neoBox.sent, said()],
+      [[], [], [[AE], []], []]);
+outOfStep([], ['sub.safetensors', T5]);
+await send();
+check('and one the box does not offer is passed over', [neoBox.holds, selected(), neoBox.sent, said()], [[], [], [[T5], []], []]);
+
+outOfStep([CLIP, T5], [AE]);
+await send();
+check('5 c: what is needed shown, Forge holding another: its last out and back',
+      [neoBox.holds, selected(), neoBox.sent, said()], [[CLIP, T5], [CLIP, T5], [[CLIP], [CLIP, T5]], []]);
+
+outOfStep([T5, CLIP], [CLIP, T5]);
+let asks = 0;
+forgeHolds = () => { asks++; return neoBox.holds; };
+await send();
+check('5 d: the same files in any order: nothing changed', [neoBox.sent, asks > 0, said()], [[], true, []]);
+
+outOfStep([], ['sub.safetensors']);
+blurs = 0;
+modules.querySelector('input').blur = () => { blurs++; };
+await send();
+modules.querySelector('input').blur = realBlur;
+check('5 e: the box offers none of what Forge holds: nothing changed, its list closed, and the notice',
+      [neoBox.sent, selected(), blurs, said().length], [[], [], 1, 1]);
+
+outOfStep([CLIP, T5], [AE]);
+const offeredAt = MODULE_FILES.indexOf(T5);
+MODULE_FILES.splice(offeredAt, 1);
+await send();
+MODULE_FILES.splice(offeredAt, 0, T5);
+check('5 f: what the box shows and no longer offers is not taken out: it could not be put back',
+      [neoBox.sent, selected(), said().length], [[], [CLIP, T5], 1]);
+
+outOfStep([CLIP], [AE]);
+plan = { ...plan, modules_missing: ['gone.safetensors'] };
+forgeHolds = () => { throw new Error('server down'); };
+await send();
+check('5 g: the question failing: nothing changed, and the rest of the Send goes on',
+      [neoBox.sent, selected(), [...document.querySelectorAll('.mm-notice')].some((n) => n.textContent.includes('gone.safetensors'))],
+      [[], [CLIP], true]);
+
+outOfStep([CLIP], [AE]);
+neoBox.fails = 2;
+await send();
+check('5 h: Forge taking neither: once only, and the notice', [neoBox.sent, selected(), said().length], [[[], [CLIP]], [CLIP], 1]);
+
+outOfStep([CLIP], [AE]);
+neoBox.delay = null;
+await send();
+check('5 i: no answer: no second change, and the notice', [neoBox.sent, selected(), said().length], [[[]], [], 1]);
+neoBox.release?.();
+await waitFor('its answer', () => !neoBox.open);
+
+// The person's own change as Forge is asked stays.
+outOfStep([], [AE]);
+let byHand = () => choose(T5);
+forgeHolds = () => { const hand = byHand; byHand = null; hand?.(); return neoBox.holds; };
+await send();
+check('5 j: a change of the person\'s own meanwhile is left as it is', [selected(), neoBox.sent], [[T5], [[T5]]]);
+
+// One put in and taken out again, its request still open: waited for.
+outOfStep([CLIP], [AE]);
+byHand = () => { choose(T5); setTimeout(() => tokenOf(T5)?.querySelector('.token-remove').click(), 4); };
+forgeHolds = () => { const hand = byHand; byHand = null; hand?.(); return neoBox.holds; };
+neoBox.delay = 120;
+await send();
+check('and its request is waited for before the first change', [neoBox.sent, neoBox.holds, selected()],
+      [[[CLIP, T5], [], [CLIP]], [CLIP], [CLIP]]);
+
+// A newer Send as it goes: it takes the box from there.
+outOfStep([CLIP], [AE]);
+neoBox.delay = 150;
+running = gallerySend();
+await waitFor('its first change', () => neoBox.sent.length === 1);
+needing([T5]);
+await Promise.all([running, gallerySend()]);
+await whenSendSettled();
+check('5 k: a newer Send meanwhile: the box and Forge end as it needs', [selected(), neoBox.holds, said()], [[T5], [T5], []]);
+
+outOfStep([CLIP], [AE]);
+delete window.gradio_config;             // the original Forge: no event named
+await send();
+check('5 l: no event named: nothing is put in or out', [neoBox.sent, selected(), said().length], [[], [CLIP], 1]);
+
+// A Send that changes a file asks nothing before: the check's own question alone.
+boxOf([CLIP]);
+needing([AE]);
+asks = 0;
+forgeHolds = () => { asks++; return neoBox.holds; };
+await send();
+check('5 m: a Send that changes a file: one question, its check\'s', [asks, neoBox.holds], [1, [AE]]);
+
+// The person's pick of the file Send puts in, as its list opens: theirs, not taken out.
+outOfStep([], [AE]);
+let focuses = 0;
+const listInput = modules.querySelector('input');
+listInput.focus = () => { if (++focuses === 2) choose(AE); };
+await send();
+listInput.focus = realFocus;
+check('5 n: the person picking the file Send puts in, meanwhile: left in', [selected(), neoBox.holds, neoBox.sent], [[AE], [AE], [[AE]]]);
+
+// The person's own change as the first is answered: theirs, nothing put back over it.
+outOfStep([CLIP], [AE]);
+neoBox.hand = () => choose(T5);
+await send();
+check('and one as Send\'s first change is answered: nothing put back over it', [selected(), neoBox.sent], [[T5], [[], [T5]]]);
+
+// A newer Send as the question is out: the older opens no list over the newer's.
+outOfStep([], [AE]);
+questionDelay = 150;
+focuses = 0;
+listInput.focus = () => { focuses++; };
+logsFrom = logged.length;
+running = gallerySend();
+await new Promise((r) => setTimeout(r, 40));
+needing([T5]);
+await Promise.all([running, gallerySend()]);
+await whenSendSettled();
+questionDelay = 0;
+listInput.focus = realFocus;
+check('5 o: a newer Send as Forge is asked: the older stops, the newer\'s list its own',
+      [focuses, selected(), logged.slice(logsFrom).some((l) => l.includes('left to a newer Send'))], [1, [T5], true]);
+generationPlan = null;
 }
 
 if (inPart('checkpoint')) {
