@@ -59,16 +59,20 @@ PRESET_BY_CLASS = {
 # The fallback, when the file says nothing Forge recognises: Civitai's
 # baseModel, by prefix, first match wins. Pony, Illustrious and NoobAI are
 # SDXL underneath. HiDream, Kolors, SD3 and the rest have no Forge Neo
-# preset, and so no entry.
+# preset, and so no entry. A name that starts as a family's and is not of it
+# has its own, None, before the family's: Pony V7 is AuraFlow underneath, and
+# no checkpoint file was found on Civitai for Wan Video 2.5, 2.7 and 3.0
+# (2026-11-24). Flux.2 is Klein alone: Neo's detector refuses Flux.2 dev (#441).
 PRESET_BY_BASE_MODEL = (
     ("SD 1", "sd"),
     ("SDXL", "xl"),
+    ("Pony V7", None),
     ("Pony", "xl"),
     ("Illustrious", "xl"),
     ("NoobAI", "xl"),
     ("Flux.1 Krea", "flux"),
     ("Flux.1", "flux"),
-    ("Flux.2", "klein"),
+    ("Flux.2 Klein", "klein"),
     ("Chroma", "flux"),
     ("Krea 2", "krea"),
     ("Qwen", "qwen"),
@@ -76,7 +80,11 @@ PRESET_BY_BASE_MODEL = (
     ("Z-Image", "zit"),
     ("Lumina", "lumina"),
     ("Anima", "anima"),
+    ("Wan Video 2.5", None),
+    ("Wan Video 2.7", None),
+    ("Wan Video 3.0", None),
     ("Wan Video", "wan"),
+    ("Ernie", "ernie"),
 )
 
 # safetensors dtype names, as torch dtypes by attribute name. Resolved when

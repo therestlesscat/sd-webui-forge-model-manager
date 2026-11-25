@@ -218,5 +218,61 @@ check('    Civitai files it under a family no UI preset runs: unsupported, its b
 check('    beside a VAE filed as a checkpoint ("Other"), the unsupported one still answers',
       named(file_path=lora, version_ids=[9001, 9005]), {'unsupported': 'OpenAI', 'name': ''})
 
+# A checkpoint named by its hash alone (#441): one of a family no preset runs
+# was said missing by the hash, with a Download offer.
+CIVITAI[('h', 'abcd00000001')] = {'baseModel': 'Flux.2 D', 'files': [{'name': 'made-up.safetensors'}]}
+CIVITAI[('h', 'abcd00000002')] = {'baseModel': 'Pony V7', 'files': []}
+CIVITAI[('h', 'abcd00000005')] = {'baseModel': '', 'files': [{'name': 'b_vae.safetensors'}]}
+CIVITAI[('h', 'abcd00000006')] = {'baseModel': 'SD 3.5', 'files': [{'name': 'a.safetensors'}, {'name': 'b.safetensors'}]}
+CIVITAI[('h', 'abcd00000004')] = {'baseModel': 'Flux.1 D', 'files': []}
+CIVITAI[('h', 'abcd00000003')] = {'baseModel': 'Other', 'files': [{'name': 'a_vae.safetensors'}]}
+check('11. a hash of a family no preset runs: unsupported, by its file\'s name on Civitai, the case aside',
+      named(file_path=lora, hashes=['ABCD00000001']), {'unsupported': 'Flux.2 D', 'name': 'made-up.safetensors'})
+check('    with no file named there, its base model alone',
+      named(file_path=lora, hashes=['abcd00000002']), {'unsupported': 'Pony V7', 'name': ''})
+check('    asked once', asked, [('h', 'abcd00000002')])
+check('    the second of two, the first not on Civitai',
+      named(file_path=lora, hashes=['ffffeeee0000', 'abcd00000001']),
+      {'unsupported': 'Flux.2 D', 'name': 'made-up.safetensors'})
+check('    of two such, the first, by the first of its files',
+      named(file_path=lora, hashes=['abcd00000006', 'abcd00000001']), {'unsupported': 'SD 3.5', 'name': 'a.safetensors'})
+check('    beside a version of a family no preset runs, the hash\'s',
+      named(file_path=lora, hashes=['abcd00000001'], version_ids=[9005]),
+      {'unsupported': 'Flux.2 D', 'name': 'made-up.safetensors'})
+check('    a hash filed "Other", or under nothing, names no family: the hash, as before',
+      [named(file_path=lora, hashes=[h]) for h in ('abcd00000003', 'abcd00000005')],
+      [{'missing': 'abcd00000003'}, {'missing': 'abcd00000005'}])
+check('    beside a version a preset runs, that one, as before',
+      named(file_path=lora, hashes=['abcd00000006'], version_ids=[9003]), {'missing': 'other.safetensors'})
+check('    or beside a hash of one whose file Civitai does not name, the first hash, as before',
+      named(file_path=lora, hashes=['abcd00000004', 'abcd00000001']), {'missing': 'abcd00000004'})
+sp._remembered.clear()
+sp._remembered[('h', 'abcd00000007')] = ('Flux.1 D', ['e.safetensors'])
+check('    nor is one past the four asked, of a family a preset runs, said to have none',
+      sp.image_checkpoint(db, file_path=lora, hashes=['e1', 'e2', 'e3', 'e4', 'abcd00000007'], lookup=civitai),
+      {'missing': 'e1'})
+is_(image_ckpt, 'Checkpoint', None, hashes={'autov2': 'DEAD000001'})
+sp._remembered.clear()
+sp._remembered[('h', 'dead000001')] = ('SD 3.5', ['held.safetensors'])
+check('    one the library holds, its family not read: the hash, as before, whatever was asked earlier',
+      sp.image_checkpoint(db, file_path=lora, hashes=['dead000001'], lookup=civitai), {'missing': 'dead000001'})
+check('    as is one of a family a preset runs, whose file Civitai does not name',
+      named(file_path=lora, hashes=['abcd00000004']), {'missing': 'abcd00000004'})
+check('    and one Civitai does not know, beside a version of a family no preset runs',
+      named(file_path=lora, hashes=['ffffeeee0000'], version_ids=[9005]), {'missing': 'ffffeeee0000'})
+sp._remembered.clear()
+tries = []
+check('    one that could not be asked: the hash, and not asked twice',
+      (sp.image_checkpoint(db, file_path=lora, hashes=['abcd00000001'],
+                           lookup=lambda kind, value: (tries.append(value), down(kind, value))),
+       tries), ({'missing': 'abcd00000001'}, ['abcd00000001']))
+check('    and a name the image gives it comes first, as before',
+      named(file_path=lora, hashes=['abcd00000001'], model_name='a-name'), {'missing': 'a-name'})
+CIVITAI[('v', '9006')] = {'baseModel': 'Flux.2 D', 'files': [{'name': 'made-up.safetensors'}]}
+CIVITAI[('v', '9007')] = {'baseModel': 'Wan Video 2.7', 'files': []}
+check('    by a version id alone: the base model is named the same way',
+      [named(file_path=lora, version_ids=[v]) for v in (9006, 9007)],
+      [{'unsupported': 'Flux.2 D', 'name': ''}, {'unsupported': 'Wan Video 2.7', 'name': ''}])
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

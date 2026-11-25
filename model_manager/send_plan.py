@@ -204,10 +204,11 @@ def image_checkpoint(db, file_path: str = "", version_ids: List[int] = (), hashe
     Returns {"path": file} when the library has it; {"missing": name} when it
     names one the library lacks - by the name the image gives it, the name
     Civitai gives its file, or its hash; {"unsupported": base model, "name"}
-    when Civitai files it under a family no UI preset runs (#377: OpenAI,
-    MiniMax H3); {"not_checkpoint": True} when what it names as checkpoints
-    is something else, here or on Civitai (a VAE or a text encoder filed as
-    one); {} when it names none. A version Civitai answers 404 for, or
+    when it gives no name and Civitai files its version id (#377: OpenAI,
+    MiniMax H3), or its hash (#441), under a family no UI preset runs;
+    {"not_checkpoint": True} when what it names as checkpoints is something
+    else, here or on Civitai (a VAE or a text encoder filed as one); {} when
+    it names none. A version Civitai answers 404 for, or
     could not be asked about, is missing too, by the name the image's own
     resource entry gives it (`names`, version id -> name): until #377 both
     read "names no checkpoint". `local`: as plan_model()'s.
@@ -225,7 +226,9 @@ def image_checkpoint(db, file_path: str = "", version_ids: List[int] = (), hashe
         return {"missing": name}
     if hashes:
         # A model hash is the checkpoint's, whatever Civitai knows of it.
-        return {"missing": hashes[0]}
+        # Of a family no preset runs, that is said - unless another checkpoint
+        # the image names is of one that a preset does.
+        return (not preset and _unrunnable_hash(db, hashes)) or {"missing": hashes[0]}
     unsupported, unanswered = _unrunnable(db, version_ids, lookup or _ask_civitai)
     if unsupported:
         return {"unsupported": unsupported[1], "name": (names or {}).get(unsupported[0]) or ""}
@@ -257,6 +260,22 @@ def _unrunnable(db, version_ids, lookup) -> Tuple[Optional[Tuple[int, str]], Lis
                 and unsupported is None:
             unsupported = (version_id, answer[0])
     return unsupported, unanswered
+
+
+def _unrunnable_hash(db, hashes) -> Dict[str, Any]:
+    """
+    The same for the first of an image's hashes the library lacks that Civitai
+    files under a family no UI preset runs, with the name of its file there:
+    {"unsupported", "name"}, else {}. Of the answers kept alone: those asked
+    were asked just before, and one that could not be is not asked twice.
+    Until 0.84.1 the notice named the hash itself as what the library lacks.
+    """
+    _, local_hashes = db.local_versions_by_key([], list(hashes))
+    for value in hashes:
+        answer = None if hash_key(value) in local_hashes else _remembered.get(("h", value.lower()))
+        if answer and not preset_for_base_model(answer[0]) and answer[0].strip().lower() not in _NO_FAMILY:
+            return {"unsupported": answer[0], "name": next(iter(answer[1]), "")}
+    return {}
 
 
 def named_ids(version_ids, hashes) -> Tuple[List[int], List[str]]:

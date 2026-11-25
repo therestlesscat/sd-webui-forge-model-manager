@@ -144,6 +144,35 @@ check('and to none when Forge Neo has no preset for it',
       [arch.preset_for_base_model(b) for b in ('HiDream', 'Kolors', 'SD 3.5', 'Other', None)],
       [None] * 5)
 
+# Civitai's 83 base models (2026-11-24), each with what it maps to (#441).
+BASE_MODELS = {
+    'sd': ('SD 1.4', 'SD 1.5', 'SD 1.5 LCM', 'SD 1.5 Hyper'),
+    'xl': ('SDXL 1.0', 'SDXL Lightning', 'SDXL Hyper', 'Pony', 'Illustrious', 'NoobAI'),
+    'flux': ('Flux.1 S', 'Flux.1 D', 'Flux.1 Krea', 'Flux.1 Kontext', 'Chroma'),
+    'klein': ('Flux.2 Klein 9B', 'Flux.2 Klein 9B-base', 'Flux.2 Klein 4B', 'Flux.2 Klein 4B-base'),
+    'krea': ('Krea 2', 'Krea 2 Turbo'),
+    'qwen': ('Qwen', 'Qwen 2', 'Qwen 2.1', 'Qwen 3'),
+    'zit': ('ZImageTurbo', 'ZImageBase'),
+    'lumina': ('Lumina',),
+    'anima': ('Anima',),
+    'ernie': ('Ernie',),
+    'wan': ('Wan Video 1.3B t2v', 'Wan Video 14B t2v', 'Wan Video 14B i2v 480p', 'Wan Video 14B i2v 720p',
+            'Wan Video 2.2 TI2V-5B', 'Wan Video 2.2 I2V-A14B', 'Wan Video 2.2 T2V-A14B'),
+    None: ('Pony V7', 'Flux.2 D', 'Wan Video 2.5 T2V', 'Wan Video 2.5 I2V', 'Wan Video 2.7', 'Wan Video 3.0',
+           'AuraFlow', 'CogVideoX', 'Flux.3', 'Flux.3 Klein', 'Flux.3 Klein-base', 'MOSS Image', 'Flux 3 Video',
+           'Grok', 'HappyHorse', 'HiDream', 'HiDream-O1', 'Hunyuan 1', 'Hunyuan Video', 'Ideogram 4.0', 'Boogu',
+           'Kolors', 'LTXV', 'LTXV2', 'LTXV 2.3', 'LTXV 2.5', 'Lens', 'MageFlow', 'MAI', 'Mochi', 'Upscaler',
+           'Other', 'PixArt a', 'PixArt E', 'SD 2.0', 'SD 2.1', 'Reve', 'Muse Image', 'Wan Image 2.7',
+           'Ming Image Design 0.1', 'Ming Image Design Layer 0.1', 'MiniMax H3', 'MiniMax H3 Image', 'ACE Audio',
+           'MiniMax Music 3', 'Sonilo'),
+}
+check('441. each of Civitai\'s base models maps to its own family\'s preset, or to none',
+      {b: arch.preset_for_base_model(b) for names in BASE_MODELS.values() for b in names},
+      {b: preset for preset, names in BASE_MODELS.items() for b in names})
+check('441. all 83 of them', sum(len(names) for names in BASE_MODELS.values()), 83)
+check('441. a name Civitai\'s list has dropped keeps its family, as before',
+      [arch.preset_for_base_model(b) for b in ('SDXL 1.0 LCM', 'Wan Video')], ['xl', 'wan'])
+
 # ------------------------------------------------------ when files are read
 path = facts['linked_paths'][0]
 reads = []
