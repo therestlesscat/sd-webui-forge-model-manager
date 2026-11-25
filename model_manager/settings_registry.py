@@ -592,7 +592,7 @@ _BARE_TAB = re.compile(r"\b(Queue|Generations|Civitai Images|Model Manager|Civit
 _PROPER = re.compile(r"\b(Queue Tab|Generations Tab|Civitai Images Tab|Model Manager Tab|Civitai Browser Tab|Civitai|"
                      r"Forge|Generate|Send|Clip Skip|Clip skip|API|NSFW|PG-13|PG|SFW|VAE|LoRA|X|Model Manager|"
                      r"Flux\.1|Chroma|Flux\.2|Klein|Lumina|Image|Z-Image|Anima|Wan|Qwen-Image|Krea|ERNIE-Image|"
-                     r"PiD|Your generations|Sync images|Hide explicit images by default)\b")
+                     r"PiD|MOSS-Image|Your generations|Sync images|Hide explicit images by default)\b")
 
 
 def naming_problems(setting: Setting) -> List[str]:

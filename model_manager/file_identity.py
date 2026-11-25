@@ -222,6 +222,17 @@ def _layout(shapes: Shapes) -> Tuple[Optional[str], str]:
         return "krea", "Krea 2's text fusion blocks"
     if has(r"double_blocks|single_blocks|single_transformer_blocks"):
         return _flux(flat, width)
+    if has(r"layers_\d+_proj_(ffn_(up_gate|down)|qkv|[qkvo])(_|$)"):
+        return "moss", "MOSS-Image's layers"
+    if has(r"transformer_blocks_\d+_img_mlp_(gate_up|gate_layer|proj|out)(_|$)"):
+        return "qwen21", "Qwen-Image 2.1's gated layers"
+    # A LoRA on its attention alone. Flux.2 Klein 9B's is as wide, in 8 blocks
+    # of this name (0 to 7) with add_ layers beside it; Qwen-Image 2.1 has 32
+    # blocks, and no add_ layers.
+    if width(r"transformer_blocks_\d+_attn_to_[qkv]") == 4096 \
+            and has(r"transformer_blocks_([89]|\d\d+)_attn_to_[qkv]") \
+            and not has(r"transformer_blocks_\d+_attn_add_"):
+        return "qwen21", "Qwen-Image 2.1's attention, 4096 wide"
     if has(r"transformer_blocks_\d+_(img_mlp|txt_mlp|img_mod|txt_mod)"):
         return "qwen", "Qwen-Image's image and text streams"
     if has(r"blocks_\d+_(self_attn_q_proj|mlp_layer1|adaln_modulation)|llm_adapter"):
@@ -359,6 +370,11 @@ _EMBEDDING_NAMES = ("embed_tokens.weight", "token_embedding.weight", "shared.wei
 _T5_LOADABLE = ("encoder.block.0.layer.0.SelfAttention.k.weight",
                 "encoder.block.0.layer.0.SelfAttention.k.qweight")
 
+# The same for Qwen3.5: its own layout, or a GGUF, which the loader renames to
+# it. A text-only copy saved as model.layers.N is taken for Ministral there,
+# and its width stops the load.
+_QWEN35_LOADABLE = ("model.language_model.embed_tokens.weight", "token_embd.weight")
+
 # A VAE's latent channels, from its decoder's first convolution -> its kind.
 _LATENT_CHANNELS = {4: "vae_sd", 16: "vae_ae", 32: "vae_flux2"}
 
@@ -376,8 +392,8 @@ def classify(shapes: Dict[str, Tuple[Tuple[int, ...], str]],
 
     A whole checkpoint is None: Forge lists files in its VAE folder as
     modules whatever they are, and a checkpoint loaded as one is not a VAE.
-    `loadable_only=False` names a T5 or UMT5 even in a layout Forge cannot
-    load - it is still a text encoder, just not one to pick.
+    `loadable_only=False` names a T5, UMT5 or Qwen3.5 even in a layout Forge
+    cannot load - it is still a text encoder, just not one to pick.
     """
     names = list(shapes)
     if any(n.startswith(("model.diffusion_model.", "first_stage_model.", "conditioner."))
@@ -394,6 +410,8 @@ def classify(shapes: Dict[str, Tuple[Tuple[int, ...], str]],
                 if kind in ("t5xxl", "umt5xxl") and loadable_only \
                         and not any(k in shapes for k in _T5_LOADABLE):
                     return None         # right encoder, in a layout Forge cannot load
+                if kind == "qwen35_9b" and loadable_only and name not in _QWEN35_LOADABLE:
+                    return None
                 if kind:
                     return kind
 

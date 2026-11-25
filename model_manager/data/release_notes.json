@@ -1,5 +1,21 @@
 [
     {
+        "id": "newer-families-0-84-2",
+        "version": "0.84.2",
+        "kind": "action",
+        "audience": "update",
+        "when": "newer_presets",
+        "tabs": [
+            "model_manager"
+        ],
+        "title": "Qwen-Image 2.1 and MOSS-Image files: sync once to have them read again",
+        "text": "Until 0.84, a MOSS-Image checkpoint or text encoder was recorded as Unknown, so Send said the checkpoint was missing after its download, and a Qwen-Image 2.1 checkpoint was set up as Qwen-Image. Their LoRAs and Qwen-Image 2.1's text encoder were recorded under another family, or under none. New files are read correctly now, but files already in your library keep what was recorded. If you have any file of either family, sync once from this WebUI with \u201cRead every file's header again\u201d ticked - it reads only each file's header, so it adds little time.",
+        "action": {
+            "id": "reread_headers",
+            "label": "Open Sync"
+        }
+    },
+    {
         "id": "comfy-fill-0-81-6",
         "version": "0.81.6",
         "kind": "action",

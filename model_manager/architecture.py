@@ -51,6 +51,8 @@ PRESET_BY_CLASS = {
     "WAN21_T2V": "wan",
     "WAN21_I2V": "wan",
     "QwenImage": "qwen",
+    "QwenImage21": "qwen21",
+    "MOSSImage": "moss",
     "Krea2": "krea",
     "ErnieImage": "ernie",
     "PiD": "pid",
@@ -75,6 +77,7 @@ PRESET_BY_BASE_MODEL = (
     ("Flux.2 Klein", "klein"),
     ("Chroma", "flux"),
     ("Krea 2", "krea"),
+    ("Qwen 2.1", "qwen21"),
     ("Qwen", "qwen"),
     ("ZImage", "zit"),
     ("Z-Image", "zit"),
@@ -85,6 +88,7 @@ PRESET_BY_BASE_MODEL = (
     ("Wan Video 3.0", None),
     ("Wan Video", "wan"),
     ("Ernie", "ernie"),
+    ("MOSS Image", "moss"),
 )
 
 # safetensors dtype names, as torch dtypes by attribute name. Resolved when

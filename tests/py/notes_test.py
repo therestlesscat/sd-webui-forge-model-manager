@@ -136,6 +136,25 @@ shared.opts.model_manager_database_path = r'F:\elsewhere\models.db'
 check('and is with one', ids(rn.notes_for(db, 'civitai_browser')), ['browser-only', 'shared-only'])
 shared.opts.model_manager_database_path = ''
 
+# Reading every header again is asked only where this WebUI has one of the two
+# newer presets: in the original Forge the press stores the wrong families
+# (#394), so its notes are never for it (#441).
+import model_manager.forge_host as host                  # noqa: E402
+asks = next((n for n in shipped if n['id'] == 'newer-families-0-84-2'), {})
+check('441. the note asks for a sync that reads every header again, of libraries from before it',
+      (asks.get('version'), asks.get('when'), asks.get('audience'), asks.get('tabs'), (asks.get('action') or {}).get('id'),
+       asks.get('replaces'), asks.get('important')),
+      ('0.84.2', 'newer_presets', 'update', ['model_manager'], 'reread_headers', None, None))
+real_presets = host.available_presets
+shown = {}
+for name, presets in (('moss', ['sd', 'xl', 'moss']), ('qwen21', ['sd', 'qwen21']), ('an older Neo', ['sd', 'xl', 'qwen', 'krea']),
+                      ('the original Forge', ['sd', 'xl', 'flux', 'all']), ('Forge not answering', None)):
+    host.available_presets = lambda presets=presets: presets
+    shown[name] = bool(asks) and rn.applies(asks, '0.80.0')
+host.available_presets = real_presets
+check('441. it is for a WebUI with either preset, and for no other', shown,
+      {'moss': True, 'qwen21': True, 'an older Neo': False, 'the original Forge': False, 'Forge not answering': False})
+
 with db._cursor() as cursor:
     cursor.execute("DELETE FROM schema_info WHERE key = ?", (rn.CREATED_BY,))
 check('a database from before notes were kept sees them all, newest first - but no introduction',

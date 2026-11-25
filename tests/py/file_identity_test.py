@@ -13,6 +13,7 @@ A .ckpt or .pt is a pickle, which an ordinary unpickler runs as it loads.
 Its shapes are read here without running anything in it; a pickle that
 would create a file, and does under pickle.load, is checked not to.
 """
+import gzip
 import io
 import json
 import os
@@ -126,6 +127,57 @@ check('at 4096 it is Klein 9B',
 check('Qwen-Image by its image and text streams',
       what(lora(['diffusion_model.transformer_blocks.0.img_mlp.net.0.proj'], 3072, 12288, style='peft')),
       ('LORA', 'qwen'))
+# Published files' headers (tests/family_headers.json.gz), with Forge's
+# detector refusing them, as the original Forge's and an older Neo's do (#441).
+with gzip.open(os.path.join(TESTS, 'family_headers.json.gz'), 'rt', encoding='utf-8') as f:
+    HEADERS = {name: entry['tensors'] for name, entry in json.load(f)['files'].items()}
+told = lambda *names: {what(HEADERS[name]) for name in names}
+def attention(blocks, extra=()):
+    """A LoRA on the attention of `blocks`, 4096 wide, in diffusers' names."""
+    return lora([f'transformer.transformer_blocks.{i}.attn.{k}' for i in blocks for k in ('to_q', 'to_k', 'to_v', *extra)],
+                4096, 4096, style='peft')
+
+
+check('441. MOSS-Image checkpoints, plain and int8', told('moss_bf16', 'moss_base', 'moss_int8'), {('Checkpoint', 'moss')})
+check('441. and its LoRAs, in ComfyUI\'s names and diffusers\'',
+      told('moss_lora_edit', 'moss_lora_depth', 'moss_lora_gouache', 'moss_lora_gouache_comfy'), {('LORA', 'moss')})
+check('441. in kohya\'s names too', what(lora(['lora_unet_layers_0_proj_ffn_up_gate'], 3072, 16384)), ('LORA', 'moss'))
+check('441. Qwen-Image 2.1 checkpoints, plain, int8 and an fp8 no detector reads',
+      told('q21_bf16', 'q21_int8', 'q21_fp8'), {('Checkpoint', 'qwen21')})
+check('441. and its LoRAs, one on its attention alone among them',
+      told('q21_lora_pq', 'q21_lora_turbo', 'q21_lora_light', 'q21_lora_viggle', 'q21_lora_v2rl'), {('LORA', 'qwen21')})
+check('441. by any one of their layers',
+      {what(lora([f'transformer_blocks.0.img_mlp.{k}'], 4096, 12288, style='peft'))
+       for k in ('gate_up', 'gate_layer', 'proj', 'out')}, {('LORA', 'qwen21')})
+check('441. MOSS-Image too',
+      {what(lora([f'diffusion_model.layers.0.proj.{k}'], 3072, 3072, style='peft'))
+       for k in ('ffn_up_gate', 'ffn_down', 'qkv', 'q', 'k', 'v', 'o')}, {('LORA', 'moss')})
+check('441. by its attention\'s to_k or to_v alone',
+      {what(lora([f'transformer_blocks.31.attn.{k}'], 4096, 4096, style='peft')) for k in ('to_q', 'to_k', 'to_v')},
+      {('LORA', 'qwen21')})
+check('441. a layer whose name only starts as one of theirs is no one\'s, or Qwen-Image\'s, as before',
+      [what(lora([name], 3072, 3072, style='peft')) for name in
+       ('layers.0.proj_out', 'layers.0.proj.output', 'transformer_blocks.0.img_mlp.output')],
+      [('LORA', None), ('LORA', None), ('LORA', 'qwen')])
+check('441. Flux-style blocks are Flux\'s, whatever is beside them',
+      what({**lora(['lora_unet_single_blocks_0_linear2'], 15360, 3072), **lora(['layers.0.proj.q'], 3072, 3072),
+            **attention(range(32))}), ('LORA', 'flux'))
+check('441. Qwen-Image\'s stay its own, as before', [what(HEADERS[n]) for n in ('qwen_image', 'qwen_lora')],
+      [('Checkpoint', 'qwen'), ('LORA', 'qwen')])
+check('441. as do Klein 9B\'s LoRAs, ERNIE-Image and Flux.2 dev',
+      [what(HEADERS[n]) for n in ('klein_lora_diff', 'klein_lora_comfy', 'ernie', 'flux2_dev')],
+      [('LORA', 'klein'), ('LORA', 'klein'), ('Checkpoint', 'ernie'), ('Checkpoint', 'klein')])
+check('441. and what is still not told: Qwen-Image 2.1\'s ControlNet, its VAE in diffusers\' layout',
+      told('q21_cn_ali', 'q21_vae_fix_diff'), {('Unknown', None)})
+
+
+check('441. attention 4096 wide in a block past Klein 9B\'s eight is Qwen-Image 2.1\'s',
+      [what(attention(blocks)) for blocks in (range(32), [8], [9], [31])], [('LORA', 'qwen21')] * 4)
+check('441. in its eight, either\'s: not told, as before', what(attention(range(8))), ('LORA', None))
+check('441. nor beside add_ layers, which Qwen-Image 2.1 has none of',
+      what(attention(range(32), ['add_q_proj'])), ('LORA', None))
+check('441. nor at another width', what(lora(['transformer_blocks.9.attn.to_q'], 3072, 3072, style='peft')), ('LORA', None))
+
 check('Wan by its self- and cross-attention',
       what(lora(['diffusion_model.blocks.0.cross_attn.k'], 5120, 5120, style='peft')), ('LORA', 'wan'))
 check('as kohya names them too',

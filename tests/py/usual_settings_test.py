@@ -108,7 +108,7 @@ send.forge_lists = lambda: (SAMPLERS, SCHEDULERS)
 # Neo's presets module, as forge_host_test stands it in.
 presets = types.ModuleType('modules_forge.presets')
 presets.use_distill = lambda arch: arch in ('flux',)
-presets.use_shift = lambda arch: arch in ('xl', 'lumina', 'zit', 'wan', 'anima', 'ernie', 'pid', 'krea')
+presets.use_shift = lambda arch: arch in ('xl', 'lumina', 'zit', 'wan', 'anima', 'ernie', 'pid', 'krea', 'moss')
 sys.modules['modules_forge.presets'] = presets
 host.is_neo = lambda: True
 

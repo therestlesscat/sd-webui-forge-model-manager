@@ -121,6 +121,11 @@ found = arch.detect(sdxl, guess=forge_says(SDXL()))
 check('an SDXL checkpoint bundles its text encoders, found as Forge finds them',
       (found.preset, found.bundled_text_encoder, found.bundled_vae), ('xl', True, True))
 
+for cls, preset in (('QwenImage21', 'qwen21'), ('MOSSImage', 'moss')):
+    newer = type(cls, (), {'vae_key_prefix': ['vae.'], 'text_encoder_key_prefix': ['text_encoders.']})
+    found = arch.detect(flux_file, guess=forge_says(newer()))
+    check('441. Neo\'s class %s is the %s preset\'s' % (cls, preset),
+          (found.preset, found.model_class, found.file_type) if found else None, (preset, cls, 'Checkpoint'))
 check('a class with no Forge Neo preset is not recognised',
       arch.detect(flux_file, guess=forge_says(SD3())), None)
 
@@ -151,7 +156,9 @@ BASE_MODELS = {
     'flux': ('Flux.1 S', 'Flux.1 D', 'Flux.1 Krea', 'Flux.1 Kontext', 'Chroma'),
     'klein': ('Flux.2 Klein 9B', 'Flux.2 Klein 9B-base', 'Flux.2 Klein 4B', 'Flux.2 Klein 4B-base'),
     'krea': ('Krea 2', 'Krea 2 Turbo'),
-    'qwen': ('Qwen', 'Qwen 2', 'Qwen 2.1', 'Qwen 3'),
+    'qwen': ('Qwen', 'Qwen 2', 'Qwen 3'),
+    'qwen21': ('Qwen 2.1',),
+    'moss': ('MOSS Image',),
     'zit': ('ZImageTurbo', 'ZImageBase'),
     'lumina': ('Lumina',),
     'anima': ('Anima',),
@@ -159,7 +166,7 @@ BASE_MODELS = {
     'wan': ('Wan Video 1.3B t2v', 'Wan Video 14B t2v', 'Wan Video 14B i2v 480p', 'Wan Video 14B i2v 720p',
             'Wan Video 2.2 TI2V-5B', 'Wan Video 2.2 I2V-A14B', 'Wan Video 2.2 T2V-A14B'),
     None: ('Pony V7', 'Flux.2 D', 'Wan Video 2.5 T2V', 'Wan Video 2.5 I2V', 'Wan Video 2.7', 'Wan Video 3.0',
-           'AuraFlow', 'CogVideoX', 'Flux.3', 'Flux.3 Klein', 'Flux.3 Klein-base', 'MOSS Image', 'Flux 3 Video',
+           'AuraFlow', 'CogVideoX', 'Flux.3', 'Flux.3 Klein', 'Flux.3 Klein-base', 'Flux 3 Video',
            'Grok', 'HappyHorse', 'HiDream', 'HiDream-O1', 'Hunyuan 1', 'Hunyuan Video', 'Ideogram 4.0', 'Boogu',
            'Kolors', 'LTXV', 'LTXV2', 'LTXV 2.3', 'LTXV 2.5', 'Lens', 'MageFlow', 'MAI', 'Mochi', 'Upscaler',
            'Other', 'PixArt a', 'PixArt E', 'SD 2.0', 'SD 2.1', 'Reve', 'Muse Image', 'Wan Image 2.7',

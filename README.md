@@ -14,6 +14,12 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.84 - Qwen-Image 2.1 and MOSS-Image.** Send sets Forge Neo up for its two newer model families:
+the UI preset, the checkpoint, and the text encoder and VAE each needs, with a setting for each to name
+your own. Their files are told from the older families', so installing Qwen-Image 2.1's no longer makes
+Send pick its VAE for Qwen-Image, Krea 2 or Anima. Sync once from Forge Neo with **Read every file's
+header again** to have the ones you have read anew.
+
 **0.83 - Checkpoint base models in Resources.** Open an image's Resources dialog to see
 which base model its checkpoint version uses before you download it, and which tab of your
 checkpoints it belongs under. The row shows the base model when Civitai supplies it, and the
@@ -581,7 +587,7 @@ first under **Settings -> Model Manager** too.
 | Use the image's Clip skip | on | When on, and an image was made with a clip skip other than your Clip Skip setting, Send adds the image's value to the tab's Override settings and says so, so the image can be made again as it was. It applies to the images you generate while it is there; your own setting does not change, and the next Send replaces it. Flux images are left alone, because clip skip changes nothing there. When off, clip skip is left to Forge's own paste, which Forge Neo ignores. |
 | Highest Clip skip | 6 | When an image's clip skip is above this number, Send leaves it out of Override settings, your own Clip Skip applies, and Send's notice says so. Most models are made for 1 or 2. |
 | Update LoRA tags in the prompt to your file names | on | When an image names a LoRA you have under another file name, the extension changes that tag in your prompt to your file's name, so Forge loads it: `<lora:anime_style_v2:0.8>` becomes `<lora:AnimeStyle-v2.0:0.8>`. A download from the Resources dialog does the same once its file arrives. When off, your prompt keeps the image's names, and a LoRA chip's press puts your file's tag in beside the image's. A download from a chip still changes that chip's tag, as you pressed it. |
-| *Preset* text encoders and VAE | empty | One per Forge Neo preset: Flux.1 / Chroma, Flux.2 Klein, Lumina Image 2.0, Z-Image, Anima, Wan, Qwen-Image, Krea 2, ERNIE-Image, PiD. File names to select for that preset's models, comma-separated. Empty picks the highest-precision file installed; name an fp8 or GGUF file to use a smaller one. Each setting says what the model needs and links to the files |
+| *Preset* text encoders and VAE | empty | One per Forge Neo preset: Flux.1 / Chroma, Flux.2 Klein, Lumina Image 2.0, Z-Image, Anima, Wan, Qwen-Image, Qwen-Image 2.1, Krea 2, ERNIE-Image, PiD, MOSS-Image. File names to select for that preset's models, comma-separated. Empty picks the highest-precision file installed; name an fp8 or GGUF file to use a smaller one. Each setting says what the model needs and links to the files |
 
 **Generations**
 
@@ -635,9 +641,11 @@ page lists them all.
 | Anima | Qwen3 0.6B, Qwen-Image VAE |
 | Wan | UMT5-XXL (Hugging Face layout), Wan 2.1 VAE |
 | Qwen-Image | Qwen2.5-VL 7B, Qwen-Image VAE |
+| Qwen-Image 2.1 | Qwen3-VL 8B, Qwen-Image 2.1 VAE |
 | Krea 2 | Qwen3-VL 4B, Qwen-Image VAE |
 | ERNIE-Image | Ministral 3 3B, Flux.2 VAE |
 | PiD | Gemma 2 2B IT; the VAE depends on the model |
+| MOSS-Image | Qwen3.5 9B, Flux.2 VAE |
 
 When nothing is set, Send to txt2img uses Forge's saved choice for the preset if it is
 the right kind of file, and otherwise the file with the highest precision. A file named in

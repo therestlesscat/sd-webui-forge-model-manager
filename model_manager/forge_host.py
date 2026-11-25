@@ -117,9 +117,11 @@ DEFAULTS = {
     "model_manager_modules_anima": "",
     "model_manager_modules_wan": "",
     "model_manager_modules_qwen": "",
+    "model_manager_modules_qwen21": "",
     "model_manager_modules_krea": "",
     "model_manager_modules_ernie": "",
     "model_manager_modules_pid": "",
+    "model_manager_modules_moss": "",
     # Sync images (#233): the folders a person added, one per line; Forge's
     # result folders left unticked, by their setting's key, one per line;
     # the level the dialog starts from for an image with no text; and

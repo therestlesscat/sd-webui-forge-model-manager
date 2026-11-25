@@ -130,15 +130,25 @@ check('441. Qwen-Image\'s and Wan 2.1\'s, decoding 16, are one kind, as before',
 check('441. as is one whose first convolution is not there, or decodes another number',
       (fi.classify(vae(wan=True)), fi.classify(vae(32, wan=True))), ('vae_wan21', 'vae_wan21'))
 check('441. MOSS-Image\'s VAE is the Flux.2 VAE, as before', kinds_of('moss_vae', 'moss_vae_small'), {'vae_flux2'})
-told = {name: fi.identify_shapes(shapes, guess=lambda s: (_ for _ in ()).throw(ValueError()))
-        for name, shapes in HEADERS.items()}
+MODULE_FILES = ('q21_vae', 'q21_vae_fix', 'qwen_vae', 'wan_vae', 'wan22_vae', 'moss_vae', 'moss_vae_small', 'klein_te',
+                'qwen3vl8_bf16', 'qwen3vl8_int8', 'qwen3vl8_w4a8', 'qwen3vl8_fp8', 'moss_te_bf16', 'moss_te_int8',
+                'moss_te_w4a8')
+told = {name: fi.identify_shapes(HEADERS[name], guess=lambda s: (_ for _ in ()).throw(ValueError()))
+        for name in MODULE_FILES}
 check('441. each file is a text encoder or a VAE',
       ({name for name, found in told.items() if found.file_type == 'VAE'},
        {found.file_type for found in told.values()}),
       ({'q21_vae', 'q21_vae_fix', 'qwen_vae', 'wan_vae', 'wan22_vae', 'moss_vae', 'moss_vae_small'},
        {'VAE', 'Text Encoder'}))
-check('441. none is filed under a family that does not use it; Klein 9B\'s is, as before',
-      ({name: found.preset for name, found in told.items() if found.preset}), {'klein_te': 'klein'})
+check('441. each is filed under the one family that uses it; one that several use, under none',
+      {preset: {name for name, found in told.items() if found.preset == preset}
+       for preset in {found.preset for found in told.values()}},
+      {'klein': {'klein_te'}, 'moss': {'moss_te_bf16', 'moss_te_int8', 'moss_te_w4a8'},
+       'qwen21': {'q21_vae', 'q21_vae_fix', 'qwen3vl8_bf16', 'qwen3vl8_int8', 'qwen3vl8_w4a8', 'qwen3vl8_fp8'},
+       None: {'qwen_vae', 'wan_vae', 'wan22_vae', 'moss_vae', 'moss_vae_small'}})
+check('441. Qwen3.5 in a layout Neo\'s loader does not take is a text encoder, and not one to pick',
+      [(fi.classify(te(248320, 4096, name=name)), fi.classify(te(248320, 4096, name=name), loadable_only=False))
+       for name in ('model.embed_tokens.weight', 'language_model.embed_tokens.weight')], [(None, 'qwen35_9b')] * 2)
 
 # What Send picked with the new files installed: each of another family's
 # came first, in the alphabet or by its finer weights.
@@ -156,6 +166,18 @@ check('441. Wan 2.1 keeps its own beside Wan 2.2\'s',
 check('441. Klein 9B keeps Qwen3 8B beside Qwen3-VL 8B',
       fm.pick('Flux2K9B', 'klein', False, False, NEWER, [])['select'],
       ['qwen_3_8b_fp8mixed.safetensors', 'flux2-vae.safetensors'])
+NEWER.update({label: (fi.classify(HEADERS[name]), 2) for label, name in (
+    ('qwen3.5_9b_int8_convrot.safetensors', 'moss_te_int8'), ('ae2.safetensors', 'moss_vae_small'))})
+check('441. Qwen-Image 2.1 gets Qwen3-VL 8B and its own VAE',
+      [fm.pick(cls, 'qwen21', False, False, NEWER, [])['select'] for cls in ('QwenImage21', None)],
+      [['qwen3vl_8b_bf16.safetensors', 'qwen_image_2.1_vae_bf16.safetensors']] * 2)
+check('441. MOSS-Image gets Qwen3.5 9B and the Flux.2 VAE, the one named for it first',
+      [fm.pick(cls, 'moss', False, False, NEWER, [])['select'] for cls in ('MOSSImage', None)],
+      [['qwen3.5_9b_int8_convrot.safetensors', 'flux2-vae.safetensors']] * 2)
+check('441. what is not installed is said missing',
+      [fm.pick(cls, preset, False, False, {'flux2-vae.safetensors': ('vae_flux2', 2)}, [])['missing']
+       for cls, preset in (('QwenImage21', 'qwen21'), ('MOSSImage', 'moss'))],
+      [['qwen3vl_8b', 'vae_qwen21'], ['qwen35_9b']])
 check('441. with only the other family\'s VAE installed, its own is said missing',
       fm.pick('QwenImage', 'qwen', True, False, {'qwen_image_2.1_vae_bf16.safetensors':
                                                  NEWER['qwen_image_2.1_vae_bf16.safetensors']}, []),

@@ -1328,6 +1328,31 @@
    "switch": null,
    "value": ""
   },
+  "model_manager_modules_qwen21": {
+   "label": "Text encoders and VAE Send picks for Qwen-Image 2.1",
+   "info": "Needs Qwen3-VL 8B and Qwen-Image 2.1 VAE. Download: qwen3vl_8b bf16, qwen3vl_8b int8, qwen_image_2.1_vae",
+   "kind": "text",
+   "default": "",
+   "placeholder": "qwen3vl_8b_int8_convrot.safetensors, qwen_image_2.1_vae_bf16.safetensors",
+   "name": "Qwen-Image 2.1 text encoders and VAE",
+   "group": "send",
+   "heading": "Shared across tabs",
+   "tags": [
+    "queue",
+    "send"
+   ],
+   "listed_in": [
+    "queue",
+    "generations",
+    "gallery",
+    "model_manager"
+   ],
+   "shown_with": [],
+   "under": null,
+   "badges": [],
+   "switch": null,
+   "value": ""
+  },
   "model_manager_modules_krea": {
    "label": "Text encoders and VAE Send picks for Krea 2",
    "info": "Needs Qwen3-VL 4B and Qwen-Image VAE. Download: qwen3vl_4b bf16, qwen3vl_4b fp8, qwen_image_vae",
@@ -1385,6 +1410,31 @@
    "default": "",
    "placeholder": "gemma_2_2b_it_elm_fp8_scaled.safetensors",
    "name": "PiD text encoders and VAE",
+   "group": "send",
+   "heading": "Shared across tabs",
+   "tags": [
+    "queue",
+    "send"
+   ],
+   "listed_in": [
+    "queue",
+    "generations",
+    "gallery",
+    "model_manager"
+   ],
+   "shown_with": [],
+   "under": null,
+   "badges": [],
+   "switch": null,
+   "value": ""
+  },
+  "model_manager_modules_moss": {
+   "label": "Text encoders and VAE Send picks for MOSS-Image",
+   "info": "Needs Qwen3.5 9B and Flux.2 VAE. Download: qwen3.5_9b bf16, qwen3.5_9b int8, flux2-vae",
+   "kind": "text",
+   "default": "",
+   "placeholder": "qwen3.5_9b_int8_convrot.safetensors, flux2-vae.safetensors",
+   "name": "MOSS-Image text encoders and VAE",
    "group": "send",
    "heading": "Shared across tabs",
    "tags": [
@@ -1937,9 +1987,11 @@
   "model_manager_modules_anima",
   "model_manager_modules_wan",
   "model_manager_modules_qwen",
+  "model_manager_modules_qwen21",
   "model_manager_modules_krea",
   "model_manager_modules_ernie",
   "model_manager_modules_pid",
+  "model_manager_modules_moss",
   "model_manager_generations_delete_files",
   "model_manager_generations_keep_inputs",
   "model_manager_image_sync_level",

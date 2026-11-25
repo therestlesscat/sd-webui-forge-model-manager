@@ -10,7 +10,10 @@ never selected. The order: the gallery's checkpoint, the image's installed
 checkpoint, the gallery file's own model, the image's checkpoint on Civitai,
 the gallery's baseModel. Each is checked here on its own.
 """
+import gzip
+import json
 import os
+import struct
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -273,6 +276,26 @@ CIVITAI[('v', '9007')] = {'baseModel': 'Wan Video 2.7', 'files': []}
 check('    by a version id alone: the base model is named the same way',
       [named(file_path=lora, version_ids=[v]) for v in (9006, 9007)],
       [{'unsupported': 'Flux.2 D', 'name': ''}, {'unsupported': 'Wan Video 2.7', 'name': ''}])
+
+# A checkpoint of the two newer families, read from a published file's header
+# (#441): MOSS-Image's was of no type, and said missing after its download;
+# Qwen-Image 2.1's was Qwen-Image's.
+with gzip.open(os.path.join(TESTS, 'family_headers.json.gz'), 'rt', encoding='utf-8') as f:
+    HEADERS = json.load(f)['files']
+for key, (name, vid) in {'moss': ('moss_bf16', 441001), 'qwen21': ('q21_bf16', 441002)}.items():
+    newer = os.path.join(facts['directory'], name + '.safetensors')
+    header = json.dumps({n: {'dtype': 'BF16', 'shape': s, 'data_offsets': [0, 0]}
+                         for n, s in HEADERS[name]['tensors'].items()}).encode()
+    with open(newer, 'wb') as f:
+        f.write(struct.pack('<Q', len(header)) + header)
+    db.upsert_version({'file_path': newer, 'file_name': name + '.safetensors', 'id': vid, 'model_id': vid + 1000,
+                       'has_civitai_data': True})
+    store.record_architecture(db, newer, force=True)
+    check('12. an image naming a %s checkpoint the library holds: that file' % key,
+          named(file_path=lora, version_ids=[vid]), {'path': newer})
+    check('    set up for its own family', plan(file_path=vae, version_ids=[vid]), (key, 'image'))
+check('    and one only Civitai knows, by its base model',
+      [plan(file_path=vae, base_model=b)[0] for b in ('Qwen 2.1', 'MOSS Image', 'Qwen')], ['qwen21', 'moss', 'qwen'])
 
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

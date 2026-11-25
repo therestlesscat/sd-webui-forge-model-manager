@@ -33,7 +33,9 @@ A note is:
               "twin_files", a file recorded under its twin's Civitai id;
               "synced_without_prompt", a synced image with no prompt;
               "synced_before_workflow", that or a synced image whose prompts
-              were read before ComfyUI's workflow could be - or
+              were read before ComfyUI's workflow could be;
+              "newer_presets", this WebUI has the UI preset of Qwen-Image 2.1
+              or MOSS-Image, as the original Forge has not - or
               "repair:<name>", while that repair has work here (repairs/)
     important optional true: shown first, headed [Important] - for what
               everyone should read, not only what needs doing
@@ -119,10 +121,23 @@ def forget_kept() -> None:
         _kept.clear()
 
 
+def _newer_presets() -> bool:
+    """
+    Whether this WebUI has the UI preset of Qwen-Image 2.1 or MOSS-Image, whose
+    files were read as another family's or as nothing (#441). Where the two
+    WebUIs share a database, reading every header again is only for such a
+    one: the original Forge's detector would store Chroma and Flux.2 Klein as
+    Flux Schnell (#394). False where Forge cannot be asked.
+    """
+    from .forge_host import available_presets
+    return bool({"qwen21", "moss"} & set(available_presets() or []))
+
+
 # Conditions a note can be for, by the name its "when" gives.
 CONDITIONS = {"custom_database": _custom_database, "twin_files": _twin_files,
               "synced_without_prompt": _synced_without_prompt,
-              "synced_before_workflow": _synced_before_workflow}
+              "synced_before_workflow": _synced_before_workflow,
+              "newer_presets": _newer_presets}
 
 
 def _holds(when: str) -> bool:

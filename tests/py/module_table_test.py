@@ -104,6 +104,22 @@ check('Forge\'s saved choice for a preset counts, as it does for Send to txt2img
       rows_of(fm.describe_presets(['flux'], INSTALLED, {}, saved_for=lambda p: ['ae_fp8.safetensors']),
               'flux')['ae']['automatic'], 'ae_fp8.safetensors')
 
+newer = fm.describe_presets(['qwen21', 'moss'], INSTALLED, {}, saved_for=lambda preset: [])
+check('441. Qwen-Image 2.1 and MOSS-Image are described where this WebUI has them, by name',
+      [(p['label'], [r['label'] for r in p['rows']]) for p in newer],
+      [('Qwen-Image 2.1', ['Qwen3-VL 8B', 'Qwen-Image 2.1 VAE']), ('MOSS-Image', ['Qwen3.5 9B', 'Flux.2 VAE'])])
+check('441. each of their files with where to get it',
+      [link[1][len(fm.HF):] for p in newer for r in p['rows'] for link in r['links']],
+      ['Comfy-Org/Qwen-Image-2.1/blob/main/text_encoders/qwen3vl_8b_bf16.safetensors',
+       'Comfy-Org/Qwen-Image-2.1/blob/main/text_encoders/qwen3vl_8b_int8_convrot.safetensors',
+       'Comfy-Org/Qwen-Image-2.1/blob/main/vae/qwen_image_2.1_vae_bf16.safetensors',
+       'Comfy-Org/MOSS-Image/blob/main/text_encoders/qwen3.5_9b_bf16.safetensors',
+       'Comfy-Org/MOSS-Image/blob/main/text_encoders/qwen3.5_9b_int8_convrot.safetensors',
+       'Comfy-Org/vae-text-encorder-for-flux-klein-9b/blob/main/split_files/vae/flux2-vae.safetensors'])
+check('441. an older Neo, with neither preset, has neither',
+      [p['preset'] for p in fm.describe_presets(['sd', 'xl', 'qwen', 'krea', 'ernie'], INSTALLED, {}, saved_for=lambda p: [])],
+      ['qwen', 'krea', 'ernie'])
+
 # --------------------------------------------------- the original Forge
 check('in the original Forge, whose presets are sd, xl, flux and all, only Flux is described',
       [p['preset'] for p in fm.describe_presets(['sd', 'xl', 'flux', 'all'], INSTALLED, {},

@@ -48,6 +48,8 @@ class ModuleFile(NamedTuple):
 _KLEIN = "Comfy-Org/vae-text-encorder-for-flux-klein-9b/blob/main/split_files/"
 _WAN = "Comfy-Org/Wan_2.1_ComfyUI_repackaged/blob/main/split_files/"
 _QWEN = "Comfy-Org/Qwen-Image_ComfyUI/blob/main/split_files/"
+_QWEN21 = "Comfy-Org/Qwen-Image-2.1/blob/main/"
+_MOSS = "Comfy-Org/MOSS-Image/blob/main/"
 _QWEN3_4B = (("qwen_3_4b", "Comfy-Org/z_image_turbo/blob/main/split_files/text_encoders/qwen_3_4b.safetensors"),
              ("qwen3_4b fp8", "jiangchengchengNLP/qwen3-4b-fp8-scaled/blob/main/qwen3_4b_fp8_scaled.safetensors"))
 FILES: Dict[str, ModuleFile] = {
@@ -84,6 +86,14 @@ FILES: Dict[str, ModuleFile] = {
     "qwen3vl_4b": ModuleFile("qwen3vl_4b", "Qwen3-VL 4B", (
         ("qwen3vl_4b bf16", "Comfy-Org/Krea-2/blob/main/text_encoders/qwen3vl_4b_bf16.safetensors"),
         ("qwen3vl_4b fp8", "Comfy-Org/Krea-2/blob/main/text_encoders/qwen3vl_4b_fp8_scaled.safetensors"))),
+    "qwen3vl_8b": ModuleFile("qwen3vl_8b", "Qwen3-VL 8B", (
+        ("qwen3vl_8b bf16", _QWEN21 + "text_encoders/qwen3vl_8b_bf16.safetensors"),
+        ("qwen3vl_8b int8", _QWEN21 + "text_encoders/qwen3vl_8b_int8_convrot.safetensors"))),
+    "qwen21_vae": ModuleFile("vae_qwen21", "Qwen-Image 2.1 VAE", (
+        ("qwen_image_2.1_vae", _QWEN21 + "vae/qwen_image_2.1_vae_bf16.safetensors"),)),
+    "qwen35_9b": ModuleFile("qwen35_9b", "Qwen3.5 9B", (
+        ("qwen3.5_9b bf16", _MOSS + "text_encoders/qwen3.5_9b_bf16.safetensors"),
+        ("qwen3.5_9b int8", _MOSS + "text_encoders/qwen3.5_9b_int8_convrot.safetensors"))),
     "ministral3_3b": ModuleFile("ministral3_3b", "Ministral 3 3B", (
         ("ministral-3-3b", "Comfy-Org/ERNIE-Image/blob/main/text_encoders/ministral-3-3b.safetensors"),)),
 }
@@ -104,6 +114,8 @@ CLASS_FILES: Dict[str, Tuple[str, ...]] = {
     "WAN21_T2V": ("umt5xxl", "wan21_vae"),
     "WAN21_I2V": ("umt5xxl", "wan21_vae"),
     "QwenImage": ("qwen25_7b", "qwen_image_vae"),
+    "QwenImage21": ("qwen3vl_8b", "qwen21_vae"),
+    "MOSSImage": ("qwen35_9b", "flux2_vae"),
     "Krea2": ("qwen3vl_4b", "qwen_image_vae"),
     "ErnieImage": ("ministral3_3b", "flux2_vae"),
     "PiD": ("gemma2_2b_it",),
@@ -121,8 +133,8 @@ CLASS_LABELS = {
     "Flux": "Flux.1", "FluxSchnell": "Flux.1 Schnell", "Chroma": "Chroma",
     "Flux2K4B": "Klein 4B", "Flux2K9B": "Klein 9B", "Lumina2": "Lumina Image 2.0",
     "ZImage": "Z-Image", "Anima": "Anima", "WAN21_T2V": "Wan text to video",
-    "WAN21_I2V": "Wan image to video", "QwenImage": "Qwen-Image", "Krea2": "Krea 2",
-    "ErnieImage": "ERNIE-Image", "PiD": "PiD",
+    "WAN21_I2V": "Wan image to video", "QwenImage": "Qwen-Image", "QwenImage21": "Qwen-Image 2.1",
+    "Krea2": "Krea 2", "ErnieImage": "ERNIE-Image", "PiD": "PiD", "MOSSImage": "MOSS-Image",
 }
 
 # What a person calls each family a UI preset runs, the one spelling (#377):
@@ -134,7 +146,7 @@ CLASS_LABELS = {
 FAMILY_NAMES = {
     "sd": "SD 1.x", "sd2": "SD 2.x", "xl": "SDXL", "flux": "Flux.1 / Chroma", "klein": "Flux.2 Klein",
     "lumina": "Lumina Image 2.0", "zit": "Z-Image", "anima": "Anima", "wan": "Wan", "qwen": "Qwen-Image",
-    "krea": "Krea 2", "ernie": "ERNIE-Image", "pid": "PiD",
+    "qwen21": "Qwen-Image 2.1", "krea": "Krea 2", "ernie": "ERNIE-Image", "pid": "PiD", "moss": "MOSS-Image",
 }
 
 # The presets whose modules the settings name: (preset, what it runs, a note).
@@ -146,9 +158,11 @@ MODULE_PRESETS = tuple((preset, FAMILY_NAMES[preset], note) for preset, note in 
     ("anima", ""),
     ("wan", "UMT5-XXL loads only in the Hugging Face layout these links have."),
     ("qwen", ""),
+    ("qwen21", ""),
     ("krea", ""),
     ("ernie", ""),
     ("pid", "Its VAE depends on the model, and is left to you."),
+    ("moss", ""),
 ))
 
 
@@ -169,8 +183,8 @@ def preset_files(preset: str) -> List[Tuple[str, List[str]]]:
 # Civitai's baseModel, for a gallery that is not a checkpoint's own.
 CLASS_FOR_PRESET = {
     "flux": "Flux", "klein": "Flux2K4B", "lumina": "Lumina2", "zit": "ZImage",
-    "anima": "Anima", "wan": "WAN21_T2V", "qwen": "QwenImage", "krea": "Krea2",
-    "ernie": "ErnieImage", "pid": "PiD",
+    "anima": "Anima", "wan": "WAN21_T2V", "qwen": "QwenImage", "qwen21": "QwenImage21",
+    "krea": "Krea2", "ernie": "ErnieImage", "pid": "PiD", "moss": "MOSSImage",
 }
 
 # Among several files of the right kind, one named for the architecture is
@@ -179,6 +193,7 @@ NAME_HINTS = {
     "wan": ("wan",), "qwen": ("qwen",), "krea": ("qwen", "krea"),
     "anima": ("qwen", "anima"), "flux": ("ae", "flux"), "zit": ("ae", "flux"),
     "lumina": ("ae", "flux"), "klein": ("flux2", "klein"), "ernie": ("flux2",),
+    "moss": ("flux2",),
 }
 
 
