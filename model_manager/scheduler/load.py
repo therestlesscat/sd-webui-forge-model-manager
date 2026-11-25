@@ -68,7 +68,7 @@ from ..civitai.images import is_image_address
 from ..console import say
 from ..db import get_models_db
 from ..forge_host import (checkpoint_choice, generate_names, installed_modules,
-                          parse_generation_parameters, paste_outputs)
+                          no_checkpoint, parse_generation_parameters, paste_outputs)
 from ..install import INSTALL_KEY
 from ..tabs import on
 from . import capture, replay
@@ -503,21 +503,63 @@ def corrections(tab: str, infotext: str, record: Optional[Dict[str, Any]],
     return fixes, missing
 
 
+# How long a paste waits for a checkpoint to be selected, and how often it
+# looks (#441): the pick is two calls through the browser, which a busy Forge
+# can delay. The page waits 20 s for the paste (TIMING.loadTask).
+CHECKPOINT_SECONDS = 10
+CHECKPOINT_STEP = 0.05
+
+
+def checkpoint_selected() -> bool:
+    """
+    Wait until Forge has a checkpoint selected; False at the limit, with none.
+    Send picks the checkpoint and presses the paste in one moment, and on a UI
+    preset never used Neo has None selected until the pick arrives: the paste
+    that came first raised on it (#441). Waited on here, only when it is None,
+    so no other Send is slower.
+    """
+    if not no_checkpoint():
+        return True
+    started = time.monotonic()
+    while no_checkpoint():
+        if time.monotonic() - started >= CHECKPOINT_SECONDS:
+            say(f"Send: no checkpoint selected in Forge after {CHECKPOINT_SECONDS} s; pasting without one")
+            return False
+        time.sleep(CHECKPOINT_STEP)
+    say(f"Send: waited {(time.monotonic() - started) * 1000:.0f} ms for Forge to select the checkpoint")
+    return True
+
+
 def paste_values(tab: str, infotext: str, generation_id: Optional[int], outputs: List[Any],
                  skip: Any = None, other_model: bool = False) -> Tuple[List[Any], List[str]]:
     """
     Forge's own paste of an infotext, for these outputs, corrected: each
     output's value, or `skip`. A generation's own paths correct it where
-    the generation is named.
+    the generation is named. Waits for a checkpoint first, where Forge has
+    none selected (checkpoint_selected).
 
     Returns:
         (the values, the names of the files this WebUI does not have, and
         what else the text names that it does not offer - `unavailable`)
+
+    Raises:
+        NoPaste: Forge's paste was not found, or did not answer as expected
+        TaskError: none was selected in time, and Forge's paste cannot go without
     """
     dep = capture.paste_click(tab)
     if dep is None:
         raise NoPaste(f"Forge's paste for {tab} was not found")
-    updates = dep.fn(infotext)
+    selected = checkpoint_selected()
+    try:
+        updates = dep.fn(infotext)
+    except TypeError as e:
+        # What None raises in either Forge's reader; pasted all the same at
+        # the limit, for the original Forge's reads it only for a text that
+        # names a model. Not NoPaste: the page's own paste would meet it too.
+        if selected:
+            raise
+        say(f"Send: Forge's paste for {tab} failed: {e}")
+        raise replay.TaskError("no checkpoint is selected in Forge") from e
     pasted = list(dep.outputs or [])
     if not isinstance(updates, (list, tuple)) or len(updates) != len(pasted):
         raise NoPaste(f"Forge's paste for {tab} answered {type(updates).__name__}, "

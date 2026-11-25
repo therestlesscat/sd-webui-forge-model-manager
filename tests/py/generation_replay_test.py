@@ -19,6 +19,7 @@ Each check runs on its own: on code without these, it fails by name.
 import copy
 import json
 import os
+import re
 import sqlite3
 import sys
 import types
@@ -161,7 +162,9 @@ sd_models.get_closet_checkpoint_match = get_closet_checkpoint_match
 
 
 def parse_generation_parameters(text):
-    """Enough of Forge's parser: the prompt, then the settings line's keys."""
+    """Enough of Forge's parser: the prompt, then the settings line's keys. It
+    reads the selected checkpoint's name, as Neo's does, and raises on None."""
+    os.path.splitext(getattr(opts, 'data', {}).get('sd_model_checkpoint', ''))
     lines = text.strip().split('\n')
     params = {'Prompt': lines[0]}
     for part in lines[-1].split(', ') if len(lines) > 1 else []:
@@ -718,6 +721,147 @@ check("with Forge's paste not found, the text the page pastes itself carries Neo
                                                                'nonce': 'ad3'}))[-1]).get('text', '')),
       True)
 infotext_utils.paste_fields['txt2img']['fields'][:], PASTE.outputs, PASTE.fn = held_paste
+PAGE.fns[1] = PASTE
+
+# ================================================ no checkpoint selected yet
+# Neo has None selected on a switch to a UI preset never used, until Send's
+# pick arrives, and its paste raises on it (#441): the loader waits for one.
+import threading                                         # noqa: E402
+import time                                              # noqa: E402
+from model_manager.install import INSTALL_KEY            # noqa: E402
+
+check('a paste waits 10 s at most, looking every 50 ms',
+      (getattr(load, 'CHECKPOINT_SECONDS', None), getattr(load, 'CHECKPOINT_STEP', None)), (10, 0.05))
+looks, pastes, console = [], [], []
+real_look, real_say = getattr(load, 'no_checkpoint', lambda: False), load.say
+load.no_checkpoint = lambda: (looks.append(1), real_look())[1]
+load.say = console.append
+
+
+def seen_paste(text):
+    pastes.append(opts.data.get('sd_model_checkpoint', 'no such key'))
+    return paste_func(text)
+
+
+def lenient_paste(text):
+    """The original Forge's, on a text that names no model: None is never read."""
+    pastes.append(opts.data['sd_model_checkpoint'])
+    return [{'__type__': 'update', 'value': text.split('\n')[0]}] + [{'__type__': 'update'}] * 6
+
+
+seen_paste.__name__ = lenient_paste.__name__ = 'paste_func'
+PASTE.fn = seen_paste
+
+
+def ask_loader(source, nonce):
+    return load._loader('txt2img', list(range(generate_count)), extras, [None] * generate_count)(
+        json.dumps({'source': source, 'nonce': nonce}))
+
+
+def with_checkpoint(value, fn, later=None, limit=10):
+    """fn's answer with this checkpoint held, set to `later` after 200 ms where given, and how long it took."""
+    del looks[:], pastes[:], console[:]
+    opts.data = {} if value == 'no such key' else {'sd_model_checkpoint': value}
+    load.CHECKPOINT_SECONDS = limit
+    started = time.monotonic()
+    if later is not None:
+        timer = threading.Timer(0.2, lambda: opts.data.update(sd_model_checkpoint=later))
+        timer.start()
+    try:
+        return attempt(fn), time.monotonic() - started
+    finally:
+        if later is not None:
+            timer.join()
+
+
+PASTED = {'kind': 'generation', 'generation': pasted_id}
+before, _ = with_checkpoint('model.safetensors', lambda: ask_loader(PASTED, 'w'))
+check('a checkpoint selected: pasted, no wait made, nothing said of one',
+      (pastes, len(looks) <= 1, [c for c in console if 'checkpoint' in c]), (['model.safetensors'], True, []))
+late, took = with_checkpoint(None, lambda: ask_loader(PASTED, 'w'), later='model.safetensors')
+check('none yet, selected 200 ms later: pasted once, with it selected, short of the limit; every value as with it before',
+      (pastes, late == before, 0.15 < took < 5), (['model.safetensors'], True, True))
+check('looked for every 50 ms: some times, not all the time', 4 <= len(looks) <= 12, True)
+check('and the wait is said in the console, with its length',
+      [bool(re.fullmatch(r'Send: waited \d+ ms for Forge to select the checkpoint', c)) for c in console if 'waited' in c],
+      [True])
+never, took = with_checkpoint(None, lambda: ask_loader(PASTED, 'w'), limit=0.15)
+check('none at all: said in plain words, not as no paste, the setting untouched',
+      (attempt(lambda: {k: json.loads(never[-1]).get(k) for k in ('error', 'no_paste', 'pasted')}), opts.data),
+      ({'error': 'no checkpoint is selected in Forge', 'no_paste': None, 'pasted': None}, {'sd_model_checkpoint': None}))
+check('at the limit set, not later; the console says the wait and what Forge\'s paste raised',
+      (took < 5, [c for c in console if 'no checkpoint selected' in c], any('NoneType' in c for c in console)),
+      (True, ['Send: no checkpoint selected in Forge after 0.15 s; pasting without one'], True))
+check('and every control left as it is on screen',
+      attempt(lambda: [n for n, v in enumerate(never[:-1]) if v != gr.update()]), [])
+held_reader, infotext_utils.parse_generation_parameters = infotext_utils.parse_generation_parameters, lambda t: {}
+PASTE.fn = lenient_paste
+lenient, _ = with_checkpoint(None, lambda: load.paste_values('txt2img', 'a lighthouse', None, OUTPUTS, skip=SKIP), limit=0.15)
+check('none at all, and a paste that does not read it: pasted, as before',
+      attempt(lambda: (pastes, lenient[0][at[id(FIXED[1])]]['value'])), ([None], 'a lighthouse'))
+infotext_utils.parse_generation_parameters = held_reader
+
+
+def wrong_paste(text):
+    raise TypeError('another fault')
+
+
+wrong_paste.__name__ = 'paste_func'
+PASTE.fn = wrong_paste
+check('a TypeError of another cause, a checkpoint selected, keeps its own words',
+      with_checkpoint('model.safetensors', lambda: load.paste_values('txt2img', CIVITAI, None, OUTPUTS, skip=SKIP))[0],
+      'raised TypeError: another fault')
+
+
+def unread_paste(text):
+    raise ValueError('another fault')
+
+
+unread_paste.__name__ = 'paste_func'
+PASTE.fn = unread_paste
+check('and an error of another kind keeps its own, with none selected too',
+      with_checkpoint(None, lambda: load.paste_values('txt2img', CIVITAI, None, OUTPUTS, skip=SKIP), limit=0.15)[0],
+      'raised ValueError: another fault')
+del PAGE.fns[1]
+check("Forge's paste not found: said at once, with none selected and no look for one",
+      (with_checkpoint(None, lambda: load.paste_values('txt2img', CIVITAI, None, OUTPUTS, skip=SKIP), limit=0.15)[0], looks),
+      ("raised NoPaste: Forge's paste for txt2img was not found", []))
+PAGE.fns[1] = PASTE
+PASTE.fn = seen_paste
+for held in ('', 'no such key'):
+    out, took = with_checkpoint(held, lambda: ask_loader(PASTED, 'w'))
+    check('%s: pasted, no wait made' % (repr(held) if held == '' else held),
+          (pastes, len(looks) <= 1, out == before, took < 5), ([held], True, True, True))
+del opts.data, looks[:]
+PASTE.fn = paste_func
+check('Forge keeps no such dictionary: pasted, no wait made',
+      (attempt(lambda: load.paste_values('txt2img', CIVITAI, None, OUTPUTS, skip=SKIP)) == pasted, len(looks) <= 1),
+      (True, True))
+PASTE.fn = seen_paste
+out, took = with_checkpoint(None, lambda: ask_loader({'kind': 'generation', 'generation': generation_id,
+                                                     'image': second['id']}, 'w'), limit=0.15)
+check('a kept press set back: with none selected, no look, no wait, no paste',
+      (attempt(lambda: json.loads(out[-1]).get('replayed')), looks, pastes), (True, [], []))
+own_task = db.add_task({'install': INSTALL_KEY, 'mode': 'txt2img', 'inputs': generation_inputs})
+out, took = with_checkpoint(None, lambda: ask_loader({'kind': 'task', 'task': own_task}, 'w'), limit=0.15)
+check('a task loaded: the same',
+      (attempt(lambda: (json.loads(out[-1]).get('task'), json.loads(out[-1]).get('error'))), looks, pastes),
+      ((own_task, None), [], []))
+empty_id = db.record_generation(
+    {'created_at': '2026-10-27T12:02:00', 'mode': 'txt2img', 'prompt': '', 'n_iter': 1, 'batch_size': 1, 'image_count': 1},
+    [{'position': 0, 'iteration': 0, 'path': 'n.png', 'prompt': '', 'seed': 1, 'subseed': 1, 'negative_prompt': '',
+      'infotext': ''}], [[]])
+out, took = with_checkpoint(None, lambda: ask_loader({'kind': 'generation', 'generation': empty_id}, 'w'), limit=0.15)
+check('an image with no data: the same', (attempt(lambda: json.loads(out[-1]).get('empty')), looks, pastes), (True, [], []))
+held_values, load.generation_values = load.generation_values, lambda *a, **k: 1 / 0
+out, took = with_checkpoint(None, lambda: ask_loader({'kind': 'generation', 'generation': generation_id,
+                                                     'image': second['id']}, 'w'), later='model.safetensors')
+load.generation_values = held_values
+check('a kept press that cannot be set back is pasted, the checkpoint waited for',
+      (attempt(lambda: json.loads(out[-1]).get('pasted')), pastes), (True, ['model.safetensors']))
+load.no_checkpoint, load.say, PASTE.fn = real_look, real_say, paste_func
+load.CHECKPOINT_SECONDS = 10
+del opts.data, PAGE.fns[1]
 answer = attempt(lambda: load._loader('txt2img', list(range(generate_count)), extras)(
     json.dumps({'source': {'kind': 'generation', 'generation': pasted_id}, 'nonce': 'p2'})))
 check('with Forge\'s paste not found, nothing is set and the page is told to paste itself',

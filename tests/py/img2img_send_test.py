@@ -114,6 +114,7 @@ def generation_values(tab, generation_id, image_id, skip=None, other_model=False
     return values, [], []
 
 
+real_paste_values = load.paste_values
 load.paste_values = paste_values
 load.generation_values = generation_values
 load.parse_generation_parameters = lambda text: (
@@ -307,6 +308,25 @@ txt = attempt(lambda: ask_tab('txt2img', source={'kind': 'generation', 'generati
                               into={**INTO, 'picture': {'generation_image': 7}})[1])
 check('txt2img takes no picture: its paste is as it was', [txt.get('mode') if isinstance(txt, dict) else txt],
       [None])
+
+# No checkpoint selected, and none on its way (#441): the paste raises as
+# Neo's does, and neither the settings nor the picture's mode go in.
+def none_paste(text):
+    os.path.splitext(None)
+
+
+stub_paste, load.paste_values = load.paste_values, real_paste_values
+held_click = capture.paste_click
+capture.paste_click = lambda tab: types.SimpleNamespace(fn=none_paste, outputs=[])
+opts.data = {'sd_model_checkpoint': None}
+load.CHECKPOINT_SECONDS = 0.15
+values, answer = asked(source={'kind': 'generation', 'generation': 19}, into={**INTO, 'picture': {'generation_image': 7}})
+check('no checkpoint selected: said in plain words, no mode, every control as on screen, the setting untouched',
+      [answer.get('error'), answer.get('mode'), answer.get('no_paste'), [v for v in values if v != SKIP],
+       opts.data['sd_model_checkpoint']],
+      ['no checkpoint is selected in Forge', None, None, [], None])
+load.paste_values, capture.paste_click, load.CHECKPOINT_SECONDS = stub_paste, held_click, 10
+del opts.data
 
 RENAME_X = [{'from': 'alias_x', 'to': 'file_x'}]
 pasted.clear(), pasted_for.clear(), after.clear()

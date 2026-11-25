@@ -428,5 +428,34 @@ finally:
     else:
         shared.opts.sd_model_checkpoint = held_selected
 
+# No checkpoint selected (#441): None in the settings Forge keeps, and nothing else.
+
+
+def look():
+    try:
+        return host.no_checkpoint()
+    except Exception as e:                               # noqa: BLE001
+        return 'raised %s' % type(e).__name__
+
+
+said = {}
+held_data = shared.opts.__dict__.get('data', 'unset')
+for name, kept in (('none', {'sd_model_checkpoint': None}), ('a name', {'sd_model_checkpoint': 'a.safetensors'}),
+                   ('an empty name', {'sd_model_checkpoint': ''}), ('no key', {}), ('not a dictionary', None)):
+    shared.opts.data = kept
+    said[name] = look()
+del shared.opts.data
+said['no data'] = look()
+held_shared = sys.modules.pop('modules.shared')
+held_modules = sys.modules['modules']
+sys.modules['modules'] = types.ModuleType('modules')
+said['outside a WebUI'] = look()
+sys.modules['modules'], sys.modules['modules.shared'] = held_modules, held_shared
+if held_data != 'unset':
+    shared.opts.data = held_data
+check('no checkpoint is selected where the setting kept is None, and only there', said,
+      {'none': True, 'a name': False, 'an empty name': False, 'no key': False, 'not a dictionary': False,
+       'no data': False, 'outside a WebUI': False})
+
 print('\n'.join('FAIL ' + f for f in fails) or 'All checks passed.')
 sys.exit(1 if fails else 0)

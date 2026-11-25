@@ -644,6 +644,21 @@ def selected_models() -> Dict[str, Any]:
             "modules": list(getattr(shared.opts, "forge_additional_modules", None) or [])}
 
 
+def no_checkpoint() -> bool:
+    """
+    Whether Forge's selected checkpoint is None, as Neo sets it on a switch to
+    a UI preset never used (#441): its paste raises on it. Read from the
+    settings kept, not by attribute: the original Forge's default is None
+    too. An empty name is not None, and its paste reads it.
+    """
+    try:
+        from modules import shared
+    except ImportError:
+        return False
+    data = getattr(getattr(shared, "opts", None), "data", None)
+    return isinstance(data, dict) and "sd_model_checkpoint" in data and data["sd_model_checkpoint"] is None
+
+
 def checkpoint_file(name: str) -> Optional[str]:
     """
     The file Forge lists a checkpoint under by exactly this name, or None.
