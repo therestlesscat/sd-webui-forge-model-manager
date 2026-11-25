@@ -406,7 +406,7 @@ def missing_files(db, wanted: List[Dict[str, Any]], hash_list: List[str],
     """
     What the resources an image names, and the library lacks, will be called
     once downloaded: {versions: version id -> {file_stem, file_type, model_id,
-    name, version_name}, or {gone: true}, or {version_gone: true, ..., newest:
+    name, version_name, base_model}, or {gone: true}, or {version_gone: true, ..., newest:
     {version_id, version_name, file_stem} or null};
     hashes: hash -> version id, or None when Civitai does not know it}.
 
@@ -492,7 +492,7 @@ def missing_files(db, wanted: List[Dict[str, Any]], hash_list: List[str],
             "file_type": model_type, "model_id": model_id,
             "name": model_name, "version_name": version.get("name"),
             # What the Resources dialog's list suggests by (#377): the same
-            # base model first in its family's tab.
+            # base model first in its family's tab; and a checkpoint's row says it (#439).
             "base_model": version.get("baseModel") or None,
             # Its SHA-256, else its AutoV2: what the library's own file is
             # matched by (#304).

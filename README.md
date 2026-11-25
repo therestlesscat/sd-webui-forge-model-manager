@@ -14,6 +14,10 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.83 - Checkpoint base models in Resources.** Open an image's Resources dialog to see
+which base model its checkpoint version uses before you download it. When Civitai supplies
+the base model, the row shows it beside the kind, for example **Checkpoint · Illustrious**.
+
 **0.82 - What a queued task ran with.** A task's row in the Queue tab says when it started and,
 once it completed or failed, how long it took; a task of one checkpoint, its CFG scale; and an
 img2img task, the tab it was queued from and its denoising strength. A task of several checkpoints no longer states a
@@ -382,7 +386,8 @@ Browse and organize the models already on disk.
   **Resources** dialog: the version the image used. Where Civitai has deleted that
   version, the chip says so and a press downloads the model's newest; the dialog says so
   and offers the newest by name, on a button of its own. Resources Civitai does not know
-  are shown as such, with nothing to click
+  are shown as such, with nothing to click. A checkpoint's row, held or not, says the base
+  model of the version the image used, when Civitai supplies it
 - **Bookmarks**, per-model force re-sync, and model deletion (removes the model plus its
   sidecar metadata and preview files)
 - **Sync** finds new model files on disk, and fetches their Civitai metadata by file hash

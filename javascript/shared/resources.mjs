@@ -589,10 +589,10 @@ function checkpointInstalled() {
 /**
  * The dialog (#377, R4, option F of its POC): a row in two lines, as the list of your
  * checkpoints - the name, which opens the model as View did, and the version; under them the
- * kind, the prompt's tag and the row's notes - its Download at the right. The image's
- * checkpoint first, then the rest in the image's order; what has no Civitai version greyed in
- * the same list. The Send line at the dialog's foot, outside what scrolls: 17 rows of one image
- * put it at the bottom edge of a 1080 px screen, the list below the fold.
+ * kind, a checkpoint's base model, the prompt's tag and the row's notes - its Download at the
+ * right. The image's checkpoint first, then the rest in the image's order; what has no Civitai
+ * version greyed in the same list. The Send line at the dialog's foot, outside what scrolls: 17
+ * rows of one image put it at the bottom edge of a 1080 px screen, the list below the fold.
  */
 function renderResourcesModal(resources, pending = 0) {
     resourcesRows = resources.known;
@@ -1550,9 +1550,10 @@ async function sendSeveral(send) {
 // 404 for is deleted. The website stays the way out where the Civitai
 // Browser cannot help.
 
-// What the server says of each version's model, once asked: version id ->
-// { modelId }, or { gone: true }. A version it could not answer for is
-// absent, and asked about again by the next dialog.
+// What the server says of each version and its model, once asked: version
+// id -> { modelId, sameFile, baseModel, versionGone, newest }, or
+// { gone: true }. A version it could not answer for is absent, and asked
+// about again by the next dialog.
 const civitaiModels = new Map();
 // The versions being asked about, and all the asking under way: View waits on it.
 const askingVersions = new Set();
@@ -1562,8 +1563,9 @@ let viewing = null;
 
 /**
  * Ask the server what Civitai says of these rows' models - the route the
- * chips ask (resources.missing_files): each version's model id, or gone,
- * only on a 404 for the model alone. One request a dialog; answers kept.
+ * chips ask (resources.missing_files): each version's model id and base
+ * model, or gone, only on a 404 for the model alone. One request a dialog;
+ * answers kept.
  */
 function askCivitaiModels(resources) {
     const versions = resources.filter((r) => r.versionId && !civitaiModels.has(r.versionId)
@@ -1713,7 +1715,11 @@ function resourceNameHtml(resource) {
     const made = held && imageFiles.get(resource.hash);
     const madeLabel = made ? fileLabel(made, made.size_kb ? made.size_kb * 1024 : 0) : '';
     const version = [resource.versionName, madeLabel].filter(Boolean).join(' · ');
+    // Civitai's base model of the version the image used (#439). The answers are kept under numbers,
+    // and an image can name its version as text.
+    const baseModel = isCheckpoint(resource.type) && civitaiModels.get(safeId(resource.versionId))?.baseModel;
     const notes = [`<span class="mm-res-type">${escapeHtml(rowKindName(resource.type))}</span>`,
+                   ...(baseModel ? [escapeHtml(baseModel)] : []),
                    ...(resource.own ? ['<span class="mm-res-own">This gallery\'s model</span>'] : []),
                    ...(resource.tag ? [`<code class="mm-res-tag">${escapeHtml(resource.tag)}</code>`] : []),
                    ...(viewing === resource.versionId ? ['<span class="mm-res-looking">Looking up...</span>'] : []),

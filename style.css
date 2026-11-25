@@ -2195,7 +2195,8 @@ body.mm-modal-open {
 
 /* The dialog's rows (#377, R4): two lines a row, as the list of your
    checkpoints - the name, which opens the model, and the version; under them
-   the kind, the prompt's tag and the row's notes; its Download at the right. */
+   the kind, a checkpoint's base model, the prompt's tag and the row's notes; its
+   Download at the right. */
 .mm-resources-list {
     display: flex;
     flex-direction: column;

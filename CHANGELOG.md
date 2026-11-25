@@ -6,6 +6,14 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.83 - Checkpoint base models in Resources
+
+*24 November 2026*
+
+Open an image's Resources dialog to see which base model its checkpoint version uses. When Civitai supplies that detail, it appears under the checkpoint's name, including for checkpoints you are considering downloading.
+
+- **0.83.0** (build 778) - The checkpoint's row shows its base model beside its kind, for example "Checkpoint · Illustrious" (#439).
+
 ## 0.82 - What a queued task ran with
 
 *20 November 2026*

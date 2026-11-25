@@ -8,6 +8,9 @@
 // Civitai answers 404 for loses View and Download to a red "Model deleted
 // from Civitai". The website stays the way out where the Civitai Browser
 // cannot help: off, or no model id to be had.
+//
+// The same answer from the server holds each version's base model, and a
+// checkpoint's row says it, beside its kind (#439).
 import { act, checker, mountTab, press, sharedModule, startTab, tabEntries, tabMarkup, withGalleryPages }
     from './harness.mjs';
 
@@ -48,6 +51,9 @@ const ANSWERS = {
     6004: { gone: true },
     6005: { version_gone: true, model_id: 605, name: 'Version Gone', file_type: 'LORA' },
 };
+// What a hash is of (resources.resolve_hashes).
+const HASHES = { abcdef1234: { version_id: 7201, model_id: 720, name: 'Found by hash', version_name: 'v1',
+                               model_type: 'Checkpoint' } };
 const asked = [];                          // each missing-resources request's versions
 let hold = null;                           // a promise the answer waits on: a slow Civitai
 const opened = [];                         // what window.open was asked to open
@@ -69,7 +75,13 @@ globalThis.fetch = withGalleryPages(async (url, init = {}) => {
         return reply({ success: true, versions: answered, hashes: {} });
     }
     if (href.includes('/model-manager/image-resources')) {
-        return reply({ success: true, versions: { 6004: { file_path: 'C:/models/held.safetensors' } } });
+        const held = { 6004: { version_id: 6004 }, 7102: { version_id: 7102 } };
+        const ids = (new URL(href, 'http://webui').searchParams.get('version_ids') || '').split(',');
+        return reply({ success: true, versions: Object.fromEntries(ids.filter(id => held[id]).map(id => [id, held[id]])) });
+    }
+    if (href.includes('/model-manager/resolve-hashes')) {
+        const hashes = (new URLSearchParams(String(init.body || '')).get('hashes') || '').split(',');
+        return reply({ success: true, resolved: Object.fromEntries(hashes.filter(h => HASHES[h]).map(h => [h, HASHES[h]])), deferred: [] });
     }
     if (href.includes('/model-manager/gallery/browse')) {
         return reply({ success: true, seed: 1, more: false, state: { total: 1, filtered: 1 }, scope: { count: 1 },
@@ -211,5 +223,73 @@ check('with the Civitai Browser off, View says it opens the website',
 await pressView(6001);
 check('and does: the image\'s version on civitai.com', [opened, shown.length],
       [['https://civitai.com/model-versions/6001'], 3]);
+
+// The base model belongs to the image's version, even if its model has other versions (#439).
+document.querySelector('#mm_meta_modal').close();
+const { showImageResources } = await sharedModule('resources.mjs');
+const checkpoints = { meta: { civitaiResources: [
+    { type: 'Checkpoint', name: 'Example', modelId: 710, modelVersionId: 7101 },
+    { type: 'model', name: 'Example', modelId: 710, modelVersionId: 7102 },
+    { type: 'Checkpoint', name: 'Example', modelId: 710, modelVersionId: 7103 },
+    { type: 'LORA', name: 'Example style', modelId: 711, modelVersionId: 7111 },
+    { type: 'Checkpoint', name: 'Deleted model', modelId: 712, modelVersionId: 7121 },
+    { type: 'Checkpoint', name: 'Unanswered', modelVersionId: 7131 },
+] } };
+Object.assign(ANSWERS, {
+    7101: { model_id: 710, base_model: 'Illustrious' },
+    7102: { model_id: 710, base_model: 'SDXL <i>1.0</i>' },
+    7103: { model_id: 710, version_gone: true, newest: { version_id: 7101, version_name: 'v3', file_stem: 'example' } },
+    7111: { model_id: 711, base_model: 'Pony' },
+    7121: { gone: true },
+});
+const notes = id => row(id)?.querySelector('.mm-res-sub')?.textContent.trim();
+const labels = ['Checkpoint · Illustrious', "Checkpoint · SDXL <i>1.0</i> · This gallery's model"];
+const requestsBefore = asked.length;
+hold = new Promise(resolve => { release = resolve; });
+await showImageResources(checkpoints, 7102);
+check('before the version lookup answers, both checkpoints show their existing notes',
+      [notes(7101), notes(7102)], ['Checkpoint', "Checkpoint · This gallery's model"]);
+release();
+hold = null;
+await waitFor('the version lookup to redraw the open rows', () => row(7121)?.querySelector('.mm-res-state.error'));
+check('each checkpoint shows its own base model, including the installed version in its own gallery',
+      [notes(7101), notes(7102), actions(7101), actions(7102)], [...labels, 'Download', 'Installed']);
+check('markup in the base model appears as literal text',
+      [notes(7102), !!row(7102)?.querySelector('.mm-res-sub i')], [labels[1], false]);
+check('a deleted version keeps its explanation beside a replacement row with its own base model',
+      [notes(7103), actions(7103), notes(7101)],
+      ['Checkpoint · this version is deleted from Civitai', 'Download v3, the newest', labels[0]]);
+check('a LoRA, a deleted model and an unanswered checkpoint keep their notes without an extra separator',
+      [notes(7111), notes(7121), notes(7131)], ['LoRA', 'Checkpoint · Model deleted from Civitai', 'Checkpoint']);
+
+document.querySelector('#mm_meta_modal').close();
+const reopened = showImageResources(checkpoints, 7102);
+check('the first draw on reopening shows both cached labels', [notes(7101), notes(7102)], labels);
+await reopened;
+check('one batch when opened, then only the unanswered version when reopened',
+      asked.slice(requestsBefore).map(batch => batch.map(item => item.version_id)),
+      [[7101, 7102, 7103, 7111, 7121, 7131], [7131]]);
+document.querySelector('#mm_meta_modal').close();
+await showImageResources({ meta: { civitaiResources: [
+    { type: 'Checkpoint', name: 'Example', modelId: 710, modelVersionId: '7101' },
+] } }, null);
+check('a version ID recorded as text reads the same cached label', notes(7101), labels[0]);
+
+// An image with infotext and no Civitai list: its checkpoint's version is found by the hash it gives.
+ANSWERS[7201] = { model_id: 720, base_model: 'Flux.1 D' };
+document.querySelector('#mm_meta_modal').close();
+await showImageResources({ meta: { resources: [{ type: 'model', name: 'Named by hash', hash: 'ABCDEF1234' }] } }, null);
+await waitFor('the version lookup to answer', () => asked.at(-1)[0].version_id === 7201 && /·/.test(notes(7201) || ''));
+check('a checkpoint found by its hash shows its base model', notes(7201), 'Checkpoint · Flux.1 D');
+
+for (const [resource, reason] of [[{ type: 'lora', name: 'Style' }, 'Named only by its name'],
+                                  [{ type: 'model', name: 'Example' }, 'No hash recorded']]) {
+    document.querySelector('#mm_meta_modal').close();
+    await showImageResources({ meta: { Model: 'Example', resources: [resource] } }, null);
+    const unresolved = panel()?.querySelector('.mm-res-unresolved');
+    check('an unresolved checkpoint keeps its explanation: ' + reason,
+          [unresolved?.querySelector('.mm-res-sub')?.textContent.trim(), unresolved?.querySelector('.mm-res-no-hash')?.textContent],
+          ['Checkpoint', reason]);
+}
 
 done();
