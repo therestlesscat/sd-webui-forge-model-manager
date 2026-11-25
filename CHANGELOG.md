@@ -6,6 +6,14 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.84 - Qwen-Image 2.1 and MOSS-Image
+
+*24 November 2026*
+
+Neo runs two newer model families, Qwen-Image 2.1 and MOSS-Image, and Send is taught them (#441). 0.84.0 tells their text encoders and VAEs from the older families', which were sent with them by mistake.
+
+- **0.84.0** (build 781) - Send no longer picks another family's VAE or text encoder once Qwen-Image 2.1's or Wan 2.2's are installed (#441). Qwen-Image 2.1's VAE was taken for Qwen-Image's, and its name comes first in the alphabet, so Qwen-Image, Krea 2 and Anima were sent with it wherever the image and the settings named no file and Forge had no saved choice; Wan 2.2's was picked for Wan 2.1 the same way, and Qwen-Image 2.1's text encoder, Qwen3-VL 8B, for Flux.2 Klein 9B. A VAE in Wan's layout is told by the channels it decodes, and Qwen3-VL 8B by its vision part; a file of it without one, as a GGUF is, still reads as Qwen3 8B. A file of the wrong kind is left out even where the settings name it or Forge saved it. Where only another family's file is installed, Send says what is missing, and queuing several checkpoints stops on it, where the wrong file was used before. MOSS-Image's text encoder, Qwen3.5 9B, is a text encoder, where its type was Unknown: a download of one is filed in the text encoder folder. Files in the library keep their type and family until their headers are read again; Send picks by the new reading from the next start.
+
 ## 0.83 - Checkpoint base models in Resources
 
 *24 November 2026*

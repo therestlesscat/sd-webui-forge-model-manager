@@ -548,9 +548,9 @@ async function applyForgeModules(names) {
 const MODULE_KIND_NAMES = {
     clip_l: 'CLIP-L', clip_g: 'CLIP-G', t5xxl: 'T5-XXL', umt5xxl: 'UMT5-XXL',
     qwen25_7b: 'Qwen2.5-VL 7B', qwen3_06b: 'Qwen3 0.6B', qwen3_4b: 'Qwen3 4B',
-    qwen3_8b: 'Qwen3 8B', qwen3vl_4b: 'Qwen3-VL 4B', gemma2_2b: 'Gemma 2 2B',
-    ministral3_3b: 'Ministral 3 3B', vae_ae: 'Flux VAE (ae)', vae_flux2: 'Flux.2 VAE',
-    vae_wan21: 'Qwen-Image / Wan VAE', vae_sd: 'SD VAE',
+    qwen3_8b: 'Qwen3 8B', qwen3vl_4b: 'Qwen3-VL 4B', qwen3vl_8b: 'Qwen3-VL 8B', qwen35_9b: 'Qwen3.5 9B',
+    gemma2_2b: 'Gemma 2 2B', ministral3_3b: 'Ministral 3 3B', vae_ae: 'Flux VAE (ae)', vae_flux2: 'Flux.2 VAE',
+    vae_wan21: 'Qwen-Image / Wan VAE', vae_wan22: 'Wan 2.2 VAE', vae_qwen21: 'Qwen-Image 2.1 VAE', vae_sd: 'SD VAE',
 };
 
 /** What a version's file is: read from it, else Civitai's type meanwhile. */

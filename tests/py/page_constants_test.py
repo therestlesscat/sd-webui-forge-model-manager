@@ -86,6 +86,18 @@ check('no file of the page names a family: it reads them from ui-options',
 webui_api = open(os.path.join(ROOT, 'model_manager', 'api', 'webui.py'), encoding='utf-8').read()
 check('ui-options hands the table to the page', '"family_names": FAMILY_NAMES' in webui_api, True)
 
+# ------------------------------------------------------------- module kinds
+# Send's notices name a kind of VAE or text encoder; one the page has no name
+# for would be shown by its code (#441).
+import model_manager.file_identity as fi                              # noqa: E402
+kinds = {*fi._EMBEDDINGS.values(), *fi._LATENT_CHANNELS.values(), *fi._WAN_LATENT_CHANNELS.values()}
+names_at = files['shared/send.mjs']
+named = dict(re.findall(r"(\w+): '([^']+)'", re.search(r'MODULE_KIND_NAMES = \{(.*?)\};', names_at, re.S).group(1)))
+check('the page names every kind of module the server tells apart', sorted(kinds - set(named)), [])
+check('each by its own name', sorted(n for n in named.values() if list(named.values()).count(n) > 1), [])
+check('441. the four told apart since', [named.get(k) for k in ('qwen3vl_8b', 'qwen35_9b', 'vae_wan22', 'vae_qwen21')],
+      ['Qwen3-VL 8B', 'Qwen3.5 9B', 'Wan 2.2 VAE', 'Qwen-Image 2.1 VAE'])
+
 # ------------------------------------------------------------ setting keys
 # A DOM id shares the prefix; so does the start of the modules' keys, which
 # the settings window adds a preset's name to.

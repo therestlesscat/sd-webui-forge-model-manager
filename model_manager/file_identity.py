@@ -341,10 +341,13 @@ _EMBEDDINGS = {
     (151936, 2560, False): "qwen3_4b",
     (151936, 2560, True): "qwen3vl_4b",
     (151936, 4096, False): "qwen3_8b",
+    (151936, 4096, True): "qwen3vl_8b",
     (152064, 3584, False): "qwen25_7b",
     (152064, 3584, True): "qwen25_7b",
     (256000, 2304, False): "gemma2_2b",
     (131072, 3072, False): "ministral3_3b",
+    # MOSS-Image's, which Neo's loader takes with or without its vision part.
+    (248320, 4096, False): "qwen35_9b",
 }
 _EMBEDDING_NAMES = ("embed_tokens.weight", "token_embedding.weight", "shared.weight",
                     "token_embd.weight")
@@ -358,6 +361,12 @@ _T5_LOADABLE = ("encoder.block.0.layer.0.SelfAttention.k.weight",
 
 # A VAE's latent channels, from its decoder's first convolution -> its kind.
 _LATENT_CHANNELS = {4: "vae_sd", 16: "vae_ae", 32: "vae_flux2"}
+
+# The same for a VAE in Wan's layout, whose decoder starts with conv1. Wan 2.1,
+# Qwen-Image, Anima and Krea 2 decode 16. Told by their layout alone, Wan 2.2's
+# was picked for Wan 2.1 and Qwen-Image 2.1's for the rest, each file's name
+# coming first in the alphabet (#441).
+_WAN_LATENT_CHANNELS = {16: "vae_wan21", 48: "vae_wan22", 64: "vae_qwen21"}
 
 
 def classify(shapes: Dict[str, Tuple[Tuple[int, ...], str]],
@@ -392,7 +401,8 @@ def classify(shapes: Dict[str, Tuple[Tuple[int, ...], str]],
     if conv_in and len(conv_in[0]) == 4:
         return _LATENT_CHANNELS.get(conv_in[0][1])
     if "decoder.middle.0.residual.0.gamma" in shapes:
-        return "vae_wan21"
+        conv1 = (shapes.get("decoder.conv1.weight") or ((),))[0]
+        return _WAN_LATENT_CHANNELS.get(conv1[1] if len(conv1) > 1 else None, "vae_wan21")
     return None
 
 
