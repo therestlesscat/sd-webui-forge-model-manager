@@ -18,6 +18,8 @@ export const TIMING = Object.freeze({
     estimate: 120,        // the sync dialog's cost, asked once its controls stop changing
     modulesCheck: 300,    // between asks whether Forge took a VAE / Text Encoder change
     modulesCheckMax: 3000, // and how long it is given to
+    modulesPatch: 10000,  // all of a Send's VAE / Text Encoder changes answered, at most: past it no more are made (#3)
+    modulesStart: 500,    // a change that has made no request by now makes none
     tabShown: 2000,       // a tab asked to show, at most: Gradio shows it in a moment
     sendRecheck: 1000,    // between asks whether a stopped send's checkpoint can be loaded now
     sendRecheckMax: 10000, // and for how long: Forge lists a download once its refresh is done

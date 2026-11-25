@@ -31,7 +31,7 @@ const {
 } = await shared('chips.mjs');
 const { videoFrames } = await shared('wan.mjs');
 const { showImageResources, isAway } = await shared('resources.mjs');
-const { refreshWebUiModelList, forgeCalls } = await shared('forge.mjs');
+const { refreshWebUiModelList, forgeCalls, eventsOf, idle, answered } = await shared('forge.mjs');
 const { showProgress } = await shared('dialog.mjs');
 const { ready, call } = await shared('calls.mjs');
 const { showNotice } = await shared('notices.mjs');
@@ -137,6 +137,7 @@ export async function sendInfotext({ infotext, mode, meta = {}, generationId = n
     else if (plan.instead) showNotice(insteadNotice(plan.instead, plan.pick, plan), { info: true });
     const loras = workflow ? workflowLoraNotice(meta) : '';
     if (loras) showNotice(loras, { info: true });
+    const turn = takeTurn();
     if (plan.preset) await switchForgePreset(plan.preset);
     if (plan.checkpoint && typeof selectCheckpoint === 'function') {
         console.log('[ModelManager] Setting checkpoint:', plan.checkpoint);
@@ -183,7 +184,7 @@ export async function sendInfotext({ infotext, mode, meta = {}, generationId = n
     // through the mode's own button - the picture sent in (#299), or the
     // press's own (#34) - and what kept what was on screen.
     const whenReplayed = async (answer) => {
-        await applyModules(plan);
+        await applyModules(plan, { turn });
         // The send left several mode as it went (below): a list entered since stays.
         showGenerationTab(tab, answer.mode, { leave: false });
         if (sending) await putPicture(sending);
@@ -196,9 +197,9 @@ export async function sendInfotext({ infotext, mode, meta = {}, generationId = n
     // Pasted: its modules, and a word where img2img has no picture.
     const afterPaste = () => {
         sourceNotice();
-        return applyModules(plan);
+        return applyModules(plan, { turn });
     };
-    if (!pasteInfotext(tab, { source, into: sending, afterPaste, whenReplayed, usual: pick?.usual })) return false;
+    if (!pasteInfotext(tab, { source, into: sending, afterPaste, whenReplayed, usual: pick?.usual, turn })) return false;
     showGenerationTab(tab, sending?.mode);
     showChips();
     return true;
@@ -399,19 +400,52 @@ function selectedModuleLabels(container) {
  * nothing touched.
  *
  * Every change to that control is a request of Forge's own, each carrying
- * the whole selection as it stands, and they can land out of order: after
- * the old clear-and-reselect, Neo would sometimes load an Anima model with no
- * VAE, the control showing it all the while. So the fewer changes, the fewer
- * chances. The whole control is cleared only if one file cannot be taken out
- * alone.
+ * the whole selection as it stands, and Gradio's page drops a change made
+ * while one is open (Neo's control has trigger mode `once`): of three files
+ * taken out 60 ms apart on a slow WebUI, Forge heard of the first alone, the
+ * control showing none (#3). So each change waits for the answer to the one
+ * before - and for one the person just made - where Gradio's config names the
+ * control's event; the original Forge's keeps the last change itself. Past
+ * TIMING.modulesPatch no more are made: a change made then would be dropped,
+ * and the control would look right to the next Send. The whole control is
+ * cleared only if one file cannot be taken out alone.
  *
  * @param {string[]} target - the labels, exactly as Forge lists them.
+ * @param {number|null} turn - the Send's (takeTurn): replaced by a newer one,
+ *     it makes no more changes.
  * @returns {Promise<boolean>} false when the control is absent (not Forge).
  */
-async function patchForgeModules(target) {
+async function patchForgeModules(target, turn = null) {
     const container = getModulesControl();
     if (!container) return false;
 
+    const events = eventsOf(NEO_MODULES_ID, 'input');
+    const limit = Date.now() + TIMING.modulesPatch;
+    // Whether to stop: why is said, once.
+    const stopped = (late) => {
+        if (late) console.warn('[ModelManager] VAE / Text Encoder: Forge did not answer in time; no more changes are made');
+        else if (turnOver(turn)) console.log('[ModelManager] VAE / Text Encoder: left to a newer Send');
+        else return false;
+        return true;
+    };
+    // Before a change: none open, the person's own among them, and time left.
+    const held = async () => stopped(!await idle(events, limit) || (events.length > 0 && Date.now() >= limit));
+    // One change of the control, and Forge's answer to it: whether to stop.
+    const change = async (press) => {
+        const from = forgeCalls.begun.length;
+        press();
+        if (events.length) container.querySelector('input')?.blur();     // the list closed meanwhile
+        const came = await answered(events, from, limit);
+        if (came === 'none') console.log('[ModelManager] VAE / Text Encoder: a change made no request of Forge');
+        await nextFrame();      // Gradio marks the call finished a moment after its answer
+        return stopped(came === 'late');
+    };
+
+    if (turn !== null && !turnOver(turn)) {
+        owed = null;                    // whatever an older Send left, this one sets it, and checks
+        settingTurn = turn;
+    }
+    if (await held()) return true;
     const current = selectedModuleLabels(container);
     const extra = current.filter((label) => !target.includes(label));
     let missing = target.filter((label) => !current.includes(label));
@@ -421,18 +455,18 @@ async function patchForgeModules(target) {
     }
 
     for (const label of extra) {
+        if (await held()) return true;
         const token = Array.from(container.querySelectorAll('.wrap-inner .token'))
             .find((t) => tokenLabel(t) === label);
-        const remove = token && token.querySelector('.token-remove');
+        if (!token) continue;           // the person took it out meanwhile
+        const remove = token.querySelector('.token-remove');
         if (!remove) {
             console.warn(`[ModelManager] Could not take "${label}" out on its own; clearing the lot`);
-            clearModules(container);
-            await nextFrame();
+            if (await change(() => clearModules(container))) return true;
             missing = [...target];
             break;
         }
-        remove.click();
-        await nextFrame();
+        if (await change(() => remove.click())) return true;
     }
 
     const input = container.querySelector('input');
@@ -443,13 +477,19 @@ async function patchForgeModules(target) {
         input.dispatchEvent(new Event('input', { bubbles: true }));
         await nextFrame();
 
+        const stop = await held();
+        const inAlready = selectedModuleLabels(container).includes(label);      // by hand: a press takes it out again
         const option = readModuleOptions(container).find((o) => o.label === label);
-        if (!option) {
-            console.warn(`[ModelManager] "${label}" is not offered by the control; left out`);
+        if (stop || inAlready || !option) {
+            input.blur();
+            if (stop) return true;
+            if (!inAlready) console.warn(`[ModelManager] "${label}" is not offered by the control; left out`);
             continue;
         }
-        pressOption(option.element);
-        await nextFrame();
+        if (await change(() => pressOption(option.element))) {
+            input.blur();
+            return true;
+        }
     }
     input?.blur();
     console.log('[ModelManager] VAE / Text Encoder: removed', extra, 'added', missing,
@@ -457,13 +497,56 @@ async function patchForgeModules(target) {
     return true;
 }
 
+// Which Send is setting Forge up: each takes a turn as it starts to change
+// Forge, past its own stops, and an older one's patch stops for it (#3) -
+// taken later, the older would go on under the newer's UI preset, and Forge
+// would save its files as that preset's own.
+let forgeTurn = 0;
+
+function takeTurn() {
+    return ++forgeTurn;
+}
+
+function turnOver(turn) {
+    return turn !== null && turn !== forgeTurn;
+}
+
+// A Send a newer one replaced has its check left to the newer, whose changes
+// come after. Should the newer fail, no one makes the rest of the older's: its
+// check is owed, and made then, once: the latest such Send's of those that have
+// stopped by then.
+let owed = null;            // { target, turn }
+let settingTurn = 0;        // the last Send that came to the control with its turn: it checks for itself
+let failedTurn = 0;
+
+function owe(target, turn) {
+    if (settingTurn > turn || (owed && owed.turn > turn)) return;
+    owed = { target, turn };
+    payOwed();
+}
+
+function turnFailed(turn) {
+    failedTurn = Math.max(failedTurn, turn);
+    payOwed();
+}
+
+function payOwed() {
+    if (!owed || failedTurn !== forgeTurn) return;
+    const { target } = owed;
+    owed = null;
+    settingTurn = forgeTurn;            // said for this failure: an older Send stopping after it says nothing more
+    checkForgeModules(target, forgeTurn, 'An earlier Send\'s VAE / Text Encoder changes were not finished: Forge');
+}
+
 /**
  * Ask Forge what it holds now, and say so if it is not `target`: the control
  * can show one thing while Forge's setting - what it loads - holds another.
  * Only said, for now, so that it is seen before anything is done about it.
  * Forge takes each change on a request of its own, so it is given a moment.
+ * Nothing is said for a Send a newer one replaced: the list is the newer's,
+ * unless that one fails (owe). `what`: how the notice begins.
  */
-async function checkForgeModules(target) {
+async function checkForgeModules(target, turn = null, what = 'Forge did not take the VAE / Text Encoder change: it') {
     const wanted = [...target].sort();
     const deadline = Date.now() + TIMING.modulesCheckMax;
     let held = null;
@@ -474,13 +557,14 @@ async function checkForgeModules(target) {
         } catch (e) {
             return;
         }
+        if (turnOver(turn)) return void owe(target, turn);
         if (!Array.isArray(held)) return;                 // not Forge: nothing to compare
         if (held.length === wanted.length && held.every((label, i) => label === wanted[i])) return;
         if (Date.now() >= deadline) break;
         await nextFrame(TIMING.modulesCheck);
     }
     const list = (labels) => (labels.length ? labels.join(', ') : 'nothing');
-    showNotice(`Forge did not take the VAE / Text Encoder change: it holds ${list(held)}, `
+    showNotice(`${what} holds ${list(held)}, `
                + `where the image needs ${list(wanted)}. Check "VAE / Text Encoder" before generating.`);
 }
 
@@ -880,12 +964,13 @@ const FORGE_PRESET_MAX_MS = TIMING.presetMax;
  * VAE, or none. `vaeName`: a Civitai image's VAE, selected by name where
  * Forge has no VAE / Text Encoder control; `what`: how a generation's or a
  * task's missing modules are introduced; `sends`: whether the rest is sent -
- * a task's Load to UI sends nothing.
+ * a task's Load to UI sends nothing. `turn`: the Send's, which a newer one
+ * replaces (takeTurn).
  */
-async function applyModules(plan, { vaeName, what = 'This generation was made with', sends = true } = {}) {
+async function applyModules(plan, { vaeName, what = 'This generation was made with', sends = true, turn = null } = {}) {
     const target = plan.target || plan.select || [];
-    if (await patchForgeModules(target)) {
-        await checkForgeModules(target);
+    if (await patchForgeModules(target, turn)) {
+        await checkForgeModules(target, turn);
     } else if (vaeName !== undefined && !plan.manage_modules) {
         await applyVaeSelection(vaeName);      // no Forge control: the A1111 way
     }
@@ -937,8 +1022,9 @@ async function applyModules(plan, { vaeName, what = 'This generation was made wi
     // A checkpoint that carries its own text encoders or VAE gets none of
     // those selected - Forge uses the checkpoint's - and says so: an empty
     // "VAE / Text Encoder" read as a send that had failed.
+    // Not for a Send a newer one replaced: what is selected is not its own (#3).
     let bundled = '';
-    if (plan.bundled && plan.bundled.length) {
+    if (plan.bundled && plan.bundled.length && !turnOver(turn)) {
         const names = listNames(plan.bundled.map((kind) => MODULE_KIND_NAMES[kind] || kind));
         bundled = target.length
             ? `This checkpoint brings its own ${names}: only what it lacks is selected in "VAE / Text Encoder".`
@@ -975,6 +1061,7 @@ export async function loadTask(taskId) {
         return null;
     }
     const tab = plan.mode === 'img2img' ? 'img2img' : 'txt2img';
+    const turn = takeTurn();
     if (plan.preset) await switchForgePreset(plan.preset);
     // With an empty list of modules, as sendInfotext says why (#430).
     if (plan.checkpoint && typeof selectCheckpoint === 'function') selectCheckpoint(plan.checkpoint, []);
@@ -983,9 +1070,10 @@ export async function loadTask(taskId) {
     const answer = await pressLoader(tab, { source: { kind: 'task', task: Number(taskId) } });
     if (answer.error) {
         showNotice(`Could not load task #${Number(taskId)}: ${answer.error}`);
+        turnFailed(turn);
         return answer;
     }
-    await applyModules(plan, { what: `Task #${Number(taskId)} was queued with`, sends: false });
+    await applyModules(plan, { what: `Task #${Number(taskId)} was queued with`, sends: false, turn });
     if (plan.checkpoint_missing) {
         showNotice(`Task #${Number(taskId)} was queued with ${plan.checkpoint_missing}, which this WebUI does not `
                    + 'list: it is loaded with the checkpoint loaded now.', { info: true });
@@ -1565,10 +1653,11 @@ export function whenSendSettled() {
  *
  * @returns {boolean} whether the paste could be made at all
  */
-function pasteInfotext(tab, { source, afterPaste, into = null, whenReplayed = null, usual = null }) {
+function pasteInfotext(tab, { source, afterPaste, into = null, whenReplayed = null, usual = null, turn }) {
     const promptTextarea = gradioApp().querySelector(`#${tab}_prompt textarea`);
     if (!promptTextarea) {
         console.error(`[ModelManager] Could not find ${tab} prompt textarea`);
+        turnFailed(turn);
         return false;
     }
     lastSendTab = tab;
@@ -1660,6 +1749,9 @@ function pasteInfotext(tab, { source, afterPaste, into = null, whenReplayed = nu
     })().catch((error) => {
         console.error('[ModelManager] Send failed after the paste:', error);
         return false;
+    }).then((landed) => {
+        if (!landed) turnFailed(turn);
+        return landed;
     });
     return true;
 }
@@ -1736,6 +1828,8 @@ async function sendGalleryImageTo({ img, model, version, into = null, pick = nul
     // its size the picture's. Its data is read here for the chips alone.
     const meta = img.meta || {};
 
+    let turn = null;
+    let pasted = false;
     try {
         // Forge's UI preset first: changing it resets what the image is about
         // to set. The chips' resources are asked meanwhile.
@@ -1783,6 +1877,7 @@ async function sendGalleryImageTo({ img, model, version, into = null, pick = nul
         const tab = sending || plan.video === 'i2v' ? 'img2img' : 'txt2img';
         const framing = tab === 'img2img' && !sending ? startFrame(img, isVideo) : null;
 
+        turn = takeTurn();
         if (plan.preset) await switchForgePreset(plan.preset);
 
         // After the preset, which brings back a checkpoint of its own: the
@@ -1826,10 +1921,11 @@ async function sendGalleryImageTo({ img, model, version, into = null, pick = nul
             source.negative_prompt = rename(meta.negativePrompt);
         }
 
-        const pasted = pasteInfotext(tab, {
+        pasted = pasteInfotext(tab, {
             source,
             into: sending,
             usual: pick?.usual,
+            turn,
             afterPaste: async () => {
                 updateResourceChipStates(tab);
                 // After the paste: it re-renders much of the page, and it never
@@ -1837,7 +1933,7 @@ async function sendGalleryImageTo({ img, model, version, into = null, pick = nul
                 // from an infotext, not the "VAE:" line we write. A model whose
                 // text encoders and VAE are separate gets the ones it needs; an
                 // SD or SDXL one, the image's own VAE.
-                return applyModules(plan, { vaeName: plan.named_vae });
+                return applyModules(plan, { vaeName: plan.named_vae, turn });
             },
         });
         if (!pasted) return;
@@ -1866,5 +1962,6 @@ async function sendGalleryImageTo({ img, model, version, into = null, pick = nul
 
     } catch (error) {
         console.error('[ModelManager] Error sending to txt2img:', error);
+        if (turn !== null && !pasted) turnFailed(turn);
     }
 }

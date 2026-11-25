@@ -17,7 +17,7 @@ const { window, document } = mountTab('model_manager/ui/tab_model_manager.py');
 // The page's waits and polls, shortened: the fake server answers at once,
 // and the same order of events happens ten times faster. See TIMING.
 window.mmTiming = { poll: 100, presetSettle: 60, presetQuiet: 40, presetMax: 3000, estimate: 10,
-                    modulesCheck: 20, modulesCheckMax: 200, sendRecheck: 20, sendRecheckMax: 200,
+                    modulesCheck: 20, modulesCheckMax: 200, modulesPatch: 800, modulesStart: 400, sendRecheck: 20, sendRecheckMax: 200,
                     loadTask: 1000, pasteMax: 1000, frame: 5, presetFrame: 10 };
 const { check, waitFor, done } = checker();
 
@@ -43,16 +43,23 @@ function dropdown(id, options, multi, onCommit = null) {
             li.setAttribute('aria-label', label);
             li.textContent = label;
             li.addEventListener('mousedown', () => {          // Gradio commits on mousedown
-                if (multi) {
+                // Gradio's list toggles: a file already in comes out (#3).
+                const inAlready = neoBox?.toggles && Array.from(root.querySelectorAll('.token'))
+                    .find((t) => t.textContent.startsWith(label));
+                if (inAlready) {
+                    inAlready.querySelector('.token-remove').click();
+                } else if (multi) {
                     const token = document.createElement('div');
                     token.className = 'token';
                     token.innerHTML = `${label}<span class="token-remove">×</span>`;
                     token.querySelector('.token-remove').addEventListener('click', () => {
                         token.remove();
                         events.push(`module-:${label}`);
+                        if (id === 'setting_sd_modules') boxChanged();
                     });
                     root.querySelector('.wrap-inner').appendChild(token);
                     events.push(`module+:${label}`);
+                    if (id === 'setting_sd_modules') boxChanged();
                 } else if (onCommit) {
                     input.value = label;
                     onCommit(label);
@@ -68,6 +75,49 @@ function dropdown(id, options, multi, onCommit = null) {
     });
     document.body.appendChild(root);
     return root;
+}
+// Neo's VAE / Text Encoder control as Gradio's page runs it (#3), when a
+// section wants it: each change asks Forge, with the whole selection, unless
+// one is open - `once`. What Gradio's page does then: a change made while one
+// is open sets the pending mark, which only a good answer takes off, so one
+// failing with it set leaves every later change dropped - and an answer is
+// taken up a moment after it has come, less than a frame. `beside`: another
+// event's call begins with each change, and stays open.
+let neoBox = null;
+const besideOpen = [];             // its calls of another event, open until let go
+function boxChanged() {
+    const box = neoBox;
+    if (!box) return;
+    if (box.mute) {                 // Gradio sees no change of its value: no event
+        box.mute--;
+        return;
+    }
+    const taken = () => {
+        if (box.once !== false) {
+            if (box.open) box.pending = true;
+            if (box.pending) return;
+        }
+        box.open = true;
+        box.opens = (box.opens || 0) + 1;
+        box.mostOpen = Math.max(box.mostOpen || 0, box.opens);
+        const list = selected();
+        box.sent.push(list);
+        globalThis.fetch('/run/predict', { method: 'POST', body: JSON.stringify({ fn_index: 900, data: [list, 'flux'] }) })
+            .then((answer) => {
+                if (answer.ok) box.holds = list;
+                setTimeout(() => {
+                    box.opens--;
+                    box.open = box.opens > 0;
+                    if (answer.ok) box.pending = false;
+                    const hand = box.hand;          // the person's change, that moment
+                    box.hand = null;
+                    hand?.();
+                }, 4);
+            });
+        if (box.beside) globalThis.fetch('/run/predict', { method: 'POST', body: JSON.stringify({ fn_index: 902 }) });
+    };
+    if (box.now) taken();
+    else setTimeout(taken, 2);      // Gradio takes the event up a moment later
 }
 // Forge's server side of a preset change, when a section wants one: see
 // "a slow preset change" below.
@@ -148,14 +198,23 @@ let forgeHolds = () => selected();
 // A Gradio call's own wait and outcome, by its event (fn_index), where a section sets one.
 const eventDelay = {};
 const eventFails = new Set();
+let filesDelay = 0;                      // the answer about an image's files, so late
 globalThis.fetch = withGalleryPages(async (url, init) => {
     const href = String(url);
     if (href.includes('/run/')) {
         let fn;
         try { fn = JSON.parse(init?.body ?? '{}').fn_index; } catch (e) { fn = undefined; }
+        if (fn === 902) await new Promise((r) => { besideOpen.push(r); });
+        if (fn === 900 && neoBox) {
+            const box = neoBox;
+            const fails = box.fails > 0 && box.fails-- > 0;
+            await (box.delay === null ? new Promise((r) => { box.release = r; }) : new Promise((r) => setTimeout(r, box.delay)));
+            return { ok: !fails, json: async () => ({ data: [] }) };
+        }
         await new Promise((r) => setTimeout(r, eventDelay[fn] ?? forgeDelay));
         return { ok: !eventFails.has(fn), json: async () => ({ data: [] }) };
     }
+    if (filesDelay && href.includes('/model-manager/image-resources')) await new Promise((r) => setTimeout(r, filesDelay));
     if (href.includes('/model-manager/forge-modules/current')) {
         return { ok: true, json: async () => ({ success: true, modules: [...forgeHolds()].sort() }) };
     }
@@ -194,7 +253,7 @@ globalThis.fetch = withGalleryPages(async (url, init) => {
 
 await startTab('modelManager');
 // The last send's work after its paste, as the tab's copy of send.mjs keeps it.
-const { sendInfotext, whenSendSettled } = await sharedModule('send.mjs');
+const { sendInfotext, loadTask, whenSendSettled } = await sharedModule('send.mjs');
 document.dispatchEvent(new window.Event('DOMContentLoaded'));
 document.getElementById('mm_load_btn').dispatchEvent(new window.Event('click', { bubbles: true }));
 await waitFor('the grid', () => document.querySelectorAll('#mm_grid .model-card').length > 0);
@@ -376,6 +435,554 @@ check('when Forge does not hold what the control shows, it is said, with what ea
 forgeHolds = () => selected();
 document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
 delete IMAGE.meta.VAE;
+
+// ------------------------------------------- one change open at a time (#3)
+// Each change of Neo's control is a request of Forge's carrying the whole
+// selection, and its trigger mode is `once`: while one is open, Gradio's page
+// drops the next. On a slow WebUI a Send of three changes made one request,
+// and Forge kept the list after the first. So each waits for the answer to
+// the one before.
+const CLIP = 'clip_l.safetensors';
+const T5 = 't5xxl_fp16.safetensors';
+const AE = 'ae.safetensors';
+const BOX_EVENT = 900;
+const boxConfig = { components: [{ id: 77, props: { elem_id: 'setting_sd_modules' } }],
+                    dependencies: [{ id: BOX_EVENT, targets: [[77, 'input']], backend_fn: true }] };
+/** Press `label` in the control's list, as a person does. */
+function choose(label) {
+    const input = modules.querySelector('input');
+    input.value = '';
+    input.dispatchEvent(new window.Event('input', { bubbles: true }));
+    modules.querySelector(`[aria-label="${label}"]`).dispatchEvent(new window.Event('mousedown', { bubbles: true }));
+}
+/** The control showing `labels`, and Forge holding them: Neo's from here. */
+function boxOf(labels, { config = boxConfig } = {}) {
+    neoBox = null;
+    modules.querySelectorAll('.token-remove').forEach((x) => x.click());
+    labels.forEach(choose);
+    neoBox = { holds: [...labels], open: false, pending: false, sent: [], delay: 60, fails: 0, release: null };
+    forgeHolds = () => neoBox.holds;
+    if (config) window.gradio_config = config; else delete window.gradio_config;
+    document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+}
+const needing = (target) => {
+    plan = { success: true, preset: 'flux', manage_modules: true, source: 'file', select: target, target, missing: [] };
+};
+const said = () => Array.from(document.querySelectorAll('.mm-notice')).map((n) => n.textContent)
+    .filter((t) => t.startsWith('Forge did not take'));
+const logged = [];
+const realLog = console.log;
+const realWarn = console.warn;
+console.log = (...args) => { logged.push(args.join(' ')); realLog(...args); };
+console.warn = (...args) => { logged.push(args.join(' ')); realWarn(...args); };
+
+boxOf([CLIP, T5, AE]);
+needing([]);
+await send();
+check('3 a: three files taken out, answers slow: Forge hears of every one', [neoBox.holds, neoBox.sent, said()],
+      [[], [[T5, AE], [AE], []], []]);
+
+// The box's own calls alone are waited for: another's, open all the while, is not.
+boxOf([CLIP, T5, AE]);
+globalThis.fetch('/run/predict', { method: 'POST', body: JSON.stringify({ fn_index: 902 }) });
+neoBox.beside = true;
+needing([]);
+await send();
+check('and with another event\'s calls open, they are not waited for',
+      [neoBox.holds, neoBox.sent.length, logged.some((l) => l.includes('did not answer in time'))], [[], 3, false]);
+besideOpen.splice(0).forEach((release) => release());
+
+boxOf([CLIP]);
+needing([AE]);
+await send();
+check('3 b: one out and one in, answers slow: Forge holds the new one', [neoBox.holds, neoBox.sent, said()],
+      [[AE], [[], [AE]], []]);
+
+boxOf([CLIP, T5]);
+needing([]);
+modules.querySelector('.token-remove').click();          // the person's own, CLIP out: open as Send starts
+await send();
+check('3 c: a change of the person\'s own still open: Send\'s is not dropped',
+      [neoBox.holds, neoBox.sent, said()], [[], [[T5], []], []]);
+// Whenever its answer comes: Gradio takes it up a moment after.
+let ended = 0;
+for (let i = 0; i < 8; i++) {
+    boxOf([CLIP, T5]);
+    neoBox.delay = 20 + i;
+    needing([]);
+    modules.querySelector('.token-remove').click();
+    await send();
+    if (!neoBox.holds.length) ended++;
+}
+check('and so at whatever moment it is answered', ended, 8);
+
+// Again and again: one the person makes as each of Send's is answered.
+const takeOut = (label) => Array.from(modules.querySelectorAll('.token'))
+    .find((t) => t.textContent.startsWith(label))?.querySelector('.token-remove').click();
+const handOn = (label) => () => {
+    neoBox.now = true;
+    takeOut(label);
+    neoBox.now = false;
+};
+const dropped = (from) => logged.slice(from).filter((l) => l.includes('a change made no request of Forge')).length;
+let logsFrom = logged.length;
+boxOf([CLIP, T5, AE, 'sdxl_vae.safetensors']);
+needing([]);
+neoBox.hand = handOn('sdxl_vae.safetensors');
+await send();
+check('3 c2: one made as Send\'s is answered, taking out: none is dropped', [neoBox.holds, dropped(logsFrom), said()], [[], 0, []]);
+logsFrom = logged.length;
+boxOf(['sdxl_vae.safetensors']);
+needing([CLIP, T5, AE, 'sdxl_vae.safetensors']);
+const asListOpens = () => {            // the person's change in the frame Send opens the list for its second file
+    if (neoBox.sent.length !== 1) return;
+    modules.querySelector('input').removeEventListener('input', asListOpens);
+    handOn('sdxl_vae.safetensors')();
+};
+modules.querySelector('input').addEventListener('input', asListOpens);
+await send();
+check('and putting in', [[...neoBox.holds].sort(), dropped(logsFrom)], [[AE, CLIP, T5], 0]);
+
+// The person's hand on the box while Send waits: what Send was to take out or
+// put in is already so, and is left.
+boxOf([CLIP, T5, AE]);
+needing([CLIP]);
+let running = act('modelManager.sendImage', { index: 0 });
+await waitFor('its first change', () => neoBox.sent.length === 1);
+logsFrom = logged.length;
+Array.from(modules.querySelectorAll('.token')).find((t) => t.textContent.startsWith(AE))?.querySelector('.token-remove').click();     // already out where nothing waits
+await running;
+await whenSendSettled();
+check('a file the person takes out meanwhile: not the whole box cleared for it',
+      [selected(), logged.slice(logsFrom).some((l) => l.includes('clearing the lot'))], [[CLIP], false]);
+boxOf([CLIP]);
+needing([T5, AE]);
+running = act('modelManager.sendImage', { index: 0 });
+await waitFor('its first change', () => neoBox.sent.length === 1);
+neoBox.toggles = true;
+choose(AE);
+await running;
+await whenSendSettled();
+check('a file the person puts in meanwhile: not pressed, and so taken out, again', selected().sort(), [AE, T5]);
+
+boxOf([CLIP, T5, AE]);
+neoBox.fails = 1;
+needing([AE]);
+await send();
+check('3 d: an answer that fails: the next change goes', [neoBox.holds, selected(), said()], [[AE], [AE], []]);
+needing([]);
+await send();
+check('and the box still takes changes after', [neoBox.holds, said()], [[], []]);
+
+// Never answered: no change after the limit, the control part done and said.
+boxOf([CLIP, T5]);
+neoBox.delay = null;
+needing([]);
+await send();
+check('3 e: an answer that never comes: no more changes after the limit, and the notice',
+      [selected(), neoBox.sent, said().length, logged.some((l) => l.includes('did not answer in time'))],
+      [[T5], [[T5]], 1, true]);
+neoBox.delay = 60;
+neoBox.release?.();       // none where the change before it was dropped: the check above says so
+await waitFor('its answer', () => !neoBox.open);
+document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+await send();
+check('once it has come, the next Send finishes', [selected(), neoBox.holds, said()], [[], [], []]);
+boxOf([CLIP, T5]);
+Object.assign(neoBox, { delay: null, fails: 1 });
+await send();
+neoBox.delay = 60;
+neoBox.release?.();
+await waitFor('its answer', () => !neoBox.open);
+document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+await send();
+check('and once it has failed, too', [selected(), neoBox.holds, said()], [[], [], []]);
+
+// The limit is the whole patch's, and holds where the open call is another's press.
+boxOf([CLIP, T5, AE]);
+neoBox.delay = 350;
+logsFrom = logged.length;
+await send();
+check('the limit is for the whole patch: three slow answers are more than it',
+      logged.slice(logsFrom).some((l) => l.includes('did not answer in time')), true);
+await waitFor('the last answer', () => !neoBox.open);
+boxOf([CLIP, T5]);
+neoBox.delay = null;
+modules.querySelector('.token-remove').click();
+await waitFor('the person\'s change', () => neoBox.open);
+logsFrom = logged.length;
+await send();
+check('a call that hangs as Send starts: nothing is pressed, and it ends at the limit',
+      [neoBox.sent.length, selected(), logged.slice(logsFrom).some((l) => l.includes('did not answer in time'))],
+      [1, [T5], true]);
+neoBox.release?.();
+
+// Two Sends: the older stops at its next wait, whichever the newer is.
+const generationSend = () => sendInfotext({ infotext: 'a lighthouse at dusk\nSteps: 20', mode: 'txt2img', meta: {},
+                                            generationId: 41 });
+const gallerySend = () => act('modelManager.sendImage', { index: 0 });
+const unfinished = () => Array.from(document.querySelectorAll('.mm-notice')).map((n) => n.textContent)
+    .filter((t) => t.startsWith('An earlier Send\'s VAE / Text Encoder changes were not finished: Forge holds ')).length;
+const replayedSend = () => {
+    loaderAnswer = (tab, request) => (request.source?.kind === 'generation' ? { replayed: true, pasted: true } : { pasted: true });
+    return generationSend();
+};
+const pairs = {
+                'a generation\'s replayed, then a gallery\'s': [replayedSend, gallerySend],
+                'a gallery\'s, then a generation\'s': [gallerySend, generationSend],
+                'a generation\'s, then a gallery\'s': [generationSend, gallerySend],
+                'a gallery\'s, then a task\'s Load to UI': [gallerySend, () => loadTask(7)],
+                'a task\'s Load to UI, then a gallery\'s': [() => loadTask(7), gallerySend] };
+loaderAnswer = () => ({ error: 'no' });
+needing([]);
+await gallerySend();                     // an earlier failure: no concern of the Sends after it
+await whenSendSettled();
+for (const [what, [first, second]] of Object.entries(pairs)) {
+    loaderAnswer = () => ({ pasted: true });
+    boxOf([CLIP, T5, AE]);
+    neoBox.delay = 150;
+    needing([CLIP]);
+    generationPlan = plan;
+    running = first();
+    await waitFor('the first change', () => neoBox.sent.length === 1);
+    needing([CLIP, T5, AE]);
+    generationPlan = plan;
+    events.length = 0;
+    const from = logged.length;
+    const answered = second();
+    await Promise.all([running, answered]);
+    await whenSendSettled();
+    await waitFor('both done', () => !neoBox.open);
+    await new Promise((r) => setTimeout(r, 150));
+    check(`3 f: two Sends, ${what}: the box ends as the second needs, the first changing no more`,
+          [selected().sort(), [...neoBox.holds].sort(), events.filter((e) => e.startsWith('module-')), said(), unfinished(),
+           logged.slice(from).some((l) => l.includes('left to a newer Send'))],
+          [[AE, CLIP, T5], [AE, CLIP, T5], [], [], 0, true]);
+}
+generationPlan = null;
+loaderAnswer = () => ({ pasted: true });
+
+// The newer takes its turn before its UI preset, which may be slow to change:
+// the older's files are not saved as that preset's.
+boxOf([CLIP, T5, AE]);
+needing([CLIP]);
+running = gallerySend();
+await waitFor('the first change', () => neoBox.sent.length === 1);
+plan = { ...plan, preset: 'qwen', select: [CLIP, T5, AE], target: [CLIP, T5, AE] };
+eventDelay[950] = 300;
+let switched = 0;
+forgeAnswersPreset = () => { globalThis.fetch('/run/predict', { method: 'POST', body: JSON.stringify({ fn_index: 950 }) })
+    .then(() => { switched = neoBox.sent.length; }); };
+await Promise.all([running, gallerySend()]);
+await whenSendSettled();
+check('3 l: the newer\'s preset slow to change: the older makes no change under it',
+      [switched, [...neoBox.holds].sort(), unfinished()], [1, [AE, CLIP, T5], 0]);
+loaderAnswer = () => ({ error: 'no' });
+plan = { ...plan, preset: null };
+await gallerySend();
+await whenSendSettled();
+await new Promise((r) => setTimeout(r, 260));
+loaderAnswer = () => ({ pasted: true });
+check('and a Send that fails after says nothing of the older: the newer set the box', unfinished(), 0);
+forgeAnswersPreset = null;
+delete eventDelay[950];
+preset.querySelector('input').value = 'flux';
+
+// And only past its own stops: one that stops leaves the older to finish.
+boxOf([CLIP, T5, AE]);
+needing([CLIP]);
+running = gallerySend();
+await waitFor('the first change', () => neoBox.sent.length === 1);
+plan = { ...plan, checkpoint_problem: { own: true, reason: 'missing', name: 'gone' } };
+await Promise.all([running, gallerySend()]);
+await whenSendSettled();
+await waitFor('the first done', () => neoBox.sent.length === 2 && !neoBox.open);
+check('3 m: a second Send that stops leaves the first to finish', [selected(), neoBox.holds], [[CLIP], [CLIP]]);
+
+// One that takes its turn and then fails sets nothing, so what the older left
+// undone is said - whichever comes last, its stop or the failure.
+const failing = {
+    'its prompt box gone, before the older stops': async () => {
+        promptBox.id = 'gone';
+        await gallerySend();
+        promptBox.id = 'txt2img_prompt';
+    },
+    'its paste refused, after': async () => {
+        loaderAnswer = () => ({ error: 'no' });
+        plan = { ...plan, preset: 'qwen' };                 // slow to change: the older has stopped by then
+        eventDelay[950] = 300;
+        forgeAnswersPreset = () => {
+            globalThis.fetch('/run/predict', { method: 'POST', body: JSON.stringify({ fn_index: 950 }) });
+        };
+        await gallerySend();
+        forgeAnswersPreset = null;
+        delete eventDelay[950];
+        preset.querySelector('input').value = 'flux';
+    },
+    'a generation\'s refused': async () => {
+        generationPlan = plan;
+        loaderAnswer = () => ({ error: 'no' });
+        await generationSend();
+        await whenSendSettled();
+    },
+    'an error thrown before its paste': async () => {
+        const select = window.selectCheckpoint;
+        plan = { ...plan, checkpoint: 'x.safetensors' };
+        window.selectCheckpoint = globalThis.selectCheckpoint = () => { throw new Error('gone'); };
+        await gallerySend();
+        window.selectCheckpoint = globalThis.selectCheckpoint = select;
+    },
+    'a Load to UI\'s refused': async () => {
+        loaderAnswer = () => ({ error: 'no' });
+        await loadTask(7);
+    },
+};
+for (const [what, second] of Object.entries(failing)) {
+    boxOf([CLIP, T5, AE]);
+    neoBox.delay = 100;
+    needing([]);
+    running = gallerySend();
+    await waitFor('the first change', () => neoBox.sent.length === 1);
+    await second();
+    await running;
+    await whenSendSettled();
+    await waitFor('the box', () => !neoBox.open);
+    await new Promise((r) => setTimeout(r, 330));           // the owed check's own time
+    loaderAnswer = () => ({ pasted: true });
+    check(`3 n: the newer Send failing, ${what}: the older's unfinished changes are said, once`,
+          [selected().length, unfinished()], [2, 1]);
+}
+check('and what Forge holds and the image needs is said',
+      Array.from(document.querySelectorAll('.mm-notice')).some((n) => n.textContent
+          === `An earlier Send's VAE / Text Encoder changes were not finished: Forge holds ${AE}, ${T5}, where the image needs `
+              + 'nothing. Check "VAE / Text Encoder" before generating.'), true);
+loaderAnswer = () => ({ error: 'no' });
+await gallerySend();
+await whenSendSettled();
+await new Promise((r) => setTimeout(r, 260));
+check('and not again at the next that fails', unfinished(), 1);
+loaderAnswer = () => ({ pasted: true });
+boxOf([CLIP]);
+needing([]);
+running = gallerySend();
+await waitFor('its one change', () => neoBox.sent.length === 1);
+loaderAnswer = () => ({ error: 'no' });
+await gallerySend();
+await running;
+await whenSendSettled();
+await waitFor('the box', () => !neoBox.open);
+await new Promise((r) => setTimeout(r, 260));
+loaderAnswer = () => ({ pasted: true });
+check('nor where the older had made its last change', [selected(), unfinished()], [[], 0]);
+// The older past its limit as the newer fails, and three Sends whose newest
+// fails first: said all the same.
+boxOf([CLIP, T5]);
+needing([]);
+neoBox.delay = null;
+running = gallerySend();
+await waitFor('its first change', () => neoBox.sent.length === 1);
+loaderAnswer = () => ({ error: 'no' });
+await gallerySend();
+await running;
+await waitFor('the notice', () => unfinished() === 1);
+check('3 o: the older past its limit, the newer failing: said', [selected(), unfinished(), said().length], [[T5], 1, 0]);
+neoBox.delay = 60;
+neoBox.release?.();
+await waitFor('its answer', () => !neoBox.open);
+loaderAnswer = () => ({ pasted: true });
+boxOf([CLIP, T5, AE]);
+needing([]);
+neoBox.delay = 600;
+running = gallerySend();
+await waitFor('its first change', () => neoBox.sent.length === 1);
+loaderAnswer = () => ({ error: 'no' });
+plan = { ...plan, preset: 'qwen' };
+window.gradio_config = { components: [...boxConfig.components, { id: 11, props: { elem_id: 'forge_ui_preset' } }],
+                         dependencies: [...boxConfig.dependencies, { id: 950, targets: [[11, 'change']], backend_fn: true }] };
+eventDelay[950] = 250;
+forgeAnswersPreset = () => { globalThis.fetch('/run/predict', { method: 'POST', body: JSON.stringify({ fn_index: 950 }) }); };
+const middle = gallerySend();
+await new Promise((r) => setTimeout(r, 60));
+forgeAnswersPreset = null;
+plan = { ...plan, preset: null };
+await gallerySend();
+await Promise.all([running, middle]);
+await waitFor('the notice', () => unfinished() >= 1);
+await new Promise((r) => setTimeout(r, 260));
+delete eventDelay[950];
+preset.querySelector('input').value = 'flux';
+loaderAnswer = () => ({ pasted: true });
+check('and three Sends, the two newer failing, the newest first: said, once', unfinished(), 1);
+boxOf([CLIP, T5, AE]);
+needing([]);
+neoBox.delay = 150;
+running = gallerySend();
+await waitFor('its first change', () => neoBox.sent.length === 1);
+generationPlan = plan;
+filesDelay = 700;
+const late = sendInfotext({ infotext: 'a lighthouse at dusk\nSteps: 20', mode: 'txt2img', meta: { prompt: 'a lighthouse' },
+                            generationId: 41 });
+await new Promise((r) => setTimeout(r, 30));
+filesDelay = 0;
+loaderAnswer = () => ({ error: 'no' });
+await gallerySend();
+loaderAnswer = () => ({ pasted: true });
+await Promise.all([running, late]);
+await whenSendSettled();
+await new Promise((r) => setTimeout(r, 330));
+check('and two older ones, the second coming to the box after: said once', unfinished(), 1);
+generationPlan = null;
+
+// The owed check on its way as another Send starts, which lands: left to it.
+boxOf([CLIP, T5]);
+needing([]);
+neoBox.delay = 100;
+running = gallerySend();
+await waitFor('its first change', () => neoBox.sent.length === 1);
+loaderAnswer = () => ({ error: 'no' });
+await gallerySend();
+await running;
+await waitFor('the stop', () => !neoBox.open);
+await new Promise((r) => setTimeout(r, 60));
+loaderAnswer = () => ({ pasted: true });
+neoBox.delay = 20;
+needing([CLIP, T5, AE]);
+await gallerySend();
+await whenSendSettled();
+await new Promise((r) => setTimeout(r, 260));
+check('3 p: an owed check on its way as a Send starts and lands: nothing is said', [[...neoBox.holds].sort(), unfinished()],
+      [[AE, CLIP, T5], 0]);
+
+// A checkpoint's "nothing is selected" is not said for a Send that was stopped.
+boxOf([CLIP, T5]);
+needing([]);
+plan = { ...plan, bundled: ['clip_l'] };
+running = gallerySend();
+await waitFor('its first change', () => neoBox.sent.length === 1);
+needing([CLIP, T5]);
+await Promise.all([running, gallerySend()]);
+await whenSendSettled();
+const own = () => Array.from(document.querySelectorAll('.mm-notice')).some((n) => n.textContent.includes('brings its own'));
+check('3 q: a stopped Send says nothing of its checkpoint\'s own files', [[...neoBox.holds].sort(), own()], [[CLIP, T5], false]);
+needing([]);
+plan = { ...plan, bundled: ['clip_l'] };
+await send();
+check('and one that is not says it', own(), true);
+document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
+
+// An older Send that comes to the box only after a newer has set it leaves
+// nothing undone, whatever fails later.
+boxOf([CLIP, T5]);
+needing([]);
+generationPlan = plan;
+filesDelay = 400;
+const slow = sendInfotext({ infotext: 'a lighthouse at dusk\nSteps: 20', mode: 'txt2img', meta: { prompt: 'a lighthouse' },
+                            generationId: 41 });
+await new Promise((r) => setTimeout(r, 60));
+filesDelay = 0;
+needing([CLIP]);
+await gallerySend();
+await whenSendSettled();
+loaderAnswer = () => ({ pasted: true });
+await slow;
+await whenSendSettled();
+await new Promise((r) => setTimeout(r, 60));
+check('an older Send that comes to the box late makes no change', [selected(), neoBox.holds, unfinished()], [[CLIP], [CLIP], 0]);
+loaderAnswer = () => ({ error: 'no' });
+await gallerySend();
+await whenSendSettled();
+loaderAnswer = () => ({ pasted: true });
+await new Promise((r) => setTimeout(r, 260));
+check('and one that fails later says nothing of it', unfinished(), 0);
+generationPlan = null;
+boxOf([CLIP]);
+needing([]);
+await gallerySend();
+await whenSendSettled();
+loaderAnswer = () => ({ error: 'no' });
+await gallerySend();
+await whenSendSettled();
+loaderAnswer = () => ({ pasted: true });
+check('and one failing with nothing left undone says nothing of it', [neoBox.holds, unfinished()], [[], 0]);
+
+// A file that cannot be taken out alone: the whole control is cleared, and
+// that is a change waited for as any other.
+boxOf([CLIP, T5]);
+const tokenOf = (label) => Array.from(modules.querySelectorAll('.token')).find((t) => t.textContent.startsWith(label));
+tokenOf(CLIP).querySelector('.token-remove').remove();
+const clearAll = document.createElement('div');
+clearAll.className = 'token-remove remove-all';
+clearAll.addEventListener('click', () => { modules.querySelectorAll('.token').forEach((t) => t.remove()); boxChanged(); });
+modules.appendChild(clearAll);
+needing([T5, AE]);
+await send();
+check('3 g: the whole box cleared, answers slow: Forge holds the new list', [neoBox.holds, neoBox.sent, said()],
+      [[T5, AE], [[], [T5], [T5, AE]], []]);
+clearAll.remove();
+
+// A change that makes no request is not waited for past modulesStart.
+boxOf([CLIP, T5]);
+neoBox.mute = 1;
+needing([]);
+let patching = Date.now();
+await send();
+check('3 h: a change that makes no request: on after modulesStart, the console saying so',
+      [neoBox.holds, neoBox.sent, logged.some((l) => l.includes('a change made no request of Forge')),
+       Date.now() - patching >= window.mmTiming.modulesStart], [[], [[]], true, true]);
+
+boxOf([CLIP]);
+neoBox.delay = 10;
+needing([]);
+patching = Date.now();
+await send();
+check('3 i: with nothing open, the first change is not held', [neoBox.holds, Date.now() - patching < window.mmTiming.modulesStart],
+      [[], true]);
+
+boxOf([CLIP]);
+needing([CLIP]);
+patching = Date.now();
+await send();
+check('3 j: nothing to change: no request and no wait',
+      [neoBox.sent, Date.now() - patching < window.mmTiming.modulesStart], [[], true]);
+
+// The original Forge's control has no id Gradio's config could name: the
+// changes go as before, one frame apart, its own page keeping the last.
+// Its list is closed once, at the end; where the changes are waited for, after each.
+let blurs = 0;
+const realBlur = modules.querySelector('input').blur;
+modules.querySelector('input').blur = () => { blurs++; };
+boxOf([CLIP, T5, AE], { config: null });
+neoBox.once = false;
+needing([]);
+await send();
+check('3 k: no event named: the changes go without waiting for an answer, and the list is closed once',
+      [neoBox.sent.map((l) => l.length), neoBox.mostOpen, blurs], [[2, 1, 0], 3, 1]);
+blurs = 0;
+boxOf([CLIP, T5, AE]);
+needing([]);
+await send();
+check('and where they are waited for, the list is closed as each is', blurs, 4);
+blurs = 0;
+boxOf([CLIP]);
+needing([CLIP, T5]);
+neoBox.delay = null;
+await send();
+check('and where it stops', blurs >= 2, true);
+neoBox.release?.();
+blurs = 0;
+boxOf([CLIP]);
+needing([CLIP, 'gone.safetensors', T5]);
+await send();
+check('and after a file it does not offer', [selected(), blurs], [[CLIP, T5], 3]);
+modules.querySelector('input').blur = realBlur;
+
+console.log = realLog;
+console.warn = realWarn;
+neoBox = null;
+delete window.gradio_config;
+modules.querySelectorAll('.token-remove').forEach((x) => x.click());
+forgeHolds = () => selected();
+document.querySelectorAll('.mm-notice').forEach((n) => n.remove());
 
 // ------------------------------------------------------- the server failing
 // The server builds what is pasted (#302): with no plan, nothing is sent,

@@ -41,7 +41,7 @@ the sync's module, and the Queue alone asked for the sync's progress
 | `grouping` | Group by and search for the tabs of tiles, the Generations and the Civitai Images tabs alike (#283): what a Group by value groups by, one grouping or two; its menu, each grouping with what to group its groups by then; the search box as it starts. Each tab says its groupings and what a choice does; neither imports the other's script |
 | `generations` | your generations, as a model's gallery and the Generations tab both show them: a thumbnail, the rating and delete requests, a shift-click's range, the select bar and bulk delete, the rating row. Each tab draws its own cards or tiles |
 | `downloads` | a version's Download button, and the downloads panel both tabs show; the list runs once a tab that downloads starts it, and stops with the last; Send's Resources and chips offer Download only while it runs |
-| `forge` | what the page does with Forge's own page, the server's `forge_host.py` on this side (#321): the watcher of Gradio's calls to Forge - its straight-to-server calls, and apart from them its posts to the queue - on the page's fetch while a tab that uses it runs; and Forge's refreshes, one at a time in one line for every caller (a batch landing, a sync's end, a delete, Send's): the checkpoint refresh, its answer waited for, then the extra networks refresh, ended when the step Forge chains after it is posted. Pressed together, the first read Forge's checkpoint list half rebuilt by the second, and the Checkpoint box went empty. A read of Forge's list waits for the line too (`afterRefreshes`): each refresh empties `checkpoints_list` while it walks the folders, and the Resources dialog's `send/checkpoints`, asked during one, answered success with 0 checkpoints - on 7880, 2 answers of 0 against 18 during the checkpoint refresh, a window of about 50 ms, and the dialog showed All 0 in 3 runs of 4 (#425). Send's helpers for Forge's controls move here in #325 |
+| `forge` | what the page does with Forge's own page, the server's `forge_host.py` on this side (#321): the watcher of Gradio's calls to Forge - its straight-to-server calls, and apart from them its posts to the queue - on the page's fetch while a tab that uses it runs; the two waits for a control's own calls, none open and the one just made answered (#3); and Forge's refreshes, one at a time in one line for every caller (a batch landing, a sync's end, a delete, Send's): the checkpoint refresh, its answer waited for, then the extra networks refresh, ended when the step Forge chains after it is posted. Pressed together, the first read Forge's checkpoint list half rebuilt by the second, and the Checkpoint box went empty. A read of Forge's list waits for the line too (`afterRefreshes`): each refresh empties `checkpoints_list` while it walks the folders, and the Resources dialog's `send/checkpoints`, asked during one, answered success with 0 checkpoints - on 7880, 2 answers of 0 against 18 during the checkpoint refresh, a window of about 50 ms, and the dialog showed All 0 in 3 runs of 4 (#425). Send's helpers for Forge's controls move here in #325 |
 | `send` | Send to txt2img / img2img, from any tab: which of your generations' images can be sent, and why not (`generationSendRefusal`, #410 - with infotext, or another tool's prompts in its data, #408 - the Send buttons both tabs draw and the stops behind them ask it, so what can be sent changes in one place - but the ⋯ menu's send into img2img, which sends the picture whatever the rule answers, #299); Forge's VAE / Text Encoder control, its UI preset, the one send plan (`/model-manager/send/plan`, `send.py`) and the source it hands the tab's loader, which builds the infotext on the server and sets the schedule type and Hires fix in the paste's own event (#302), an image-to-video model's start frame (`sendGalleryImage`, `sendInfotext`); and, with `into`, the picture itself into one of img2img's modes (#299, `IMG2IMG_SENDS`, the ⋯ menu's items) - put in by a canvas button of the mode's own, never the settings' loader (an answer that leaves a canvas as it is breaks it for the session: `scheduler/load.py`), its layer emptied, a missing checkpoint said rather than a stop; the Resources dialog's Send line it hands each dialog (`civitaiSendLine`, `generationSendLine`; for the Resources button `gallerySendLine`, `generationResourcesLine`, #377), with `choose` from a tab's own box or Send as… - which it never reads itself: the dialog's own Send comes back through it |
 | `notices` | the notices in the page's corner that say what a Send did or could not do (`showNotice`), Send's own until #357: one column, newest at the bottom - four shown, "+N more" above, counted from the page; a × each, with no text of its own; every clock held while the pointer is over the column, or focus is on a ×; and a notice that stays (`stay`) until its end, its words, bar and edge updated in place, no × until then - the settings window's progress while stored images are judged again is one; and Past notices: each kept as it appears - one that stays, at its end - as its words and each link's setting, never markup, the last 50 in the browser tab's `sessionStorage`, read back at the next page; a button under the column, and "+N more", open them. Unless Keep past notices is off: then nothing is kept, the list is emptied, and "+N more" is disabled - followed at load (ui-options), at every `mm-settings-saved` whatever its `changed` says (a tab that missed another's change saves what the server holds, and hears "nothing changed"), and at an Apply on the Settings page naming it (ui-options asked afresh, not the page's first answer). The window's box saves it through `settings.save`, which `settings` offers: notices cannot import settings, which imports it. Send and the settings start it (`STARTS`); its stop takes the column away |
 | `chips` | an image's LoRAs and embeddings as chips under the prompt, after a send: their rules, and the chips on the page |
@@ -261,15 +261,27 @@ showed:
   open, left the third unlisted.
 - **The VAE / Text Encoder control.** Neo's has the id `setting_sd_modules`;
   the original Forge's has none, and is found by its label. Every change to
-  it is a request of Forge's own carrying the whole selection, and they can
-  land out of order: after a clear-and-reselect, Neo sometimes loaded an
-  Anima model with no VAE while the control showed it. So Send patches it -
-  takes out only what is extra, adds only what is missing, touches nothing
-  when nothing differs - and then asks the server what Forge's setting
-  (`forge_additional_modules`) actually holds. It is the patch of several
-  changes that fails: over 488 Civitai sends (2026-10-18), 4 of 13 sends that
-  made 2 or 3 changes ended with Forge holding a state from partway through,
-  against 0 of 88 single changes (#3). The control can also be stale
+  it is a request of Forge's own carrying the whole selection. Neo binds its
+  `input`, whose trigger mode is `once`: Gradio's page drops a change made
+  while one is open, and each carries the list as it then stood, so Forge
+  kept a list from partway through and the control showed the rest: 5 of 5
+  Sends of 2 or 3 changes with the answers held 1 s (2026-11-25, #3), and
+  Neo saved that list as the preset's own too. Over 488 Sends in October, 4
+  of 13 that made 2 or 3 changes ended so, against 0 of 88 of one; what was
+  asked of Forge was not recorded then. A dropped change also sets a pending
+  mark that only a good answer takes off, read in Gradio's code: the open
+  request failing then, the control ignores every later change of that page.
+  So Send patches it - takes out only what is
+  extra, adds only what is missing, touches nothing when nothing differs -
+  and waits for the answer to each change (`answered`, `forge.mjs`, 0.84.4),
+  10 s in all, past which it makes no more; and then asks the server what
+  Forge's setting (`forge_additional_modules`) actually holds. Of
+  two Sends the older stops changing the box: a new way to send takes a turn
+  (`takeTurn`) after its own stops and before the UI preset, passes it to
+  `pasteInfotext` and `applyModules`, and calls `turnFailed` where it fails before the paste, as
+  the check the older Send skipped is then made. The original Forge binds
+  `change`, which is `always_last`, read in its code: it keeps the last
+  change. The control can also be stale
   before Send acts, so a patch with nothing to change leaves Forge holding
   something else: a page loaded fresh draws it as the UI was built, while
   Forge keeps the last selection, and a switch to the flux preset brings

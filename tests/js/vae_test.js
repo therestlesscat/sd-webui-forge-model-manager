@@ -13,6 +13,7 @@ const path = require('path');
 // suite runs wherever the repository happens to be checked out.
 const REPO = path.resolve(__dirname, '..', '..').replace(/\\/g, '/');
 const src = fs.readFileSync(REPO + '/javascript/shared/send.mjs', 'utf8');
+const forgeSrc = fs.readFileSync(REPO + '/javascript/shared/forge.mjs', 'utf8');
 
 // ---------------------------------------------------------------- tiny DOM
 class El {
@@ -144,18 +145,20 @@ function buildControl(selected, available, flavour = 'neo') {
 let control = null;
 const sandbox = {
     console: { log() {}, warn() {}, error() {} },
-    setTimeout, Promise,
+    setTimeout, Promise, Date,
     Event: class { constructor(t, o = {}) { this.type = t; this.bubbles = !!o.bubbles; } },
     MouseEvent: class { constructor(t, o = {}) { this.type = t; this.bubbles = !!o.bubbles; } },
     Array, Object, String,
-    TIMING: { frame: 5 },       // send.mjs's waits (core.mjs), the frame nextFrame() waits by default
+    // send.mjs's and forge.mjs's waits (core.mjs), the frame nextFrame() waits by default
+    TIMING: { frame: 5, modulesPatch: 500, modulesStart: 20 },
+    forgeCalls: { begun: [] },  // what the page's watch saw: no Gradio config here, so nothing is waited for
 };
 sandbox.window = sandbox;
 sandbox.gradioApp = () => control.doc;
 vm.createContext(sandbox);
 
-function lift(name) {
-    const m = src.match(new RegExp('^[ \\t]*(async )?function ' + name + '\\s*\\(', 'm'));
+function lift(name, src) {
+    const m = src.match(new RegExp('^[ \\t]*(?:export )?(async )?function ' + name + '\\s*\\(', 'm'));
     if (!m) throw new Error('not found: ' + name);
     const isAsync = !!m[1];
     let i = src.indexOf('(', m.index + m[0].length - 1), depth = 0;
@@ -167,12 +170,13 @@ function lift(name) {
         + src.slice(src.indexOf('(', m.index), start) + src.slice(start, i + 1) + ')', sandbox);
 }
 
-vm.runInContext("const NEO_MODULES_ID = 'setting_sd_modules'; const MODULES_LABEL = 'VAE / Text Encoder';", sandbox);
+vm.runInContext("const NEO_MODULES_ID = 'setting_sd_modules'; const MODULES_LABEL = 'VAE / Text Encoder'; let forgeTurn = 0, settingTurn = 0, owed = null;", sandbox);
 for (const fn of ['getModulesControl', 'nextFrame', 'readModuleOptions', 'matchVAEName',
                   'pressOption', 'clearModules', 'tokenLabel', 'selectedModuleLabels', 'applyForgeModules',
-                  'applyVaeSelection', 'patchForgeModules']) {
-    sandbox[fn] = lift(fn);
+                  'applyVaeSelection', 'turnOver', 'patchForgeModules']) {
+    sandbox[fn] = lift(fn, src);
 }
+for (const fn of ['eventsOf', 'dependencies', 'idle', 'answered']) sandbox[fn] = lift(fn, forgeSrc);
 
 let failures = 0;
 const check = (label, cond, extra) => {
@@ -281,10 +285,11 @@ const AVAILABLE = ['qwen_image_vae.safetensors', 'sdxl_vae.safetensors',
 
     // 12. A PATCH, NOT A RESET: Send makes the control hold exactly what the
     //     image needs, with as few changes as can be. Each change is a request
-    //     of Forge's, carrying the whole selection; they can land out of order,
-    //     and after a clear-and-reselect Neo sometimes loaded an Anima model
-    //     with no VAE while the control showed it. So nothing different,
-    //     nothing touched; else only what differs.
+    //     of Forge's, carrying the whole selection; one made while another is
+    //     open is dropped by Gradio's page, and after a clear-and-reselect Neo
+    //     sometimes loaded an Anima model with no VAE while the control showed
+    //     it. So nothing different, nothing touched; else only what differs.
+    //     The waits between changes: forge_preset_test.mjs.
     const ANIMA = ['qwen_3_06b_base.safetensors', 'qwen_image_vae.safetensors'];
     const ALL = [...AVAILABLE, 'qwen_3_06b_base.safetensors', 'sdxl_vae_fix.safetensors'];
     const same = (a, b) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());

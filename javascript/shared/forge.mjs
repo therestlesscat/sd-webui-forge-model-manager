@@ -19,10 +19,11 @@ const { TIMING } = await shared('core.mjs');
  * Apart from them, `queued`: each event posted to Gradio's queue
  * (<root>/queue/join), in order - a queued event's answer comes back through
  * Gradio's own stream, which fetch never sees, but the step chained after it
- * is posted only once it has finished (#321). Send's preset waits read the
- * first four alone.
+ * is posted only once it has finished (#321). And `begun`: each call in the
+ * order it started, open until it comes back (#3). Send's preset waits read
+ * the first four alone.
  */
-export const forgeCalls = { started: 0, inFlight: 0, last: 0, done: [], queued: [] };
+export const forgeCalls = { started: 0, inFlight: 0, last: 0, done: [], queued: [], begun: [] };
 
 function watchForgeCalls(scope) {
     if (globalThis.fetch?.mmWatched) return;
@@ -47,7 +48,10 @@ function watchForgeCalls(scope) {
         forgeCalls.started++;
         forgeCalls.inFlight++;
         forgeCalls.last = Date.now();
+        const begun = { fn, open: true };
+        if (fn !== null) forgeCalls.begun.push(begun);
         const settle = (ok) => {
+            begun.open = false;
             forgeCalls.inFlight--;
             forgeCalls.last = Date.now();
             if (fn !== null) forgeCalls.done.push({ fn, ok });
@@ -112,7 +116,7 @@ function forgeApp() {
  * elem_id), and the step chained after an event (`trigger_after`). Empty
  * where the config cannot say.
  */
-function eventsOf(elemId, trigger = 'click') {
+export function eventsOf(elemId, trigger = 'click') {
     const config = window.gradio_config;
     const component = (config?.components || []).find((c) => c?.props?.elem_id === elemId);
     if (!component) return [];
@@ -126,6 +130,40 @@ function chainedAfter(fns) {
 
 function dependencies() {
     return (window.gradio_config?.dependencies || []).map((d, at) => ({ ...d, fn: d.id ?? at }));
+}
+
+// Gradio's page drops a change made while the one before it is open, where
+// the control's trigger mode is `once` (#3). These two are what waits for it;
+// `limit` is a time, and with no event named there is nothing to wait for.
+
+/**
+ * Once no call of `events` is open: true, or false at `limit`. One it waited
+ * for is given a frame more: Gradio marks it finished a moment after.
+ */
+export async function idle(events, limit) {
+    for (let clear = true; ;) {         // clear: none open a frame ago, or it is the first look
+        const open = forgeCalls.begun.some((call) => call.open && events.includes(call.fn));
+        if (!open && clear) return true;
+        if (open && Date.now() >= limit) return false;
+        clear = !open;
+        await new Promise((resolve) => setTimeout(resolve, TIMING.frame));
+    }
+}
+
+/**
+ * Once a call of `events` begun since `from` - forgeCalls.begun.length, noted
+ * before the press - has come back, answered or failed: 'came'. 'none' where
+ * none has begun in TIMING.modulesStart, 'late' at `limit`.
+ */
+export async function answered(events, from, limit) {
+    const starting = Date.now() + TIMING.modulesStart;
+    for (;;) {
+        const calls = forgeCalls.begun.slice(from).filter((call) => events.includes(call.fn));
+        if (!events.length || (calls.length && !calls.some((call) => call.open))) return 'came';
+        if (Date.now() >= limit) return 'late';
+        if (!calls.length && Date.now() >= starting) return 'none';
+        await new Promise((resolve) => setTimeout(resolve, TIMING.frame));
+    }
 }
 
 /** Until `came()` answers, or the time limit: what it answered, or null. */
