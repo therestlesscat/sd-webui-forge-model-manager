@@ -192,9 +192,9 @@ export function substituteOf(versionId) {
  * Anything naming the version whose gallery this is (`exclude`) gets dropped.
  * An image is an example *of* that model, so listing it says nothing - and it
  * is a quarter of all the rows in this library. The Civitai Browser names its
- * own, the version it shows. But not a checkpoint's (#377): it stays, first,
- * marked `own` - the Send line names it, and an image naming nothing else
- * said "Nothing here has a Civitai model behind it".
+ * own, the version it shows. But not a checkpoint's (#377): it stays, first -
+ * the Send line names it, and an image naming nothing else said "Nothing here
+ * has a Civitai model behind it".
  *
  * `finished` says whether every hash has had its answer. Until then a hash
  * with no answer yet is still being looked up, and is left out rather than
@@ -225,7 +225,6 @@ export function mergeImageResources(img, resolved, finished, exclude) {
             type: resource.type || 'Unknown',
             name: resource.name || 'Unknown',
             versionName: resource.modelVersionName || '',
-            own: versionId === exclude,
         });
     }
 
@@ -253,7 +252,6 @@ export function mergeImageResources(img, resolved, finished, exclude) {
                 // an fp16 and an fp32 file, and only one made the image (#233).
                 hash,
                 tag: promptTag(resource),
-                own: match.version_id === exclude,
             });
             continue;
         }
@@ -589,8 +587,8 @@ function checkpointInstalled() {
 /**
  * The dialog (#377, R4, option F of its POC): a row in two lines, as the list of your
  * checkpoints - the name, which opens the model as View did, and the version; under them the
- * kind, a checkpoint's base model, the prompt's tag and the row's notes - its Download at the
- * right. The image's checkpoint first, then the rest in the image's order; what has no Civitai
+ * kind, a checkpoint's family and base model, the prompt's tag and the row's notes - its Download at
+ * the right. The image's checkpoint first, then the rest in the image's order; what has no Civitai
  * version greyed in the same list. The Send line at the dialog's foot, outside what scrolls: 17
  * rows of one image put it at the bottom edge of a 1080 px screen, the list below the fold.
  */
@@ -1551,9 +1549,9 @@ async function sendSeveral(send) {
 // Browser cannot help.
 
 // What the server says of each version and its model, once asked: version
-// id -> { modelId, sameFile, baseModel, versionGone, newest }, or
-// { gone: true }. A version it could not answer for is absent, and asked
-// about again by the next dialog.
+// id -> { modelId, sameFile, baseModel, family, versionGone, newest }, or
+// { gone: true, family }. A version it could not answer for is absent, and
+// asked about again by the next dialog.
 const civitaiModels = new Map();
 // The versions being asked about, and all the asking under way: View waits on it.
 const askingVersions = new Set();
@@ -1563,9 +1561,9 @@ let viewing = null;
 
 /**
  * Ask the server what Civitai says of these rows' models - the route the
- * chips ask (resources.missing_files): each version's model id and base
- * model, or gone, only on a 404 for the model alone. One request a dialog;
- * answers kept.
+ * chips ask (resources.missing_files): each version's model id, base model
+ * and family, or gone, only on a 404 for the model alone. One request a
+ * dialog; answers kept.
  */
 function askCivitaiModels(resources) {
     const versions = resources.filter((r) => r.versionId && !civitaiModels.has(r.versionId)
@@ -1581,9 +1579,10 @@ function askCivitaiModels(resources) {
             const data = await response.json();
             if (data && data.success) {
                 for (const [id, answer] of Object.entries(data.versions || {})) {
-                    civitaiModels.set(Number(id), answer.gone ? { gone: true }
+                    civitaiModels.set(Number(id), answer.gone ? { gone: true, family: answer.family || null }
                                                               : { modelId: safeId(answer.model_id), sameFile: answer.same_file || null,
                                                                   baseModel: answer.base_model || null,
+                                                                  family: answer.family || null,
                                                                   versionGone: Boolean(answer.version_gone),
                                                                   newest: answer.newest || null });
                 }
@@ -1715,12 +1714,13 @@ function resourceNameHtml(resource) {
     const made = held && imageFiles.get(resource.hash);
     const madeLabel = made ? fileLabel(made, made.size_kb ? made.size_kb * 1024 : 0) : '';
     const version = [resource.versionName, madeLabel].filter(Boolean).join(' · ');
-    // Civitai's base model of the version the image used (#439). The answers are kept under numbers,
-    // and an image can name its version as text.
-    const baseModel = isCheckpoint(resource.type) && civitaiModels.get(safeId(resource.versionId))?.baseModel;
+    // The version the image used: its family, as the list's tab names it, and Civitai's base model
+    // (#439) - once where they are the same (Anima). The answers are kept under numbers, and an image
+    // can name its version as text.
+    const civitai = isCheckpoint(resource.type) ? civitaiModels.get(safeId(resource.versionId)) : null;
+    const kind = [...new Set([familyName(civitai?.family), civitai?.baseModel].filter(Boolean))];
     const notes = [`<span class="mm-res-type">${escapeHtml(rowKindName(resource.type))}</span>`,
-                   ...(baseModel ? [escapeHtml(baseModel)] : []),
-                   ...(resource.own ? ['<span class="mm-res-own">This gallery\'s model</span>'] : []),
+                   ...kind.map((name) => escapeHtml(name)),
                    ...(resource.tag ? [`<code class="mm-res-tag">${escapeHtml(resource.tag)}</code>`] : []),
                    ...(viewing === resource.versionId ? ['<span class="mm-res-looking">Looking up...</span>'] : []),
                    ...(held ? [`<span class="mm-res-held">you have its ${escapeHtml(fileLabel(held, held.file_size) || held.name)} file</span>`] : []),

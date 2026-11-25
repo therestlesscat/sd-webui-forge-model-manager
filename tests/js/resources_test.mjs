@@ -186,10 +186,9 @@ const offered = names('.mm-res-row:not(.mm-res-unresolved)').sort();
 check('each resource appears once, under the name Civitai gives it',
       offered, ['Sci-fi Environments', 'Space Worlds', 'The Model Itself', 'VAE ft MSE']);
 // Left out it was, and an image naming nothing else opened on "Nothing here has a Civitai model behind it".
-check('the checkpoint this gallery belongs to: its first row, marked as the gallery\'s - the only one so (#377)',
-      [names('.mm-res-row:not(.mm-res-unresolved)')[0],
-       Array.from(panel().querySelectorAll('.mm-res-own')).map((n) => n.textContent.trim())],
-      ['The Model Itself', ['This gallery\'s model']]);
+check('the checkpoint this gallery belongs to: its first row (#377), and no row says whose gallery it is (#439)',
+      [names('.mm-res-row:not(.mm-res-unresolved)')[0], panel().textContent.includes('gallery')],
+      ['The Model Itself', false]);
 check('nor the filename its duplicate was listed under',
       offered.includes('scifi_env_v1'), false);
 check("where both lists name it, the Civitai name is the one kept",
@@ -431,17 +430,17 @@ await showImageResources(keptByName, null);
 check('    one your generation already lists as its checkpoint: that row alone, not a second',
       unfound(), [['Checkpoint', 'my_merge_v3', 'No hash recorded']]);
 document.querySelector('#mm_meta_modal')?.close();
-// A checkpoint's own gallery keeps the image's checkpoint, marked as the gallery's (#377):
+// A checkpoint's own gallery keeps the image's checkpoint (#377), with no note of whose it is (#439):
 // left out, an image naming nothing else opened on "Nothing here has a Civitai model behind it".
 const known = () => Array.from(panel()?.querySelectorAll('.mm-res-row:not(.mm-res-unresolved)') || [])
     .map((row) => [row.querySelector('.mm-res-view')?.textContent.trim(),
-                   row.querySelector('.mm-res-own')?.textContent.trim() || null]);
+                   row.querySelector('.mm-res-sub')?.textContent.trim()]);
 const inOwnGallery = { meta: { prompt: 'a lighthouse', Model: 'animeBase_v10',
                                civitaiResources: [{ type: 'Checkpoint', name: 'Anime Base', modelVersionId: 8800 }],
                                resources: [{ type: 'lora', name: 'eulaHard' }] } };
 await showImageResources(inOwnGallery, 8800);
-check('    in the checkpoint\'s own gallery: its row, marked as the gallery\'s, and none for it as text',
-      [known(), unfound()], [[['Anime Base', 'This gallery\'s model']], [['LoRA', 'eulaHard', 'No hash recorded']]]);
+check('    in the checkpoint\'s own gallery: its row, as in any other, and none for it as text',
+      [known(), unfound()], [[['Anime Base', 'Checkpoint']], [['LoRA', 'eulaHard', 'No hash recorded']]]);
 check('    and the Resources button counts it, as the dialog lists it',
       resourceButtonLabel(inOwnGallery, 8800), 'Resources (2)');
 document.querySelector('#mm_meta_modal')?.close();
@@ -450,8 +449,8 @@ const inLoraGallery = { meta: { prompt: 'a lighthouse <lora:seaSpray:1>',
                                 civitaiResources: [{ type: 'Checkpoint', name: 'Anime Base', modelVersionId: 8800 },
                                                    { type: 'LORA', name: 'Sea Spray', modelVersionId: 8801 }] } };
 await showImageResources(inLoraGallery, 8801);
-check('    in a LoRA\'s own gallery: the LoRA left out, the checkpoint not marked',
-      [known(), resourceButtonLabel(inLoraGallery, 8801)], [[['Anime Base', null]], 'Resources (1)']);
+check('    in a LoRA\'s own gallery: the LoRA left out, the checkpoint\'s row the same',
+      [known(), resourceButtonLabel(inLoraGallery, 8801)], [[['Anime Base', 'Checkpoint']], 'Resources (1)']);
 document.querySelector('#mm_meta_modal')?.close();
 // Named by hash alone: while Civitai is asked, and once it answers with the gallery's version.
 RESOLVED.cccc000001 = { version_id: 8800, name: 'Anime Base', version_name: 'v1.0', model_type: 'Checkpoint' };
@@ -464,8 +463,8 @@ check('    named by a hash still being looked up: no row for it as text meanwhil
 letHashGo();
 resolver.hold = null;
 await hashOnly;
-check('    and once the hash is the gallery\'s own version: its row, marked, and none as text',
-      [known(), unfound()], [[['Anime Base', 'This gallery\'s model']], []]);
+check('    and once the hash is the gallery\'s own version: its row, and none as text',
+      [known(), unfound()], [[['Anime Base', 'Checkpoint']], []]);
 document.querySelector('#mm_meta_modal')?.close();
 // ---------------- a LoRA named only by file name, its hash kept apart (#377, R4)
 // Civitai's data lists such a LoRA as a name alone and keeps its hash under

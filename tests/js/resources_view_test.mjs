@@ -9,8 +9,8 @@
 // from Civitai". The website stays the way out where the Civitai Browser
 // cannot help: off, or no model id to be had.
 //
-// The same answer from the server holds each version's base model, and a
-// checkpoint's row says it, beside its kind (#439).
+// The same answer from the server holds each version's base model and family,
+// and a checkpoint's row says them, beside its kind (#439).
 import { act, checker, mountTab, press, sharedModule, startTab, tabEntries, tabMarkup, withGalleryPages }
     from './harness.mjs';
 
@@ -53,7 +53,8 @@ const ANSWERS = {
 };
 // What a hash is of (resources.resolve_hashes).
 const HASHES = { abcdef1234: { version_id: 7201, model_id: 720, name: 'Found by hash', version_name: 'v1',
-                               model_type: 'Checkpoint' } };
+                               model_type: 'Checkpoint' },
+                 ffff000001: { version_id: null } };
 const asked = [];                          // each missing-resources request's versions
 let hold = null;                           // a promise the answer waits on: a slow Civitai
 const opened = [];                         // what window.open was asked to open
@@ -64,7 +65,8 @@ globalThis.fetch = withGalleryPages(async (url, init = {}) => {
     const reply = (body) => ({ ok: true, status: 200, json: async () => body });
     if (href.includes('/model-manager/ui-options')) {
         return reply({ success: true, samplers: ['Euler'], schedulers: ['Simple'], has_api_key: true,
-                       image_browsing: 'continuous', gallery_grid: 'Classic' });
+                       image_browsing: 'continuous', gallery_grid: 'Classic',
+                       family_names: { sd: 'SD 1.x', xl: 'SDXL', anima: 'Anima' } });
     }
     if (href.includes('/model-manager/missing-resources')) {
         const versions = JSON.parse(new URLSearchParams(String(init.body || '')).get('versions') || '[]');
@@ -236,23 +238,23 @@ const checkpoints = { meta: { civitaiResources: [
     { type: 'Checkpoint', name: 'Unanswered', modelVersionId: 7131 },
 ] } };
 Object.assign(ANSWERS, {
-    7101: { model_id: 710, base_model: 'Illustrious' },
-    7102: { model_id: 710, base_model: 'SDXL <i>1.0</i>' },
+    7101: { model_id: 710, base_model: 'Illustrious', family: 'xl' },
+    7102: { model_id: 710, base_model: 'SDXL <i>1.0</i>', family: 'xl' },
     7103: { model_id: 710, version_gone: true, newest: { version_id: 7101, version_name: 'v3', file_stem: 'example' } },
-    7111: { model_id: 711, base_model: 'Pony' },
+    7111: { model_id: 711, base_model: 'Pony', family: 'xl' },
     7121: { gone: true },
 });
 const notes = id => row(id)?.querySelector('.mm-res-sub')?.textContent.trim();
-const labels = ['Checkpoint · Illustrious', "Checkpoint · SDXL <i>1.0</i> · This gallery's model"];
+const labels = ['Checkpoint · SDXL · Illustrious', 'Checkpoint · SDXL · SDXL <i>1.0</i>'];
 const requestsBefore = asked.length;
 hold = new Promise(resolve => { release = resolve; });
 await showImageResources(checkpoints, 7102);
-check('before the version lookup answers, both checkpoints show their existing notes',
-      [notes(7101), notes(7102)], ['Checkpoint', "Checkpoint · This gallery's model"]);
+check('before the version lookup answers, both checkpoints show their kind',
+      [notes(7101), notes(7102)], ['Checkpoint', 'Checkpoint']);
 release();
 hold = null;
 await waitFor('the version lookup to redraw the open rows', () => row(7121)?.querySelector('.mm-res-state.error'));
-check('each checkpoint shows its own base model, including the installed version in its own gallery',
+check('each checkpoint shows its family and its own base model, the installed one in its own gallery too',
       [notes(7101), notes(7102), actions(7101), actions(7102)], [...labels, 'Download', 'Installed']);
 check('markup in the base model appears as literal text',
       [notes(7102), !!row(7102)?.querySelector('.mm-res-sub i')], [labels[1], false]);
@@ -276,14 +278,60 @@ await showImageResources({ meta: { civitaiResources: [
 check('a version ID recorded as text reads the same cached label', notes(7101), labels[0]);
 
 // An image with infotext and no Civitai list: its checkpoint's version is found by the hash it gives.
-ANSWERS[7201] = { model_id: 720, base_model: 'Flux.1 D' };
+ANSWERS[7201] = { model_id: 720, base_model: 'SDXL 1.0', family: 'sd' };
 document.querySelector('#mm_meta_modal').close();
 await showImageResources({ meta: { resources: [{ type: 'model', name: 'Named by hash', hash: 'ABCDEF1234' }] } }, null);
 await waitFor('the version lookup to answer', () => asked.at(-1)[0].version_id === 7201 && /·/.test(notes(7201) || ''));
-check('a checkpoint found by its hash shows its base model', notes(7201), 'Checkpoint · Flux.1 D');
+check('a checkpoint found by its hash shows its family and base model', notes(7201), 'Checkpoint · SD 1.x · SDXL 1.0');
+
+// What the server says of the family is said as it is: the library's file can be of another than
+// Civitai's base model is (above), and one Civitai deleted still has it.
+Object.assign(ANSWERS, {
+    7301: { model_id: 730, version_gone: true, family: 'xl' },
+    7302: { gone: true, family: 'sd' },
+    7303: { model_id: 730, base_model: 'Anima', family: 'anima' },
+    7304: { model_id: 730, base_model: 'HiDream' },
+    7305: { model_id: 730, base_model: 'Something New', family: 'new' },
+    7306: { model_id: 730, family: 'xl' },
+});
+const others = { meta: { civitaiResources: [7301, 7302, 7303, 7304, 7305, 7306].map(id => (
+    { type: 'Checkpoint', name: 'Example', modelId: 730, modelVersionId: id })) } };
+document.querySelector('#mm_meta_modal').close();
+await showImageResources(others, null);
+await waitFor('the lookup of the others', () => row(7302)?.querySelector('.mm-res-state.error'));
+check('a deleted version and a deleted model: the family before their note', [notes(7301), notes(7302)],
+      ['Checkpoint · SDXL · this version is deleted from Civitai', 'Checkpoint · SD 1.x · Model deleted from Civitai']);
+check('a family named as the base model is said once; no family, the base model alone; no base model, the family',
+      [notes(7303), notes(7304), notes(7306)], ['Checkpoint · Anima', 'Checkpoint · HiDream', 'Checkpoint · SDXL']);
+check('a family with no name shows its preset\'s, as its tab does', notes(7305), 'Checkpoint · new · Something New');
+
+// Another dialog opened while an answer is out: the late answer draws the rows showing, as they are there.
+ANSWERS[7401] = { model_id: 740, base_model: 'Pony', family: 'xl' };
+const one = id => ({ meta: { civitaiResources: [{ type: 'Checkpoint', name: 'Example', modelId: 740, modelVersionId: id }] } });
+hold = new Promise(resolve => { release = resolve; });
+document.querySelector('#mm_meta_modal').close();
+await showImageResources(one(7401), null);
+document.querySelector('#mm_meta_modal').close();
+const second = one(7401);
+second.meta.civitaiResources[0].modelVersionName = 'v9';
+second.meta.civitaiResources.push(one(7303).meta.civitaiResources[0]);
+await showImageResources(second, null);
+const requestsOut = asked.length;
+release();
+hold = null;
+await new Promise(resolve => setTimeout(resolve, 20));
+check('a dialog replaced while its answer is out: the one showing draws its own rows',
+      [notes(7303), notes(7401), row(7401)?.querySelector('.mm-res-version')?.textContent],
+      ['Checkpoint · Anima', 'Checkpoint · SDXL · Pony', 'v9']);
+document.querySelector('#mm_meta_modal').close();
+const again = showImageResources(one(7401), null);
+check('    and the first, opened again, its own, the late answer kept', [notes(7401), asked.length],
+      ['Checkpoint · SDXL · Pony', requestsOut]);
+await again;
 
 for (const [resource, reason] of [[{ type: 'lora', name: 'Style' }, 'Named only by its name'],
-                                  [{ type: 'model', name: 'Example' }, 'No hash recorded']]) {
+                                  [{ type: 'model', name: 'Example' }, 'No hash recorded'],
+                                  [{ type: 'model', name: 'Example', hash: 'ffff000001' }, 'Not on Civitai']]) {
     document.querySelector('#mm_meta_modal').close();
     await showImageResources({ meta: { Model: 'Example', resources: [resource] } }, null);
     const unresolved = panel()?.querySelector('.mm-res-unresolved');

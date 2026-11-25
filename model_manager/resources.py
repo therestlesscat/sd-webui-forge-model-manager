@@ -20,6 +20,7 @@ import os
 import re
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
+from .architecture import preset_for_base_model
 from .file_identity import LORA_FAMILY, NAMED_IN_PROMPTS
 from .hashing import names_this_file
 from .model_dirs import embedding_folders, folder_of, lora_folders
@@ -418,6 +419,9 @@ def missing_files(db, wanted: List[Dict[str, Any]], hash_list: List[str],
     MAX_HASH_LOOKUPS of them asked of Civitai. What could not be asked, or was
     not this time, is absent. A model is gone only on a 404 for it alone
     (CivitaiClient.get_models_or_gone): a batch leaves out models that exist.
+    A version's answer also says `family`, where there is one: the UI preset
+    read from the library's checkpoint file of it, else its base model's (#439)
+    - a LoRA's too; the page says a checkpoint's alone.
 
     Args:
         wanted: [{version_id, model_id}]; model_id may be None.
@@ -499,6 +503,15 @@ def missing_files(db, wanted: List[Dict[str, Any]], hash_list: List[str],
             "file_hash": hashes.get("sha256") or hashes.get("autov2"),
         }
 
+    # What a sync read from the library's checkpoint of each version, which is
+    # what the list's tabs go by (#439): read with no preset, it is under no
+    # family's tab. Asked each time, as a file can come after Civitai's answer;
+    # an id past SQLite's largest integer would fail the whole answer.
+    read: Dict[str, Optional[str]] = {}
+    for row in db.versions_named_by([v for v in model_of if v < 2 ** 63], []):
+        if row.get("file_type") == "Checkpoint":
+            read[str(row["id"])] = read.get(str(row["id"])) or row.get("architecture")
+
     # Read once each: another request may drop one between asking and reading.
     answers = {str(v): _MISSING_FILES.get(v) for v in model_of}
     for key, answer in answers.items():
@@ -510,6 +523,8 @@ def missing_files(db, wanted: List[Dict[str, Any]], hash_list: List[str],
         # The library holding the version asked about is its own file, not one under another model.
         if same and str(same.get("version_id")) == key:
             same = None
-        answers[key] = {**{k: v for k, v in answer.items() if k != "file_hash"}, **({"same_file": same} if same else {})}
+        family = read[key] if key in read else preset_for_base_model(answer.get("base_model"))
+        answers[key] = {**{k: v for k, v in answer.items() if k != "file_hash"},
+                        **({"same_file": same} if same else {}), **({"family": family} if family else {})}
     return {"versions": {v: answer for v, answer in answers.items() if answer is not None},
             "hashes": by_hash}

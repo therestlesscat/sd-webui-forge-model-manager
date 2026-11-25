@@ -988,9 +988,10 @@ try:
                       hashes='ABCDEF0123,0000000000')
     got = body.get('versions', {})
     check('a missing version is named as a download names it: its primary file, not the first listed; '
-          'its base model said, for the Resources dialog\'s list (#377)',
+          'its base model and its family said, for the Resources dialog (#377, #439)',
           got.get('7001'), {'file_stem': 'sharp_eyes', 'file_type': 'LORA', 'model_id': 700,
-                            'name': 'A Very Different Title', 'version_name': 'v1', 'base_model': 'Illustrious'})
+                            'name': 'A Very Different Title', 'version_name': 'v1', 'base_model': 'Illustrious',
+                            'family': 'xl'})
     check('a version its model no longer lists is said so, the model named',
           (got.get('7011') or {}).get('version_gone'), True)
     # What a Download fetches in its place, said before the press (#205, #372):

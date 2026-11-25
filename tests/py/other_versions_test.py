@@ -254,5 +254,64 @@ body = plan(version_ids=str(ITS_VERSION), use_checkpoint='model_v0.safetensors [
 check('    Civitai\'s hash for the version not asked: another model\'s, as it cannot be told',
       (body.get('pick'), body.get('other_model')), ('model', True))
 
+# The family a checkpoint's row names (#439): the library's own checkpoint file
+# of the version - what puts it under its tab - else the base model's.
+FAMILY_MODEL, LACKED, UNMAPPED, NO_BASE, GONE_VERSION = 778001, 778002, 778003, 778004, 778005
+GONE_MODEL, GONE_MODELS_VERSION = 778006, 778007
+MIXED, ENCODER_ONLY, NO_PRESET, OTHER = 778008, 778009, 778010, 778011
+BASES = {LACKED: 'Pony', UNMAPPED: 'HiDream', NO_BASE: None, MIXED: 'SD 1.5', ENCODER_ONLY: 'Illustrious',
+         NO_PRESET: 'SDXL 1.0', OTHER: 'Other'}
+
+
+class Families(Civitai):
+    def __init__(self):
+        pass
+
+    def get_models_by_ids(self, ids, nsfw=True):
+        return {FAMILY_MODEL: {'type': 'Checkpoint', 'name': 'Families', 'modelVersions': [
+            {'id': v, 'name': 'v', 'baseModel': base, 'files': []} for v, base in BASES.items()]}}
+
+
+def hold(version_id, name, file_type, preset):
+    path = os.path.join(os.path.dirname(P1), name)
+    raw.execute("INSERT OR IGNORE INTO versions (id, model_id) VALUES (?, ?)", (version_id, FAMILY_MODEL))
+    raw.execute("INSERT INTO files (file_path, file_name, version_id, file_type, architecture, architecture_checked) "
+                "VALUES (?, ?, ?, ?, ?, '1234')", (path, name, version_id, file_type, preset))
+    raw.commit()
+
+
+def family(version_id, model_id=FAMILY_MODEL):
+    answer = resources.missing_files(db, [{'version_id': version_id, 'model_id': model_id}], [], Families)
+    found = answer['versions'].get(str(version_id))
+    return found.get('family', 'none') if found else 'no answer'
+
+
+resources._MISSING_FILES.clear()
+check('the family of one the library lacks: its base model\'s', family(LACKED), 'xl')
+try:
+    answer = resources.missing_files(db, [{'version_id': 10 ** 21, 'model_id': FAMILY_MODEL},
+                                          {'version_id': LACKED, 'model_id': FAMILY_MODEL}], [], Families)
+except OverflowError:
+    answer = {'versions': {}}
+check('    beside a version id no database can hold: answered all the same',
+      answer['versions'].get(str(LACKED), {}).get('family'), 'xl')
+check('    none where no preset is for its base model, or Civitai gives none',
+      [family(UNMAPPED), family(NO_BASE), family(GONE_VERSION), family(GONE_MODELS_VERSION, GONE_MODEL)], ['none'] * 4)
+hold(LACKED, 'a_lacked.safetensors', 'Checkpoint', 'sd')
+check('    once it is in the library, its file\'s, though Civitai\'s answer is the one remembered', family(LACKED), 'sd')
+hold(OTHER, 'a_other.safetensors', 'Checkpoint', 'sd')
+check('    its file\'s where the base model says nothing', family(OTHER), 'sd')
+hold(NO_PRESET, 'a_unknown.safetensors', 'Checkpoint', None)
+check('    none where its file was read and no preset found, whatever the base model', family(NO_PRESET), 'none')
+hold(MIXED, 'a_encoder.safetensors', 'Text Encoder', 'flux')
+hold(MIXED, 'a_mixed.safetensors', 'Checkpoint', 'xl')
+check('    a version holding a text encoder and a checkpoint: the checkpoint\'s', family(MIXED), 'xl')
+hold(ENCODER_ONLY, 'a_encoder_only.safetensors', 'Text Encoder', 'flux')
+check('    held as a text encoder alone: its base model\'s', family(ENCODER_ONLY), 'xl')
+hold(GONE_VERSION, 'a_gone.safetensors', 'Checkpoint', 'xl')
+hold(GONE_MODELS_VERSION, 'a_gone_model.safetensors', 'Checkpoint', 'sd')
+check('    a deleted version and a deleted model, in the library: their files\'',
+      [family(GONE_VERSION), family(GONE_MODELS_VERSION, GONE_MODEL)], ['xl', 'sd'])
+
 print('\n'.join('FAIL ' + f for f in fails) if fails else 'All checks passed.')
 sys.exit(1 if fails else 0)

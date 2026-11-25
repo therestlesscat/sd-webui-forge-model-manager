@@ -875,9 +875,10 @@ def register(app: FastAPI):
 
         Returns:
             versions: version id -> {file_stem, file_type, model_id, name,
-                version_name}; {gone: true} when Civitai no longer has the
+                version_name, base_model}; {gone: true} when Civitai no longer has the
                 model, {version_gone: true, ...} when it has the model but not
-                that version - a download then takes the newest. Absent when
+                that version - a download then takes the newest. Each with
+                `family` where one is known, the UI preset. Absent when
                 Civitai could not be asked.
             hashes: hash -> version id, or null when Civitai does not know it.
                 Absent when it could not be asked, or was not this time: at

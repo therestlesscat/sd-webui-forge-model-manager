@@ -10,8 +10,9 @@ structure keeps its version and moves the build on, and is not listed here.
 
 *24 November 2026*
 
-Open an image's Resources dialog to see which base model its checkpoint version uses. When Civitai supplies that detail, it appears under the checkpoint's name, including for checkpoints you are considering downloading.
+Open an image's Resources dialog to see which base model its checkpoint version uses, and which tab of your checkpoints it belongs under. The base model appears under the checkpoint's name when Civitai supplies it, and the tab's name where it is known, including for checkpoints you are considering downloading.
 
+- **0.83.1** (build 779) - The checkpoint's row names its family before its base model, in the words of the tabs of your checkpoints: "Checkpoint · SDXL · Illustrious" (#439). For a checkpoint in your library it is what a sync read from the file, which is what puts it under its tab; for one you lack, the family its Civitai base model belongs to. Where the two are the same, as Anima, it is said once. A checkpoint downloaded from the dialog can keep the base model's family on its row until the page is reloaded. The note "This gallery's model" is gone from the rows: in a model's own gallery nearly every row said it, and in the Civitai Images tab no gallery is on screen.
 - **0.83.0** (build 778) - The checkpoint's row shows its base model beside its kind, for example "Checkpoint · Illustrious" (#439).
 
 ## 0.82 - What a queued task ran with
