@@ -418,8 +418,15 @@ the code (2026-10-16).
 - **A change asked for "only for me" is never committed.** It lives in the
   working tree, and a commit is made around it: copy the files aside, strip
   the hunks, run `--all`, commit, copy them back.
-- **The backlog is GitHub's issues**, labelled `backlog` and an area. An issue
-  that does not reproduce, or works again with no commit shown to fix it, is
+- **The backlog is GitHub's open issues, each with a type (`bug`,
+  `enhancement` or `code-refactor`) and an area.** `next` marks the work
+  planned for the next release, about ten issues mixing bug fixes with
+  changes a user sees; `backlog` the shortlist for the weeks after; an open
+  issue with neither waits for later. Issues planned together are
+  sub-issues of one parent issue. A new issue gets a type and an area, and
+  `next` or `backlog` only when the owner places it: until 2026-11-26
+  `backlog` went on every issue the owner opened, 92 of 114 open issues
+  carried it, and it said nothing. An issue that does not reproduce, or works again with no commit shown to fix it, is
   not closed: it gets a comment - what was tested, on which version, what
   would settle it - and the labels `investigate` and `low-priority`.
 - **A finding goes on the issue that already holds it.** Before an issue is
