@@ -10,7 +10,7 @@ const { check, waitFor, done } = checker();
 // The header's version and gear are the harness's, from ui/header.py; this
 // is what a redraw by Gradio puts back.
 const HEADER = `<span class="mm-header-actions"><a class="mm-version" href="https://example.test/CHANGELOG.md"
-    target="_blank" rel="noopener">v0.41.11</a><button class="mm-settings-btn"></button></span>`;
+    target="_blank" rel="noopener">v0.41.11</a><button class="mm-feedback-btn"></button><button class="mm-settings-btn"></button></span>`;
 
 let update = { success: true, current: '0.41.11', latest: '0.42.0', build: 260, newer: true, note: '' };
 let asked = 0;
@@ -36,6 +36,8 @@ check('beside the version, the version out, linking where the version does - the
        notice().target],
       ['mm-version', 'v0.42.0.260 available', document.querySelector('.gen-header a.mm-version')?.getAttribute('href'), '_blank']);
 check('its tooltip says how to update', /Extensions -> Check for updates/.test(notice().title), true);
+const order = () => [...document.querySelectorAll('.gen-header .mm-header-actions > *')].map((el) => el.className);
+check('between the version and Feedback (#443)', order(), ['mm-version', 'mm-update', 'mm-feedback-btn', 'mm-settings-btn']);
 check('asked once for the page, however many tabs', asked, 1);
 
 // Gradio redraws the header's markup wholesale.
@@ -43,6 +45,7 @@ document.querySelector('.gen-header .mm-header-actions').outerHTML = HEADER;
 check('a redraw takes it away', notice(), null);
 redraws.forEach((callback) => callback());
 check('and after the redraw it is back, once', document.querySelectorAll('.gen-header .mm-update').length, 1);
+check('in its place, between the version and Feedback', order(), ['mm-version', 'mm-update', 'mm-feedback-btn', 'mm-settings-btn']);
 
 // A version.json from before the build was written down: the version alone.
 update = { success: true, current: '0.41.11', latest: '0.42.0', build: null, newer: true, note: '' };

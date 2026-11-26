@@ -9,7 +9,7 @@
 //
 // linkedom has no layout: the window's size, the button's box and the menu's
 // own size are stood in for, as a browser would measure them.
-import { checker, mountTab, startTab } from './harness.mjs';
+import { checker, mountTab, sharedModule, startTab } from './harness.mjs';
 
 const { window, document } = mountTab('model_manager/ui/tab_generations.py');
 const { check, waitFor, done } = checker();
@@ -137,5 +137,41 @@ check('a scroll of the page closes it: it is fixed to the window, not to its til
 await opened(at(500, 100), VIEW, { width: 300, height: 150 });
 window.dispatchEvent(new window.Event('resize'));
 check('a resize of the window closes it', menuEl(), null);
+
+// ---------------------------------------------- what an item draws (#443)
+// An item with nothing more than a label, a disabled flag and a title - every
+// ⋯ menu's - draws what it drew before #443: this is HEAD's drawing of these
+// two items, taken from its run. One that adds an icon, a detail or a ↗ draws
+// them, its words as text.
+const PLAIN = '<button type="button" role="menuitem" data-item="0">Open &lt;the&gt; "model" &amp; more</button>'
+    + '<button type="button" role="menuitem" data-item="1" disabled title="Not in &quot;the&quot; library <now>">Gone</button>';
+const { openMenu, closeMenu } = await sharedModule('menu.mjs');
+const scope = { listen: (t, e, f, c) => t.addEventListener(e, f, c), unlisten: (t, e, f, c) => t.removeEventListener(e, f, c),
+                later: (f, ms) => setTimeout(f, ms) };
+const opener = document.createElement('button');
+document.body.appendChild(opener);
+openMenu(scope, opener, [{ label: 'Open <the> "model" & more', run: () => {} },
+                         { label: 'Gone', disabled: true, title: 'Not in "the" library <now>', run: () => {} }]);
+check('a plain item draws exactly what it drew before', menuEl().innerHTML, PLAIN);
+check('and an opener that says nothing of a menu is left as it is', opener.hasAttribute('aria-expanded'), false);
+closeMenu();
+check('and still once it closes', opener.hasAttribute('aria-expanded'), false);
+
+openMenu(scope, opener, [{ label: 'A <b>label</b>', detail: 'What <b>it</b> is for', icon: '<svg class="mine"></svg>',
+                           external: true, run: () => {} },
+                         { label: 'Detail alone', detail: 'Only words', run: () => {} }]);
+const [rich, words] = [...menuEl().querySelectorAll('[data-item]')];
+check('an item with more is marked rich, its label and detail as text, never markup',
+      [rich.className, rich.querySelector('.menu-label')?.textContent, rich.querySelector('.menu-detail')?.textContent,
+       rich.querySelectorAll('b').length],
+      ['menu-rich', 'A <b>label</b>', 'What <b>it</b> is for', 0]);
+check('its icon drawn as the caller gave it, and its ↗, both hidden from a screen reader',
+      [!!rich.querySelector('.menu-icon svg.mine'), !!rich.querySelector('.menu-out svg'),
+       rich.querySelector('.menu-icon')?.getAttribute('aria-hidden'), rich.querySelector('.menu-out')?.getAttribute('aria-hidden')],
+      [true, true, 'true', 'true']);
+check('an item with a detail alone draws no icon and no ↗',
+      [words.className, words.querySelector('.menu-icon svg'), words.querySelector('.menu-out svg'),
+       words.querySelector('.menu-detail')?.textContent], ['menu-rich', null, null, 'Only words']);
+closeMenu();
 
 done();

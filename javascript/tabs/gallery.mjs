@@ -23,7 +23,7 @@ const shared = (name) => import(new URL(`../shared/${name}${new URL(import.meta.
 
 // Asked for all at once, then taken one by one below.
 const SHARED_MODULES = ['core.mjs', 'loading.mjs', 'ui_options.mjs', 'notes.mjs', 'gallery.mjs', 'media.mjs',
-    'nsfw.mjs', 'image_card.mjs', 'resources.mjs', 'send.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs', 'notices.mjs',
+    'nsfw.mjs', 'image_card.mjs', 'resources.mjs', 'send.mjs', 'update_notice.mjs', 'feedback.mjs', 'viewer.mjs', 'settings.mjs', 'notices.mjs',
     'tiles.mjs', 'previous_position.mjs', 'grouping.mjs', 'dialog.mjs', 'menu.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
@@ -47,6 +47,9 @@ const { wide, aspect, layoutTiles, pathHtml, endIsNear, watchEnd: watchGridEnd, 
 
 // The notice of a newer version beside the header's: it draws itself.
 await shared('update_notice.mjs');
+
+// Feedback in the header (#443): its menu opens itself.
+await shared('feedback.mjs');
 
 // The image viewer every gallery opens.
 const { openViewer, closeViewer, viewerIsOpen } = await shared('viewer.mjs');
@@ -79,7 +82,7 @@ const previousPlace = previousPosition({ id: 'gal_scroll_restore_btn', action: '
 // What this tab uses that has work of its own: the loading module starts each
 // once for the page, before this tab (#182, #183).
 export const STARTS = ['core.mjs', 'calls.mjs', 'ui_options.mjs', 'notes.mjs', 'media.mjs', 'image_card.mjs',
-    'resources.mjs', 'send.mjs', 'update_notice.mjs', 'settings.mjs'];
+    'resources.mjs', 'send.mjs', 'update_notice.mjs', 'feedback.mjs', 'settings.mjs'];
 
 // What this tab does once started, done by start(scope) through the scope.
 const work = tabWork();

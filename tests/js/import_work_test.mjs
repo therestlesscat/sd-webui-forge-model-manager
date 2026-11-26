@@ -83,6 +83,8 @@ const STARTED = {
                      'window listener: mm-settings-page-applied', 'window listener: mm-settings-saved'],
     'update_notice.mjs': ['fetch /model-manager/update', 'onAfterUiUpdate', 'setInterval 3600000',
                           'window listener: mm-settings-page-applied', 'window listener: mm-settings-saved'],
+    // Feedback in the header (#443): its action (its stop closing its menu: feedback_test.mjs).
+    'feedback.mjs': ['provide feedback.open'],
     'image_card.mjs': ['document listener: input', 'provide resources.checkAgain', 'provide resources.chooseTick',
                        'provide resources.download', 'provide resources.pickAll', 'provide resources.pickRow', 'provide resources.pickSort',
                        'provide resources.pickTab',

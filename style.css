@@ -61,7 +61,7 @@ body.mm-modal-open {
     margin: 0;
 }
 
-/* The version and the gear, together at the right. */
+/* The version, Feedback and the gear, together at the right. */
 .mm-header-actions {
     display: inline-flex;
     align-items: center;
@@ -95,27 +95,84 @@ body.mm-modal-open {
     text-decoration: underline !important;
 }
 
-/* An icon, not a labelled button: square, no fill until hovered. Gradio's
-   preflight resets a button's background and margin inside gr.HTML at a
-   specificity one class cannot beat, hence !important on those two. */
+/* The gear and Feedback (#443): one box, no fill until hovered. Gradio's
+   preflight resets a button's background, margin, padding and font inside
+   gr.HTML at a specificity one class cannot beat, hence !important on those. */
+.mm-settings-btn,
+.mm-feedback-btn {
+    height: 32px;
+    box-sizing: border-box;
+    margin: 0 !important;
+    border: 1px solid var(--border-color-primary, #374151);
+    border-radius: 6px;
+    background: transparent !important;
+    cursor: pointer;
+}
+
+.mm-settings-btn:hover,
+.mm-feedback-btn:hover,
+.mm-feedback-btn[aria-expanded="true"] {
+    background: rgba(127, 127, 127, 0.15) !important;
+}
+
+/* The gear: an icon, not a labelled button - square. */
 .mm-settings-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     width: 32px;
-    height: 32px;
     padding: 0;
-    margin: 0 !important;
-    border: 1px solid var(--border-color-primary, #374151);
-    border-radius: 6px;
-    background: transparent !important;
-    color: var(--body-text-color-subdued, #9ca3af);
-    cursor: pointer;
 }
 
-.mm-settings-btn:hover {
-    background: rgba(127, 127, 127, 0.15) !important;
-    color: var(--body-text-color, #fff);
+/* Feedback: a speech bubble and the word, opening its menu (shared/feedback.mjs). */
+.mm-feedback-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 10px 0 9px !important;
+    font-size: 13px !important;
+    font-weight: 500 !important;
+    line-height: 1 !important;
+    white-space: nowrap;
+}
+
+/* Their colour. Gradio colours every element in the block (.prose *) at a
+   weight one class cannot beat, an icon's <path> included: until #443 the
+   gear drew in full text colour, and its hover did not change it. So each says
+   its colour with !important and the icon takes it. A grey darker in light
+   mode than the version's, which is 2.5:1 on white; the bubble in the theme's
+   accent. The .dark rules come before the hover, which wins in both. */
+.mm-settings-btn,
+.mm-feedback-btn {
+    color: var(--neutral-500, #6b7280) !important;
+}
+
+.mm-settings-btn svg,
+.mm-settings-btn svg *,
+.mm-feedback-btn svg,
+.mm-feedback-btn svg * {
+    color: inherit !important;
+}
+
+.mm-feedback-btn svg,
+.mm-feedback-btn svg * {
+    color: var(--primary-600, #ea580c) !important;
+}
+
+.dark .mm-settings-btn,
+.dark .mm-feedback-btn {
+    color: var(--body-text-color-subdued, #9ca3af) !important;
+}
+
+.dark .mm-feedback-btn svg,
+.dark .mm-feedback-btn svg * {
+    color: var(--primary-500, #f97316) !important;
+}
+
+.mm-settings-btn:hover,
+.mm-feedback-btn:hover,
+.mm-feedback-btn[aria-expanded="true"] {
+    color: var(--body-text-color, #1f2937) !important;
 }
 
 /* The panel the filters sit in, in either tab. */
@@ -6035,6 +6092,50 @@ textarea.mm-settings-input {
     opacity: 0.5;
     cursor: default;
     background: transparent !important;
+}
+
+/* An item with an icon, a line on what it is for and a ↗ - Feedback's (#443).
+   The text column is capped, so a long line wraps. The menu is added to the
+   page's body, outside Gradio's container: its colour rule does not reach it. */
+.gen-menu button.menu-rich {
+    display: grid;
+    grid-template-columns: 20px minmax(0, 260px) 14px;
+    align-items: start;
+    column-gap: 10px;
+    padding: 10px 12px;
+}
+
+.gen-menu .menu-icon {
+    display: flex;
+    margin-top: 1px;
+    color: var(--primary-600, #ea580c);
+}
+
+.gen-menu .menu-label {
+    display: block;
+    font-weight: 600;
+}
+
+.gen-menu .menu-detail {
+    display: block;
+    margin-top: 3px;
+    font-size: 0.9em;
+    line-height: 1.35;
+    color: var(--neutral-500, #6b7280);
+}
+
+.gen-menu .menu-out {
+    display: flex;
+    margin-top: 2px;
+    opacity: 0.55;
+}
+
+.dark .gen-menu .menu-icon {
+    color: var(--primary-400, #fb923c);
+}
+
+.dark .gen-menu .menu-detail {
+    color: var(--body-text-color-subdued, #9ca3af);
 }
 
 /* Group by: a button showing the grouping, opening its list below it; each

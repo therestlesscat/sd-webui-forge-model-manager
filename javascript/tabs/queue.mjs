@@ -44,7 +44,8 @@ const shared = (name) => import(new URL(`../shared/${name}${new URL(import.meta.
 
 // Asked for all at once, then taken one by one below: see generations.mjs.
 const SHARED_MODULES = ['core.mjs', 'loading.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs', 'grid.mjs',
-    'generations.mjs', 'viewer.mjs', 'send.mjs', 'update_notice.mjs', 'settings.mjs', 'notices.mjs', 'dialog.mjs'];
+    'generations.mjs', 'viewer.mjs', 'send.mjs', 'update_notice.mjs', 'feedback.mjs', 'settings.mjs', 'notices.mjs',
+    'dialog.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const { TIMING, apiCall, escapeHtml, setText, settingLink } = await shared('core.mjs');
@@ -62,6 +63,9 @@ const { loadTask } = await shared('send.mjs');
 // The notice of a newer version beside the header's: it draws itself.
 await shared('update_notice.mjs');
 
+// Feedback in the header (#443): its menu opens itself.
+await shared('feedback.mjs');
+
 // The settings window behind the gear in the header.
 await shared('settings.mjs');
 
@@ -70,7 +74,7 @@ await shared('settings.mjs');
 // Several mode (#400) is the Queue's: it stops with this tab, Generate back,
 // and its click listener comes before this tab's large-batch one.
 export const STARTS = ['core.mjs', 'calls.mjs', 'ui_options.mjs', 'notes.mjs', 'send.mjs', 'update_notice.mjs',
-    'settings.mjs', 'several.mjs'];
+    'feedback.mjs', 'settings.mjs', 'several.mjs'];
 
 // What this tab does once started, declared where it belongs below and done by
 // start(scope) through the scope (shared/loading.mjs, #183): nothing runs as

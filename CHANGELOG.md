@@ -6,6 +6,14 @@ can see, up to the next minor version, and the build is the commit's place in th
 repository's history. A change that only touches tests, documentation or the code's
 structure keeps its version and moves the build on, and is not listed here.
 
+## 0.85 - Feedback
+
+*25 November 2026*
+
+Every tab's header has a Feedback button, beside the version (#443). It opens a menu of two: a new GitHub issue, in public and with a GitHub account, or an anonymous form that needs no account.
+
+- **0.85.0** (build 791) - Feedback, in the header of the Model Manager, Civitai Browser, Generations, Civitai Images and Queue tabs, after the version and before the settings gear (#443). Its menu says what each item is for: Create a GitHub issue - "Report a bug or ask for a feature, in public. Needs a GitHub account." - opens GitHub's new issue page; Send anonymous feedback - "A short form, no account needed. Leave an email only if you want a reply." - opens the feedback form. Each opens in a new browser tab; Esc, a click elsewhere or a second press of Feedback closes the menu. The settings gear beside it is now grey, as it was always meant to be, and turns to the text colour when hovered: the WebUI's own styles drew it in the full text colour, and hovering it did not change its colour. In light mode the gear and Feedback's word take a darker grey than the version's, which would be hard to read on white.
+
 ## 0.84 - Qwen-Image 2.1 and MOSS-Image
 
 *24 November 2026*

@@ -162,6 +162,7 @@ off('model_manager_record_generations');
 check('Generations off: nothing left of it, or of the media fallback',
       [actionsOf('generations.'), workOf('tabs/generations.mjs', 'shared/media.mjs')], [[], []]);
 check('the settings window runs on, for the Queue', actionsOf('settings.'), ['settings.open', 'settings.save']);
+check('and the header\'s Feedback (#443), withdrawn only with the last tab below', actionsOf('feedback.'), ['feedback.open']);
 
 // ------------------------------------------------------------- the Queue
 off('model_manager_queue_enabled');

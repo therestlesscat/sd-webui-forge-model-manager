@@ -200,6 +200,10 @@ export function tabMarkup(tabFile) {
     if (!markup) throw new Error(`could not find the tab markup in ${tabFile}`);
     const header = readFileSync(`${ROOT}/model_manager/ui/header.py`, 'utf8');
     const gear = header.match(/SETTINGS_BUTTON = """([\s\S]*?)"""/)[1];
+    // Feedback (#443), its two addresses as the helper fills them; none in a
+    // header from before it, so a suite can run on that code.
+    const feedback = (header.match(/FEEDBACK_BUTTON = """([\s\S]*?)"""/)?.[1] || '')
+        .replace('{issues}', 'https://example.test/repo/issues/new').replace('{form}', 'https://example.test/form');
     const panel = header.match(/def downloads_panel[\s\S]*?return f"""([\s\S]*?)"""/)[1];
     const tab = source.match(/header_actions\("(\w+)"\)/)?.[1];
     const prefix = source.match(/downloads_panel\("(\w+)"\)/)?.[1];
@@ -207,7 +211,7 @@ export function tabMarkup(tabFile) {
     if (tab) {
         html = html.replace('<!-- actions -->', '<span class="mm-header-actions"><a class="mm-version" href="https://example.test/CHANGELOG.md" target="_blank"'
                             + ' rel="noopener">v0.0.0</a>'
-                            + `${gear.replace('{tab}', tab)}</span>`);
+                            + `${feedback}${gear.replace('{tab}', tab)}</span>`);
     }
     if (prefix) html = html.replace('<!-- downloads -->', panel.replaceAll('{p}', prefix));
     return html;

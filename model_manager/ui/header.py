@@ -1,13 +1,13 @@
 """
-What the tabs draw alike: the version and the settings gear at the right of
-each header - one window, one gear - and the downloads panel, one list shown
+What the tabs draw alike: the version, Feedback and the settings gear at the
+right of each header - one window, one gear - and the downloads panel, one list shown
 in two tabs (#85). Each tab wrote its own copy; the Generations tab's gear,
 the one drawn from here, opened on a tab called "TAB" in 0.44.21.
 """
 import datetime
 import html
 
-from ..version import CHANGELOG_URL, describe
+from ..version import CHANGELOG_URL, REPOSITORY, describe
 
 
 def version_link() -> str:
@@ -42,13 +42,35 @@ SETTINGS_BUTTON = """<button type="button" class="mm-settings-btn" data-action="
 </button>"""
 
 
+# Where Feedback's two items lead (#443): GitHub's blank new issue - the
+# repository has no issue forms - and the feedback form, which needs no
+# account. The page's menu reads them from the button (shared/feedback.mjs).
+FEEDBACK_FORM = "https://tally.so/r/jePDqE"
+
+FEEDBACK_BUTTON = """<button type="button" class="mm-feedback-btn" data-action="feedback.open"
+        data-issues="{issues}" data-form="{form}" aria-haspopup="menu" aria-expanded="false"
+        title="Report a problem or suggest something">
+    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none"
+         stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+    </svg>Feedback
+</button>"""
+
+
+def feedback_button() -> str:
+    """Feedback, which opens a menu of its two items: a GitHub issue, the form."""
+    return (FEEDBACK_BUTTON.replace("{issues}", html.escape(REPOSITORY + "/issues/new"))
+            .replace("{form}", html.escape(FEEDBACK_FORM)))
+
+
 def header_actions(tab: str) -> str:
     """
-    The version and the settings gear, together at the right of a header.
+    The version, Feedback and the settings gear, together at the right of a
+    header - "vX available" goes after the version (shared/update_notice.mjs).
     `tab`: "model_manager", "civitai_browser", "generations", "gallery" or "queue".
     """
     gear = SETTINGS_BUTTON.replace("{tab}", html.escape(tab))
-    return f'<span class="mm-header-actions">{version_link()}{gear}</span>'
+    return f'<span class="mm-header-actions">{version_link()}{feedback_button()}{gear}</span>'
 
 
 def downloads_panel(prefix: str) -> str:

@@ -1,8 +1,10 @@
 /**
  * The ⋯ menu a tile opens (#298): what more can be done with it - its models
  * in another tab - under the button that opened it. The Generations and the
- * Civitai Images tabs both open it; each says what its menu offers, and this
- * module draws, places and closes it.
+ * Civitai Images tabs both open it, and every tab's Feedback (#443, through
+ * feedback.mjs); each says what its menu offers, and this module draws, places
+ * and closes it. An item may add an icon, a line on what it is for and a ↗ for
+ * a page in a new tab; one that adds none is drawn as it always was.
  *
  * It is measured once drawn and placed inside the window: below the button,
  * else above; growing left from the button's right edge, else right from its
@@ -17,7 +19,9 @@
  * A click on its own ⋯ closes it too, through the tab's action
  * (closeMenuOf): the click-away listener leaves that one alone, or it closed
  * the menu and the action opened it again.
- * Its listeners go through the scope of the tab that opened it.
+ * Its listeners go through the scope of what opened it - a tab, or a service.
+ * An opening button that says it has a menu (aria-haspopup) shows it open
+ * (aria-expanded) until it closes, whichever way.
  *
  * It does nothing as it is imported.
  */
@@ -77,12 +81,27 @@ export function tabItem(name, item) {
     return available(name) ? item : { label: item.label, disabled: true, title: unavailableReason(name) };
 }
 
+// An item's ↗: the page it opens comes in a new browser tab.
+const OUT_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"'
+    + ' stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"></path><path d="M8 7h9v9"></path></svg>';
+
+/** An item's inside: its label alone, or with what it adds - its icon, its detail, its ↗. */
+function itemHtml(item) {
+    if (!item.icon && !item.detail && !item.external) return escapeHtml(item.label);
+    return `<span class="menu-icon" aria-hidden="true">${item.icon || ''}</span>`
+        + `<span class="menu-text"><span class="menu-label">${escapeHtml(item.label)}</span>`
+        + `${item.detail ? `<span class="menu-detail">${escapeHtml(item.detail)}</span>` : ''}</span>`
+        + `<span class="menu-out" aria-hidden="true">${item.external ? OUT_ICON : ''}</span>`;
+}
+
 /**
  * The menu, beside `button`: each item a `{ label, run }`, or `{ label,
  * disabled: true, title }` for one greyed with its reason in `title`. Any
- * other menu closes first; with no items, none opens.
+ * other menu closes first; with no items, none opens. An item may add `icon`
+ * (an SVG of the caller's own code, drawn as it is - never data), `detail` (a
+ * line under the label) and `external: true` (a ↗: it opens a new tab).
  *
- * @param scope   the opening tab's scope: the menu's listeners go through it
+ * @param scope   the opener's scope - a tab's, or a service's: the menu's listeners go through it
  */
 export function openMenu(scope, button, items) {
     closeMenu();
@@ -90,9 +109,12 @@ export function openMenu(scope, button, items) {
     const element = document.createElement('div');
     element.className = 'gen-menu';
     element.setAttribute('role', 'menu');
-    element.innerHTML = items.map((item, i) => `<button type="button" role="menuitem" data-item="${i}"`
-        + `${item.disabled ? ' disabled' : ''}${item.title ? ` title="${escapeHtml(item.title)}"` : ''}>`
-        + `${escapeHtml(item.label)}</button>`).join('');
+    element.innerHTML = items.map((item, i) => {
+        const rich = item.icon || item.detail || item.external;
+        return `<button type="button" role="menuitem" data-item="${i}"${rich ? ' class="menu-rich"' : ''}`
+            + `${item.disabled ? ' disabled' : ''}${item.title ? ` title="${escapeHtml(item.title)}"` : ''}>`
+            + `${itemHtml(item)}</button>`;
+    }).join('');
     element.addEventListener('click', (event) => {
         const chosen = event.target.closest?.('[data-item]');
         if (!chosen || chosen.disabled) return;
@@ -138,6 +160,7 @@ export function openMenu(scope, button, items) {
     // is the menu's, and never reaches the window.
     const moved = () => closeMenu();
     menu = { element, button, scope, away, key, moved };
+    if (button.hasAttribute?.('aria-haspopup')) button.setAttribute('aria-expanded', 'true');
     scope.listen(document, 'keydown', key, true);
     scope.listen(window, 'scroll', moved);
     scope.listen(window, 'resize', moved);
@@ -163,6 +186,7 @@ export function closeMenu(scope = null) {
     const open = menu;
     menu = null;
     open.element.remove();
+    if (open.button.hasAttribute?.('aria-haspopup')) open.button.setAttribute('aria-expanded', 'false');
     open.scope.unlisten(document, 'click', open.away, true);
     open.scope.unlisten(document, 'keydown', open.key, true);
     open.scope.unlisten(window, 'scroll', open.moved);

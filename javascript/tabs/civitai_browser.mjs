@@ -17,8 +17,8 @@ const shared = (name) => import(new URL(`../shared/${name}${new URL(import.meta.
 // here only keeps it from being reported twice.
 const SHARED_MODULES = ['core.mjs', 'loading.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs',
     'filters.mjs', 'gallery.mjs', 'grid.mjs', 'media.mjs', 'nsfw.mjs', 'chips.mjs', 'downloads.mjs',
-    'image_card.mjs', 'resources.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs', 'notices.mjs', 'dialog.mjs',
-    'tick_list.mjs'];
+    'image_card.mjs', 'resources.mjs', 'update_notice.mjs', 'feedback.mjs', 'viewer.mjs', 'settings.mjs', 'notices.mjs',
+    'dialog.mjs', 'tick_list.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const {
@@ -62,6 +62,9 @@ const {
 // The notice of a newer version beside the header's: it draws itself.
 await shared('update_notice.mjs');
 
+// Feedback in the header (#443): its menu opens itself.
+await shared('feedback.mjs');
+
 // The image viewer every gallery opens.
 const { openViewer, cardSource, viewerIsOpen } = await shared('viewer.mjs');
 const { dialogShowing } = await shared('dialog.mjs');
@@ -72,7 +75,7 @@ await shared('settings.mjs');
 // What this tab uses that has work of its own - a listener, a request: the
 // loading module starts each once for the page, before this tab (#182, #183).
 export const STARTS = ['core.mjs', 'calls.mjs', 'ui_options.mjs', 'notes.mjs', 'media.mjs', 'downloads.mjs',
-    'image_card.mjs', 'resources.mjs', 'update_notice.mjs', 'settings.mjs'];
+    'image_card.mjs', 'resources.mjs', 'update_notice.mjs', 'feedback.mjs', 'settings.mjs'];
 
 // What this tab does once started, declared where it belongs below and done by
 // start(scope) through the scope (shared/loading.mjs, #183): nothing runs as

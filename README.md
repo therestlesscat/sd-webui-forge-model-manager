@@ -14,6 +14,10 @@ https://github.com/user-attachments/assets/7d7a97c0-7513-42da-a954-bf23b3f74a96
 
 ## What's new
 
+**0.85 - Feedback.** A Feedback button sits beside the version in every tab's header. It opens
+a menu of two: create a GitHub issue, in public and with a GitHub account, or send anonymous
+feedback through a short form that needs no account. Each opens in a new browser tab.
+
 **0.84 - Qwen-Image 2.1 and MOSS-Image.** Send sets Forge Neo up for its two newer model families:
 the UI preset, the checkpoint, and the text encoder and VAE each needs, with a setting for each to name
 your own. Their files are told from the older families', so installing Qwen-Image 2.1's no longer makes
@@ -344,7 +348,8 @@ Each tab says, at its top, what is new since your last update and what to do abo
 a button does it where one helps, such as opening the sync dialog with the right box ticked.
 Each tab also has an introduction, with buttons for its first steps. One click dismisses a note;
 the settings window's **What's new** keeps them all. When a newer version is out, each
-tab's header says so beside the version.
+tab's header says so beside the version, and its **Feedback** button opens a new GitHub issue
+or an anonymous feedback form.
 
 ![A tab's notes: an introduction, with buttons for its steps, on a pile of six](docs/images/notes.png)
 

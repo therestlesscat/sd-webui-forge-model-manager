@@ -33,7 +33,7 @@ const shared = (name) => import(new URL(`../shared/${name}${new URL(import.meta.
 // here only keeps it from being reported twice.
 const SHARED_MODULES = ['core.mjs', 'loading.mjs', 'calls.mjs', 'tabs.mjs', 'ui_options.mjs', 'notes.mjs',
     'gallery.mjs', 'media.mjs', 'nsfw.mjs', 'chips.mjs', 'wan.mjs', 'generations.mjs',
-    'send.mjs', 'update_notice.mjs', 'viewer.mjs', 'settings.mjs', 'notices.mjs', 'tiles.mjs', 'previous_position.mjs', 'resources.mjs', 'grouping.mjs', 'dialog.mjs', 'menu.mjs'];
+    'send.mjs', 'update_notice.mjs', 'feedback.mjs', 'viewer.mjs', 'settings.mjs', 'notices.mjs', 'tiles.mjs', 'previous_position.mjs', 'resources.mjs', 'grouping.mjs', 'dialog.mjs', 'menu.mjs'];
 SHARED_MODULES.forEach((name) => shared(name).catch(() => {}));
 
 const { TIMING, apiCall, escapeHtml, setText } = await shared('core.mjs');
@@ -60,6 +60,9 @@ const {
 
 // The notice of a newer version beside the header's: it draws itself.
 await shared('update_notice.mjs');
+
+// Feedback in the header (#443): its menu opens itself.
+await shared('feedback.mjs');
 
 // The image viewer every gallery opens.
 const {
@@ -94,7 +97,7 @@ const previousPlace = previousPosition({ id: 'gen_scroll_restore_btn', action: '
 // What this tab uses that has work of its own - a listener, a request: the
 // loading module starts each once for the page, before this tab (#182, #183).
 export const STARTS = ['core.mjs', 'calls.mjs', 'ui_options.mjs', 'notes.mjs', 'media.mjs', 'send.mjs',
-    'update_notice.mjs', 'settings.mjs'];
+    'update_notice.mjs', 'feedback.mjs', 'settings.mjs'];
 
 // What this tab does once started, declared where it belongs below and done by
 // start(scope) through the scope (shared/loading.mjs, #183): nothing runs as
