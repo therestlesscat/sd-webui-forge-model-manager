@@ -196,6 +196,14 @@ the latest press is dropped and asked again (`presses` in
 
 ### Proving a change
 
+- **A service one tab leaves out of `STARTS` passes every page suite.**
+  `service_stop_test` switches the tabs off in a fixed order and sees only
+  the last one's list: with `feedback.mjs` taken out of the Civitai Images
+  tab's `STARTS`, six suites passed (`check_references`, `service_stop`,
+  `import_work`, `tab_stop`, `gallery_tab`, `page_state`), and that tab's
+  Feedback did nothing on a page where it alone is on. The same held for
+  the gear's `settings.mjs` before #443. `tab_markup_test.py`
+  holds every tab that draws the header to both (#443's build review).
 - **A trace settles a delay.** #112's viewer "closed late": the owner's
   DevTools trace (Performance, Save profile: a `.json.gz`) showed our click
   handler at 3.0 ms and the frame on screen 8.2 ms after the release - the

@@ -736,8 +736,11 @@ So:
   rather than restating the box.
 - **State what decides a box; never let it be derived.** A `<select>`, an
   `<input>` and a `<div>` compute three different heights from the same
-  padding, and Gradio's preflight resets `margin` and `background` on every
-  button inside a `gr.HTML` block at a specificity one class cannot beat.
+  padding, and Gradio's preflight resets `margin`, `background` and `padding`
+  on every button inside a `gr.HTML` block, and its font, at a specificity
+  one class cannot beat: one class's `padding: 0 12px 0 10px` computed 0 px a
+  side, and its 13 px at 600 came out 14 px at 400 (#443's probe). Each
+  needs `!important`.
 
 `tests/py/css_test.py` fails when a `cb-` rule and an `mm-` rule say the same
 thing, so the next component that would have been copied has to be shared. It
@@ -766,6 +769,12 @@ ticked checkboxes that looked empty.
   dark one moves under `.dark`.
 - **Text on a dark badge over an image** - a date, a count, a button on a
   tile - is dark in both modes, and says its own text colour.
+- **A grey is weighed on white.** `--body-text-color-subdued`, the
+  version's grey (`#9ca3af`), is 2.54:1 on white: under 4.5:1 for text and
+  3:1 for an icon. A control always shown takes `--neutral-500` (`#6b7280`,
+  4.83:1) in light mode and the subdued grey under `.dark`, as the gear and
+  Feedback do since 0.85.0. #443's plan gave them the version's grey; its
+  fresh review found it.
 
 **What the WebUI does to our markup, and what wins against it:**
 
@@ -775,7 +784,12 @@ ticked checkboxes that looked empty.
   `!important`, and so is every state rule that sets a colour on the same
   element, so their order among themselves holds. Without it, a white date
   on a dark badge was black in light mode, and a blue type badge showed the
-  theme's text colour in both.
+  theme's text colour in both. It reaches an icon's `<path>` too:
+  `stroke="currentColor"` reads the path's own colour, which that rule sets,
+  so the settings gear drew in the theme's full text colour (`rgb(31, 41,
+  55)` light, `rgb(243, 244, 246)` dark) until 0.85.0, and its hover
+  changed no colour. An icon takes the button's
+  colour with `svg, svg * { color: inherit !important }` (#443).
 - **Gradio's form reset draws every checkbox in its container itself**
   (`appearance: none`, and once ticked a white tick) with no fill: a ticked
   box is filled in our tabs (`#model_manager_app [type="checkbox"]:checked`

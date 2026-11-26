@@ -365,3 +365,7 @@ git-ignored: a probe is local, and written again when needed.
   bar, drawn once per tab and mode, measured right as each copy was added,
   and the screenshot showed Safe unpressed in light mode. Name each copy's
   radios apart.
+- **`--screenshot` resizes the window.** A menu that closes on `resize`
+  (`menu.mjs`) was closed in each of #443's shots, though open in the page;
+  with that listener off in the probe's copy it showed. Measure an open menu
+  with `--dump-dom`, or take its resize listener out of the probe's copy.
